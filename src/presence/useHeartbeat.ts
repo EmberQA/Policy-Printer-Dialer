@@ -1,11 +1,13 @@
 /**
  * useHeartbeat — the dialer's 5s presence heartbeat (Subplan 02).
  *
- * While the tab is visible it POSTs /policyPrinter/dialer/heartbeat every
+ * While enabled it POSTs /policyPrinter/dialer/heartbeat every
  * HEARTBEAT_INTERVAL_MS, which refreshes the agent's `last_heartbeat_at` so the
  * backend's `computeReady` keeps returning 1 (i.e. Retreaver keeps routing to
- * this buyer). It pauses while the tab is hidden (a backgrounded tab shouldn't
- * advertise availability) and resumes — firing one immediate beat — on return.
+ * this buyer). It keeps beating even while the tab is BACKGROUNDED — the Twilio
+ * Device stays registered and can still ring a hidden tab, so tab visibility is
+ * the wrong proxy for "can take a call". Real availability is gated by the agent's
+ * Ready toggle + `twilio_device_status: 'registered'` + `on_call`, not by focus.
  *
  * It returns the latest computed `available` (0|1) and the presence row the
  * backend echoes back, so the UI can mirror exactly what Retreaver sees. The
@@ -93,32 +95,18 @@ export function useHeartbeat({
 			}
 		};
 
-		const start = () => {
-			if (timer) return;
-			void beat(); // immediate beat so state is fresh on (re)start
-			timer = setInterval(beat, HEARTBEAT_INTERVAL_MS);
-		};
+		// Beat continuously while enabled — regardless of tab visibility. A
+		// backgrounded tab keeps its Twilio Device registered and can still ring,
+		// so it must keep advertising availability; focus is not a proxy for it.
+		void beat(); // immediate beat so state is fresh on mount
+		timer = setInterval(beat, HEARTBEAT_INTERVAL_MS);
 
-		const stop = () => {
+		return () => {
+			cancelled = true;
 			if (timer) {
 				clearInterval(timer);
 				timer = null;
 			}
-		};
-
-		const onVisibility = () => {
-			if (document.hidden) stop();
-			else start();
-		};
-
-		// Start only if currently visible; always listen for changes.
-		if (!document.hidden) start();
-		document.addEventListener('visibilitychange', onVisibility);
-
-		return () => {
-			cancelled = true;
-			stop();
-			document.removeEventListener('visibilitychange', onVisibility);
 		};
 	}, [enabled]);
 
