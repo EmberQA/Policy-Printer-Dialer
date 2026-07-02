@@ -11,7 +11,11 @@
  *   - exposes the live Call + mute/hangup so the active-call UI can drive it.
  *
  * No outbound dialing, no conference. Mic permission is requested up front (the
- * SDK needs it to answer). One Device per tab; cleaned up on unmount.
+ * SDK needs it to answer). Because the dialer auto-answers, there's no per-call
+ * click to satisfy the browser's autoplay policy — the UI calls armAudio() from
+ * the "Go ready" gesture to grant the mic and resume the SDK's AudioContext so
+ * the auto-answered call's audio actually plays. One Device per tab; cleaned up
+ * on unmount.
  */
 
 import {useCallback, useEffect, useRef, useState} from 'react';
@@ -36,6 +40,13 @@ export interface UseDeviceState {
 	error: string | null;
 	mute: (muted: boolean) => void;
 	hangup: () => void;
+	/**
+	 * Prime audio from a user gesture. Requests mic permission and resumes the
+	 * Twilio SDK's AudioContext so the auto-answered call can play/capture audio
+	 * without a per-call click. MUST be called synchronously from a click handler
+	 * (e.g. the "Go ready" toggle). Resolves true once audio is armed.
+	 */
+	armAudio: () => Promise<boolean>;
 }
 
 export interface UseDeviceOptions {
@@ -60,6 +71,43 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 
 	const hangup = useCallback(() => {
 		callRef.current?.disconnect();
+	}, []);
+
+	// Prime audio from a user gesture. The dialer auto-answers, so there's no
+	// per-call click to satisfy the browser's autoplay policy — we pre-arm here
+	// on the "Go ready" toggle. Two things must happen inside the gesture:
+	//   1) getUserMedia({audio}) — grants mic + primes the input device,
+	//   2) AudioContext.resume() — the SDK plays call audio through a shared
+	//      AudioContext that starts 'suspended'; browsers only let a gesture
+	//      resume it, and until it's running the auto-answered call has no sound.
+	const armAudio = useCallback(async (): Promise<boolean> => {
+		try {
+			// (1) Mic permission + input priming. Release the tracks immediately;
+			// the Twilio SDK opens its own stream on accept(). We only needed the
+			// permission grant + the user-gesture context.
+			const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+			stream.getTracks().forEach((t) => t.stop());
+		} catch (e) {
+			setError(micErrorMessage(e));
+			return false;
+		}
+
+		// (2) Resume the SDK's AudioContext so playback isn't blocked. The Voice
+		// SDK exposes its AudioContext on device.audio; resuming it here (still
+		// within the gesture) unblocks the auto-answered call's audio.
+		try {
+			const audio = deviceRef.current?.audio as
+				| {_audioContext?: AudioContext}
+				| undefined;
+			const ctx = audio?._audioContext;
+			if (ctx && ctx.state === 'suspended') {
+				await ctx.resume();
+			}
+		} catch {
+			/* non-fatal: mic is granted; playback may still resume on accept */
+		}
+
+		return true;
 	}, []);
 
 	useEffect(() => {
@@ -113,6 +161,23 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 
 		const setup = async () => {
 			try {
+				// Request mic up front — the SDK needs it to answer. This may
+				// resolve without a user gesture if permission was already granted;
+				// if the browser blocks it until a gesture, armAudio() (fired from
+				// the "Go ready" click) requests it again and surfaces any denial.
+				try {
+					const stream = await navigator.mediaDevices.getUserMedia({
+						audio: true
+					});
+					stream.getTracks().forEach((t) => t.stop());
+				} catch (e) {
+					if (cancelled) return;
+					setError(micErrorMessage(e));
+					// Keep going: register the device anyway so it can receive
+					// calls, and let armAudio() re-request the mic on the gesture.
+				}
+				if (cancelled) return;
+
 				const token = await fetchToken();
 				if (cancelled) return;
 
@@ -168,5 +233,25 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 		};
 	}, [enabled]);
 
-	return {deviceStatus, activeCall, error, mute, hangup};
+	return {deviceStatus, activeCall, error, mute, hangup, armAudio};
+}
+
+/** Turn a getUserMedia rejection into a user-facing message. */
+function micErrorMessage(e: unknown): string {
+	const name = (e as {name?: string} | null)?.name;
+	switch (name) {
+		case 'NotAllowedError':
+		case 'SecurityError':
+			return 'Microphone access was blocked. Allow the mic in your browser to take calls.';
+		case 'NotFoundError':
+		case 'DevicesNotFoundError':
+			return 'No microphone found. Connect a mic to take calls.';
+		case 'NotReadableError':
+			return 'Your microphone is in use by another app. Close it and try again.';
+		default:
+			return (
+				(e as {message?: string} | null)?.message ||
+				'Could not access your microphone.'
+			);
+	}
 }

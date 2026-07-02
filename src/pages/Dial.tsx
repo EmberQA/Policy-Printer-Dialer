@@ -103,6 +103,15 @@ export default function Dial() {
 
 	const onToggleReady = () => {
 		const next: PresenceStatus = status === 'ready' ? 'paused' : 'ready';
+		// Pre-arm audio on the way to Ready. The dialer auto-answers, so this
+		// click is our one chance to satisfy the browser's autoplay policy:
+		// armAudio() grants the mic and resumes the SDK's AudioContext so the
+		// auto-answered call can play/capture audio. Fire it synchronously from
+		// the gesture (before any await) — it self-reports mic errors via
+		// device.error, so we don't block going Ready on it.
+		if (next === 'ready') {
+			void device.armAudio();
+		}
 		void applyPresence({status: next}, 'status');
 	};
 
