@@ -1,14 +1,19 @@
 /**
- * Leads page — the agent's own lead tracker (Subplan 05).
+ * Activity page — the agent's own unified lead + call tracker.
  *
- * Lists the caller's leads (server-side scoped to their agent_id) with filters
- * (campaign, phone/name prefix search, date range), pagination, and an expandable
- * detail row showing the FROZEN form snapshot + answers, the disposition, the
- * event timeline, and a recording link (copied onto the call when Retreaver's
- * recording lands; "not available yet" until then).
+ * Lists the caller's activity (server-side scoped to their agent_id): every saved
+ * LEAD and every CALL, so a call whose form was never saved still appears and its
+ * recording stays reachable. Rows are one of three kinds — Lead, Call, or Lead+Call.
+ * Filters (campaign, phone/name prefix, date range), pagination, and an expandable
+ * detail:
+ *   - rows with a lead → the FROZEN form snapshot + answers, disposition, timeline,
+ *     recording (LeadDetailPanel, unchanged).
+ *   - call-only rows → a compact call summary, the recording, and a "Log lead"
+ *     button that opens LeadForm prefilled with the call's caller/campaign/CallSid,
+ *     so saving turns the call into a lead (it relinks by CallSid).
  *
- * The detail re-uses FormRenderer in disabled mode so an old lead always renders
- * with its original layout, regardless of later form edits.
+ * The recording URL is fetched on demand (short-lived SAS), via getLeadRecording
+ * when the row has a lead_id, else getCallRecording by call_id.
  */
 
 import {useEffect, useMemo, useState} from 'react';
@@ -16,23 +21,32 @@ import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {Button} from '@/components/ui/button';
 import {
 	listCampaigns,
-	listLeads,
+	listActivity,
 	getLeadDetail,
 	getLeadRecording,
+	getCallRecording,
 	type DialerCampaign,
 	type LeadDetailResponse,
-	type LeadFilters,
-	type LeadListItem
+	type ActivityFilters,
+	type ActivityListItem,
+	type ActivityKind
 } from '@/lib/api';
 import {FormRenderer} from '@/leads/FormRenderer';
+import {LeadForm} from '@/leads/LeadForm';
 
 const PAGE_SIZE = 25;
 const inputClasses =
 	'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
 
+const KIND_LABEL: Record<ActivityKind, string> = {
+	lead: 'Lead',
+	call: 'Call',
+	both: 'Lead + Call'
+};
+
 export default function Leads() {
 	const [campaigns, setCampaigns] = useState<DialerCampaign[]>([]);
-	const [leads, setLeads] = useState<LeadListItem[]>([]);
+	const [items, setItems] = useState<ActivityListItem[]>([]);
 	const [page, setPage] = useState(1);
 	const [totalPages, setTotalPages] = useState(1);
 	const [total, setTotal] = useState(0);
@@ -44,10 +58,11 @@ export default function Leads() {
 	const [campaignId, setCampaignId] = useState('');
 	const [search, setSearch] = useState('');
 	const [searchKind, setSearchKind] = useState<'name' | 'phone'>('name');
+	const [kind, setKind] = useState<'' | ActivityKind>('');
 	const [from, setFrom] = useState('');
 	const [to, setTo] = useState('');
 	// The filters actually in effect (bumped on Apply).
-	const [applied, setApplied] = useState<LeadFilters>({});
+	const [applied, setApplied] = useState<ActivityFilters>({});
 
 	useEffect(() => {
 		listCampaigns()
@@ -59,20 +74,20 @@ export default function Leads() {
 		let cancelled = false;
 		setLoading(true);
 		setError(null);
-		listLeads(applied, PAGE_SIZE, page)
+		listActivity(applied, PAGE_SIZE, page)
 			.then((res) => {
 				if (cancelled) return;
 				if (res.statusCode !== 'SP100') {
-					setError(res.statusMessage || 'Failed to load leads');
+					setError(res.statusMessage || 'Failed to load activity');
 					return;
 				}
-				setLeads(res.leads ?? []);
+				setItems(res.items ?? []);
 				setTotal(res.total ?? 0);
 				setTotalPages(res.totalPages ?? 1);
 			})
 			.catch((err) => {
 				if (cancelled) return;
-				setError(readError(err, 'Failed to load leads'));
+				setError(readError(err, 'Failed to load activity'));
 			})
 			.finally(() => {
 				if (!cancelled) setLoading(false);
@@ -89,6 +104,7 @@ export default function Leads() {
 			campaign_id: campaignId || null,
 			name: searchKind === 'name' ? search || null : null,
 			caller_phone: searchKind === 'phone' ? search || null : null,
+			kind: kind || null,
 			created_from: from || null,
 			created_to: to ? `${to} 23:59:59` : null
 		});
@@ -98,6 +114,7 @@ export default function Leads() {
 		setCampaignId('');
 		setSearch('');
 		setSearchKind('name');
+		setKind('');
 		setFrom('');
 		setTo('');
 		setExpandedId(null);
@@ -110,7 +127,7 @@ export default function Leads() {
 			<Card>
 				<CardHeader>
 					<CardTitle className="flex items-center justify-between">
-						<span>Leads</span>
+						<span>Activity</span>
 						<span className="text-xs font-normal text-muted-foreground">
 							{total} total
 						</span>
@@ -133,6 +150,18 @@ export default function Leads() {
 							))}
 						</select>
 
+						<select
+							value={kind}
+							onChange={(e) => setKind(e.target.value as '' | ActivityKind)}
+							className={inputClasses}
+							aria-label="Type"
+						>
+							<option value="">All types</option>
+							<option value="call">Calls only</option>
+							<option value="lead">Leads only</option>
+							<option value="both">Lead + Call</option>
+						</select>
+
 						<div className="flex gap-2">
 							<select
 								value={searchKind}
@@ -152,24 +181,26 @@ export default function Leads() {
 							/>
 						</div>
 
-						<label className="flex items-center gap-2 text-xs text-muted-foreground">
-							From
-							<input
-								type="date"
-								value={from}
-								onChange={(e) => setFrom(e.target.value)}
-								className={inputClasses}
-							/>
-						</label>
-						<label className="flex items-center gap-2 text-xs text-muted-foreground">
-							To
-							<input
-								type="date"
-								value={to}
-								onChange={(e) => setTo(e.target.value)}
-								className={inputClasses}
-							/>
-						</label>
+						<div className="flex gap-2">
+							<label className="flex flex-1 items-center gap-2 text-xs text-muted-foreground">
+								From
+								<input
+									type="date"
+									value={from}
+									onChange={(e) => setFrom(e.target.value)}
+									className={inputClasses}
+								/>
+							</label>
+							<label className="flex flex-1 items-center gap-2 text-xs text-muted-foreground">
+								To
+								<input
+									type="date"
+									value={to}
+									onChange={(e) => setTo(e.target.value)}
+									className={inputClasses}
+								/>
+							</label>
+						</div>
 					</div>
 
 					<div className="flex gap-2">
@@ -185,7 +216,8 @@ export default function Leads() {
 
 					{/* Table */}
 					<div className="overflow-hidden rounded-md border border-border">
-						<div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 border-b border-border bg-secondary/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+						<div className="grid grid-cols-[6rem_1fr_1fr_1fr_1fr] gap-2 border-b border-border bg-secondary/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+							<span>Type</span>
 							<span>Name</span>
 							<span>Phone</span>
 							<span>Campaign</span>
@@ -195,18 +227,19 @@ export default function Leads() {
 						{loading && (
 							<p className="px-3 py-4 text-muted-foreground">Loading…</p>
 						)}
-						{!loading && leads.length === 0 && (
-							<p className="px-3 py-4 text-muted-foreground">No leads found.</p>
+						{!loading && items.length === 0 && (
+							<p className="px-3 py-4 text-muted-foreground">No activity found.</p>
 						)}
 
 						{!loading &&
-							leads.map((lead) => (
-								<LeadRow
-									key={lead.id}
-									lead={lead}
-									expanded={expandedId === lead.id}
+							items.map((item) => (
+								<ActivityRow
+									key={item.id}
+									item={item}
+									campaigns={campaigns}
+									expanded={expandedId === item.id}
 									onToggle={() =>
-										setExpandedId(expandedId === lead.id ? null : lead.id)
+										setExpandedId(expandedId === item.id ? null : item.id)
 									}
 								/>
 							))}
@@ -242,12 +275,28 @@ export default function Leads() {
 	);
 }
 
-function LeadRow({
-	lead,
+function KindBadge({kind}: {kind: ActivityKind}) {
+	const tone =
+		kind === 'both'
+			? 'bg-success/15 text-success'
+			: kind === 'lead'
+				? 'bg-secondary text-secondary-foreground'
+				: 'bg-muted text-muted-foreground';
+	return (
+		<span className={`inline-block w-fit rounded px-1.5 py-0.5 text-[10px] font-medium ${tone}`}>
+			{KIND_LABEL[kind]}
+		</span>
+	);
+}
+
+function ActivityRow({
+	item,
+	campaigns,
 	expanded,
 	onToggle
 }: {
-	lead: LeadListItem;
+	item: ActivityListItem;
+	campaigns: DialerCampaign[];
 	expanded: boolean;
 	onToggle: () => void;
 }) {
@@ -256,18 +305,137 @@ function LeadRow({
 			<button
 				type="button"
 				onClick={onToggle}
-				className="grid w-full grid-cols-[1fr_1fr_1fr_auto] gap-2 px-3 py-2 text-left text-sm hover:bg-secondary/30"
+				className="grid w-full grid-cols-[6rem_1fr_1fr_1fr_1fr] items-center gap-2 px-3 py-2 text-left text-sm hover:bg-secondary/30"
 			>
-				<span className="truncate">{lead.name || '—'}</span>
-				<span className="truncate font-mono text-xs">{lead.caller_phone || '—'}</span>
+				<KindBadge kind={item.kind} />
+				<span className="truncate">{item.name || '—'}</span>
+				<span className="truncate font-mono text-xs">{item.caller_phone || '—'}</span>
 				<span className="truncate text-muted-foreground">
-					{lead.campaign_name || '—'}
+					{item.campaign_name || '—'}
 				</span>
 				<span className="truncate text-muted-foreground">
-					{lead.disposition_label || '—'}
+					{item.disposition_label || '—'}
 				</span>
 			</button>
-			{expanded && <LeadDetailPanel leadId={lead.id} />}
+			{expanded &&
+				(item.lead_id ? (
+					<LeadDetailPanel leadId={item.lead_id} />
+				) : (
+					<CallDetailPanel item={item} campaigns={campaigns} />
+				))}
+		</div>
+	);
+}
+
+/** Recording control shared by both detail panels: fetch-on-demand → open link. */
+function RecordingControl({
+	fetchUrl,
+	hasRecording
+}: {
+	fetchUrl: () => Promise<string | null>;
+	hasRecording: boolean;
+}) {
+	const [recording, setRecording] = useState<string | null | undefined>(undefined);
+	const [recLoading, setRecLoading] = useState(false);
+
+	const onLoad = async () => {
+		setRecLoading(true);
+		try {
+			setRecording((await fetchUrl()) ?? null);
+		} catch {
+			setRecording(null);
+		} finally {
+			setRecLoading(false);
+		}
+	};
+
+	return (
+		<div className="border-t border-border pt-3">
+			<p className="mb-1 text-xs text-muted-foreground">Recording</p>
+			{!hasRecording ? (
+				<p className="text-xs text-muted-foreground">No recording.</p>
+			) : recording === undefined ? (
+				<Button size="sm" variant="outline" onClick={onLoad} disabled={recLoading}>
+					{recLoading ? 'Checking…' : 'Load recording'}
+				</Button>
+			) : recording ? (
+				<a
+					href={recording}
+					target="_blank"
+					rel="noreferrer"
+					className="text-sm text-success underline"
+				>
+					Play recording ↗
+				</a>
+			) : (
+				<p className="text-xs text-muted-foreground">Recording not available yet.</p>
+			)}
+		</div>
+	);
+}
+
+/** Detail for a call-only activity row: summary + recording + "Log lead". */
+function CallDetailPanel({
+	item,
+	campaigns
+}: {
+	item: ActivityListItem;
+	campaigns: DialerCampaign[];
+}) {
+	const [logging, setLogging] = useState(false);
+	// campaign_id may be null (agent hadn't selected one) — let them pick before logging.
+	const [pickedCampaign, setPickedCampaign] = useState(item.campaign_id ?? '');
+	const effectiveCampaign = item.campaign_id ?? pickedCampaign;
+
+	return (
+		<div className="space-y-4 bg-secondary/10 px-3 py-3 text-sm">
+			<div className="grid grid-cols-2 gap-2 text-xs">
+				<Row label="Status" value={item.call_status || '—'} />
+				<Row label="Phone" value={item.caller_phone || '—'} />
+				<Row label="Started" value={fmt(item.started_at)} />
+				<Row label="Ended" value={fmt(item.ended_at)} />
+			</div>
+
+			<RecordingControl
+				hasRecording={item.has_recording}
+				fetchUrl={() =>
+					getCallRecording(item.call_id!).then((r) => r.recording_url ?? null)
+				}
+			/>
+
+			{/* Turn this call into a lead (relinks by CallSid). */}
+			<div className="border-t border-border pt-3">
+				{!logging ? (
+					<Button size="sm" variant="outline" onClick={() => setLogging(true)}>
+						Log lead
+					</Button>
+				) : !effectiveCampaign ? (
+					<div className="space-y-2">
+						<p className="text-xs text-muted-foreground">
+							Pick a campaign to log this lead against:
+						</p>
+						<select
+							value={pickedCampaign}
+							onChange={(e) => setPickedCampaign(e.target.value)}
+							className={inputClasses}
+							aria-label="Campaign"
+						>
+							<option value="">Select campaign…</option>
+							{campaigns.map((c) => (
+								<option key={c.id} value={c.id}>
+									{c.name}
+								</option>
+							))}
+						</select>
+					</div>
+				) : (
+					<LeadForm
+						campaignId={effectiveCampaign}
+						callSid={item.twilio_call_sid}
+						callerPhone={item.caller_phone}
+					/>
+				)}
+			</div>
 		</div>
 	);
 }
@@ -276,9 +444,6 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 	const [detail, setDetail] = useState<LeadDetailResponse | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
-
-	const [recording, setRecording] = useState<string | null | undefined>(undefined);
-	const [recLoading, setRecLoading] = useState(false);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -307,18 +472,6 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 
 	const schema = useMemo(() => detail?.lead?.form_schema_snapshot ?? [], [detail]);
 
-	const onLoadRecording = async () => {
-		setRecLoading(true);
-		try {
-			const res = await getLeadRecording(leadId);
-			setRecording(res.recording_url ?? null);
-		} catch {
-			setRecording(null);
-		} finally {
-			setRecLoading(false);
-		}
-	};
-
 	if (loading) {
 		return <p className="px-3 py-3 text-xs text-muted-foreground">Loading detail…</p>;
 	}
@@ -326,6 +479,8 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 		return <p className="px-3 py-3 text-xs text-destructive">{error}</p>;
 	}
 	if (!detail?.lead) return null;
+
+	const hasRecording = !!detail.call?.id;
 
 	return (
 		<div className="space-y-4 bg-secondary/10 px-3 py-3 text-sm">
@@ -349,25 +504,12 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 			</div>
 
 			{/* Recording */}
-			<div className="border-t border-border pt-3">
-				<p className="mb-1 text-xs text-muted-foreground">Recording</p>
-				{recording === undefined ? (
-					<Button size="sm" variant="outline" onClick={onLoadRecording} disabled={recLoading}>
-						{recLoading ? 'Checking…' : 'Load recording'}
-					</Button>
-				) : recording ? (
-					<a
-						href={recording}
-						target="_blank"
-						rel="noreferrer"
-						className="text-sm text-success underline"
-					>
-						Play recording ↗
-					</a>
-				) : (
-					<p className="text-xs text-muted-foreground">Recording not available yet.</p>
-				)}
-			</div>
+			<RecordingControl
+				hasRecording={hasRecording}
+				fetchUrl={() =>
+					getLeadRecording(leadId).then((r) => r.recording_url ?? null)
+				}
+			/>
 
 			{/* Event timeline */}
 			{detail.events && detail.events.length > 0 && (

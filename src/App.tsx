@@ -69,7 +69,7 @@ export default function App() {
 					Policy Printer Dialer
 				</span>
 				<NavTab to="/dial" label="Dial" />
-				<NavTab to="/leads" label="Leads" />
+				<NavTab to="/leads" label="Activity" />
 			</header>
 			<main className="p-4">
 				<Routes>

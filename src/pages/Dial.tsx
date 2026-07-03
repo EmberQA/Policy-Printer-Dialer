@@ -1,10 +1,11 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {Button} from '@/components/ui/button';
 import {
 	fetchDialerProfile,
 	getPresence,
 	listCampaigns,
+	setCampaignReady,
 	setPresence,
 	type DialerCampaign,
 	type DialerPresence,
@@ -16,25 +17,30 @@ import {ActiveCallBanner} from '@/twilio/ActiveCallBanner';
 import {LeadForm} from '@/leads/LeadForm';
 
 /**
- * Dial page (Subplan 02 + 03) — presence, heartbeat, campaign selection, and the
- * Twilio softphone (device registration, auto-answer, active-call UI).
+ * Dial page (Subplan 02 + 03) — presence, heartbeat, per-campaign ready toggles, and
+ * the Twilio softphone (device registration, auto-answer, active-call UI).
  *
- * The agent picks a campaign, then toggles Ready. While Ready + a fresh heartbeat
- * + a selected campaign + a registered Twilio device all hold, the backend reports
- * `available: 1` and Retreaver may route an inbound call to this buyer. The device
- * registers via useDevice and its status flows into the heartbeat, so availability
- * reflects the real softphone state.
+ * The agent ARMS one or more campaigns (a Ready switch per campaign — CTV and/or
+ * Social), then flips the global Ready master switch. While Ready + at least one armed
+ * campaign + a fresh heartbeat + a registered Twilio device all hold, the backend
+ * reports `available: 1` and Retreaver may route an inbound call from any armed buyer.
+ * Each armed buyer's availability ping also RESERVES the agent briefly so a second
+ * buyer's call in the window is skipped (call-reservation window).
  *
- * On an inbound call the Device auto-answers (Retreaver already chose this ready
- * agent); the active-call banner shows caller/timer/mute/hangup, and the campaign
- * switch + ready toggle are disabled while on the call.
+ * On an inbound call the Device auto-answers (Retreaver already chose this ready agent);
+ * the active-call banner shows caller/timer/mute/hangup, and the toggles are disabled
+ * while on the call. The lead form uses the call's campaign (auto when a single campaign
+ * is armed, otherwise the agent picks it).
  */
 export default function Dial() {
 	const [profile, setProfile] = useState<any>(null);
 	const [campaigns, setCampaigns] = useState<DialerCampaign[]>([]);
 	const [presence, setPresenceState] = useState<DialerPresence | null>(null);
-	const [busy, setBusy] = useState<'status' | 'campaign' | null>(null);
+	const [busy, setBusy] = useState<'status' | string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	// Which campaign the active call's lead form is for. Defaults to the sole armed
+	// campaign; when several are armed the agent picks (the call can be from any buyer).
+	const [leadCampaignId, setLeadCampaignId] = useState<string>('');
 
 	const provisioned = Boolean(profile?.provisioned);
 
@@ -76,53 +82,85 @@ export default function Dial() {
 	}, [heartbeat.presence]);
 
 	const status: PresenceStatus = presence?.status ?? 'paused';
-	const selectedCampaignId = presence?.selected_campaign_id ?? '';
+	const armedCampaigns = useMemo(
+		() => campaigns.filter((c) => c.ready),
+		[campaigns]
+	);
+	const anyArmed = armedCampaigns.length > 0;
+
+	// Pick the campaign the active call's lead form is for, in priority order:
+	//   1. reserved_campaign_id — AUTHORITATIVE: the campaign whose buyer won the ping
+	//      that routed this call, even with several campaigns armed (no picker needed).
+	//   2. the sole armed campaign (single-campaign agents — the common case).
+	//   3. otherwise leave the agent's manual pick if still armed, else blank (they pick).
+	const reservedCampaignId = presence?.reserved_campaign_id ?? null;
+	useEffect(() => {
+		if (reservedCampaignId && campaigns.some((c) => c.id === reservedCampaignId)) {
+			setLeadCampaignId(reservedCampaignId);
+		} else if (armedCampaigns.length === 1) {
+			setLeadCampaignId(armedCampaigns[0].id);
+		} else if (
+			leadCampaignId &&
+			!armedCampaigns.some((c) => c.id === leadCampaignId)
+		) {
+			setLeadCampaignId('');
+		}
+	}, [reservedCampaignId, campaigns, armedCampaigns, leadCampaignId]);
+
 	// Prefer the live heartbeat value; fall back to the bootstrap presence read.
 	const available =
-		heartbeat.available ??
-		(status === 'ready' && presence?.selected_campaign_id ? null : 0);
-
-	const applyPresence = async (
-		input: {status?: PresenceStatus; campaign_id?: string | null},
-		which: 'status' | 'campaign'
-	) => {
-		setBusy(which);
-		setError(null);
-		try {
-			const res = await setPresence(input);
-			if (res.statusCode !== 'SP100') {
-				throw new Error(res.statusMessage || 'Could not update presence');
-			}
-			setPresenceState(res.presence ?? null);
-		} catch (err) {
-			setError(readError(err, 'Could not update presence'));
-		} finally {
-			setBusy(null);
-		}
-	};
+		heartbeat.available ?? (status === 'ready' && anyArmed ? null : 0);
 
 	const onToggleReady = () => {
 		const next: PresenceStatus = status === 'ready' ? 'paused' : 'ready';
-		// Pre-arm audio on the way to Ready. The dialer auto-answers, so this
-		// click is our one chance to satisfy the browser's autoplay policy:
-		// armAudio() grants the mic and resumes the SDK's AudioContext so the
-		// auto-answered call can play/capture audio. Fire it synchronously from
-		// the gesture (before any await) — it self-reports mic errors via
-		// device.error, so we don't block going Ready on it.
+		// Pre-arm audio on the way to Ready. The dialer auto-answers, so this click is
+		// our one chance to satisfy the browser's autoplay policy: armAudio() grants the
+		// mic and resumes the SDK's AudioContext. Fire it synchronously from the gesture
+		// (before any await); it self-reports mic errors via device.error.
 		if (next === 'ready') {
 			void device.armAudio();
 		}
-		void applyPresence({status: next}, 'status');
+		setBusy('status');
+		setError(null);
+		setPresence({status: next})
+			.then((res) => {
+				if (res.statusCode !== 'SP100') {
+					throw new Error(res.statusMessage || 'Could not update presence');
+				}
+				setPresenceState(res.presence ?? null);
+			})
+			.catch((err) => setError(readError(err, 'Could not update presence')))
+			.finally(() => setBusy(null));
 	};
 
-	const onSelectCampaign = (campaignId: string) => {
-		void applyPresence({campaign_id: campaignId || null}, 'campaign');
+	const onToggleCampaign = (campaignId: string, ready: boolean) => {
+		setBusy(campaignId);
+		setError(null);
+		// Optimistic: reflect the toggle immediately, revert on failure.
+		setCampaigns((cur) =>
+			cur.map((c) => (c.id === campaignId ? {...c, ready} : c))
+		);
+		setCampaignReady(campaignId, ready)
+			.then((res) => {
+				if (res.statusCode !== 'SP100') {
+					throw new Error(res.statusMessage || 'Could not update campaign');
+				}
+				if (res.presence) setPresenceState(res.presence);
+			})
+			.catch((err) => {
+				setError(readError(err, 'Could not update campaign'));
+				// Revert the optimistic flip.
+				setCampaigns((cur) =>
+					cur.map((c) => (c.id === campaignId ? {...c, ready: !ready} : c))
+				);
+			})
+			.finally(() => setBusy(null));
 	};
 
 	// On a call if the live Device says so, or the backend flag is set (covers the
 	// brief window before the device 'accept' event lands).
 	const onCall = Boolean(device.activeCall) || Boolean(presence?.on_call);
-	const canGoReady = !!selectedCampaignId; // must pick a campaign first
+	const canGoReady = anyArmed; // must arm ≥1 campaign first
 	const deviceError = device.error;
 
 	return (
@@ -135,15 +173,39 @@ export default function Dial() {
 				/>
 			)}
 
-			{/* Lead capture — shown while on a call with a campaign selected. Keyed by
-			    CallSid so each new call starts a fresh, blank form for that caller. */}
-			{device.activeCall && selectedCampaignId && (
+			{/* Lead capture — shown while on a call once a campaign is chosen for it.
+			    Keyed by CallSid so each new call starts a fresh, blank form. */}
+			{device.activeCall && leadCampaignId && (
 				<LeadForm
 					key={device.activeCall.callSid}
-					campaignId={selectedCampaignId}
+					campaignId={leadCampaignId}
 					callSid={device.activeCall.callSid || null}
 					callerPhone={device.activeCall.from}
 				/>
+			)}
+			{device.activeCall && !leadCampaignId && (
+				<Card>
+					<CardHeader>
+						<CardTitle>Which campaign is this call for?</CardTitle>
+					</CardHeader>
+					<CardContent className="space-y-2 text-sm">
+						<p className="text-muted-foreground">
+							Pick the campaign to log this lead under.
+						</p>
+						<select
+							value={leadCampaignId}
+							onChange={(e) => setLeadCampaignId(e.target.value)}
+							className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						>
+							<option value="">Select a campaign…</option>
+							{(armedCampaigns.length ? armedCampaigns : campaigns).map((c) => (
+								<option key={c.id} value={c.id}>
+									{c.name}
+								</option>
+							))}
+						</select>
+					</CardContent>
+				</Card>
 			)}
 
 			<Card>
@@ -168,40 +230,46 @@ export default function Dial() {
 
 					{profile && !provisioned && (
 						<p className="text-muted-foreground">
-							Your dialer agent is not provisioned yet (an admin must set your SIP
-							username and Retreaver buyer id). You can’t go ready until then.
+							Your dialer agent is not provisioned yet (an admin must set your
+							phone number and Retreaver buyer id). You can’t go ready until then.
 						</p>
 					)}
 
 					{profile && provisioned && (
 						<>
-							{/* Campaign selection — required before going ready. */}
-							<div className="space-y-1">
-								<label className="text-muted-foreground" htmlFor="campaign">
-									Campaign
-								</label>
-								<select
-									id="campaign"
-									value={selectedCampaignId}
-									disabled={busy !== null || onCall}
-									onChange={(e) => onSelectCampaign(e.target.value)}
-									className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-								>
-									<option value="">Select a campaign…</option>
-									{campaigns.map((c) => (
-										<option key={c.id} value={c.id}>
-											{c.name}
-										</option>
-									))}
-								</select>
+							{/* Per-campaign ready toggles — arm the buyers you'll answer. */}
+							<div className="space-y-2">
+								<span className="text-muted-foreground">Campaigns</span>
 								{campaigns.length === 0 && (
 									<p className="text-xs text-muted-foreground">
-										No active campaigns configured for your org yet.
+										No campaigns linked to you yet. An admin links you to a
+										campaign’s Retreaver buyer before you can go ready.
 									</p>
 								)}
+								<ul className="space-y-1">
+									{campaigns.map((c) => (
+										<li
+											key={c.id}
+											className="flex items-center justify-between rounded-md border border-border px-3 py-2"
+										>
+											<span className="font-medium">{c.name}</span>
+											<Button
+												variant={c.ready ? 'success' : 'default'}
+												onClick={() => onToggleCampaign(c.id, !c.ready)}
+												disabled={busy !== null || onCall}
+											>
+												{busy === c.id
+													? 'Saving…'
+													: c.ready
+														? 'Ready'
+														: 'Off'}
+											</Button>
+										</li>
+									))}
+								</ul>
 							</div>
 
-							{/* Ready / Paused toggle. */}
+							{/* Global Ready / Paused master switch (over all armed campaigns). */}
 							<div className="flex items-center gap-3">
 								<Button
 									variant={status === 'ready' ? 'success' : 'default'}
@@ -227,6 +295,7 @@ export default function Dial() {
 									You’re marked ready but not currently routable —{' '}
 									{reasonNotAvailable(
 										presence,
+										anyArmed,
 										heartbeat.connected,
 										device.deviceStatus,
 										Boolean(device.activeCall)
@@ -269,20 +338,19 @@ function AvailabilityBadge({
 
 function reasonNotAvailable(
 	presence: DialerPresence | null,
+	anyArmed: boolean,
 	connected: boolean,
 	deviceStatus: string,
 	onCall: boolean
 ): string {
 	if (!connected) return 'reconnecting to the server';
 	if (onCall || presence?.on_call) return 'you’re on a call';
-	if (!presence?.selected_campaign_id) return 'no campaign selected';
+	if (!anyArmed) return 'no campaign toggled ready';
 	if (deviceStatus !== 'registered')
 		return 'your softphone device isn’t connected yet';
 	return 'waiting on a fresh heartbeat';
 }
 
 function readError(err: any, fallback: string): string {
-	return (
-		err?.response?.data?.statusMessage || err?.message || fallback
-	);
+	return err?.response?.data?.statusMessage || err?.message || fallback;
 }

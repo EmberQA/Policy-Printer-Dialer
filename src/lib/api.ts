@@ -109,6 +109,15 @@ export interface DialerPresence {
 	status: PresenceStatus;
 	selected_campaign_id: string | null;
 	on_call: boolean;
+	/** Set while the agent is reserved for an incoming call (call-reservation
+	 *  window); null when unreserved. Transient — clears on the call landing or
+	 *  lazy-expires. */
+	reserved_at: string | null;
+	reserved_call_uuid: string | null;
+	/** The campaign whose buyer won the reserving ping — the authoritative campaign
+	 *  for the incoming call. The dialer uses it to auto-open the correct lead form
+	 *  even when several campaigns are armed. Null when unreserved. */
+	reserved_campaign_id: string | null;
 	last_heartbeat_at: string | null;
 	session_id: string | null;
 	twilio_device_status: TwilioDeviceStatus | null;
@@ -124,7 +133,7 @@ export interface PresenceResponse {
 	presence?: DialerPresence | null;
 }
 
-/** An org campaign the agent can select before going ready. */
+/** A campaign the agent is linked to, plus this agent's per-campaign `ready` toggle. */
 export interface DialerCampaign {
 	id: string;
 	org_id: string;
@@ -133,6 +142,8 @@ export interface DialerCampaign {
 	active: boolean;
 	created_at: string;
 	updated_at: string;
+	/** Whether the agent has armed this campaign's buyer (per-campaign ready toggle). */
+	ready: boolean;
 }
 
 export interface CampaignsResponse {
@@ -156,14 +167,29 @@ export const postHeartbeat = (
 export const getPresence = (): Promise<PresenceResponse> =>
 	qsPost('/policyPrinter/dialer/presence/get');
 
-/** Set status and/or selected campaign. Omit a field to leave it unchanged. */
+/**
+ * Set presence intent. Two orthogonal controls, omit a field to leave it unchanged:
+ *   - `status`: the global ready/paused master switch over all the agent's buyers.
+ *   - `campaign_id` + `ready`: arm/disarm ONE campaign's buyer (per-campaign toggle).
+ */
 export const setPresence = (input: {
 	status?: PresenceStatus;
 	campaign_id?: string | null;
+	ready?: boolean;
 }): Promise<PresenceResponse> =>
 	qsPost('/policyPrinter/dialer/presence/set', input);
 
-/** The org's active campaigns for the dropdown (all of them in V1). */
+/** Arm or disarm one campaign's buyer for this agent (per-campaign ready toggle). */
+export const setCampaignReady = (
+	campaignId: string,
+	ready: boolean
+): Promise<PresenceResponse> =>
+	qsPost('/policyPrinter/dialer/presence/set', {
+		campaign_id: campaignId,
+		ready
+	});
+
+/** The agent's linked campaigns, each with its per-agent `ready` toggle. */
 export const listCampaigns = (): Promise<CampaignsResponse> =>
 	qsPost('/policyPrinter/dialer/campaigns/list');
 
@@ -287,37 +313,54 @@ export const updateLead = (payload: {
 	qsPost('/policyPrinter/dialer/lead/update', payload);
 
 /* -------------------------------------------------------------------------- */
-/* CRM lead tracker — list / detail / recording (Subplan 05)                  */
+/* CRM activity tracker — unified leads + calls: list / detail / recording     */
 /* -------------------------------------------------------------------------- */
 
-/** Filters for the lead list. Omit/blank a field to not filter on it. */
-export interface LeadFilters {
+/** What an activity row is: a saved lead, a call with no form saved, or both. */
+export type ActivityKind = 'lead' | 'call' | 'both';
+
+/** Filters for the activity list. Omit/blank a field to not filter on it. */
+export interface ActivityFilters {
 	campaign_id?: string | null;
 	disposition_id?: string | null;
 	caller_phone?: string | null;
 	name?: string | null;
 	created_from?: string | null;
 	created_to?: string | null;
+	status?: string | null;
+	has_recording?: boolean | null;
+	kind?: ActivityKind | null;
 }
 
-/** One row in the lead list (trimmed projection for fast rendering). */
-export interface LeadListItem {
+/**
+ * One row in the unified activity list. `id` is a stable row id; `lead_id` /
+ * `call_id` are nullable and tell the UI which detail/recording endpoint to call.
+ * `has_recording` gates the recording button; the URL is fetched on demand.
+ */
+export interface ActivityListItem {
 	id: string;
+	kind: ActivityKind;
+	lead_id: string | null;
+	call_id: string | null;
+	twilio_call_sid: string | null;
 	caller_phone: string | null;
 	name: string | null;
 	campaign_id: string | null;
 	campaign_name: string | null;
 	disposition_id: string | null;
 	disposition_label: string | null;
-	created_at: string;
-	updated_at: string;
+	call_status: string | null;
+	started_at: string | null;
+	ended_at: string | null;
+	has_recording: boolean;
+	activity_at: string | null;
 }
 
-/** Paginated lead-list response (matches the wallet count+page envelope). */
-export interface LeadListResponse {
+/** Paginated activity-list response (matches the wallet count+page envelope). */
+export interface ActivityListResponse {
 	statusCode: string;
 	statusMessage: string;
-	leads?: LeadListItem[];
+	items?: ActivityListItem[];
 	total?: number;
 	totalPages?: number;
 	currentPage?: number;
@@ -377,12 +420,16 @@ export interface RecordingResponse {
 	recording_url?: string | null;
 }
 
-/** The caller's own leads, filtered + paginated (newest first). */
-export const listLeads = (
-	filters: LeadFilters,
+/**
+ * The caller's own activity — every lead AND every call (a call with no saved form
+ * still appears, so its recording is reachable) — filtered + paginated, newest
+ * first. Backend route is still /leads/list; the payload key is `items`.
+ */
+export const listActivity = (
+	filters: ActivityFilters,
 	limit: number,
 	page: number
-): Promise<LeadListResponse> =>
+): Promise<ActivityListResponse> =>
 	qsPost('/policyPrinter/dialer/leads/list', {filters, limit, page});
 
 /** Full detail for one of the caller's leads (owning-agent only). */
@@ -392,3 +439,10 @@ export const getLeadDetail = (leadId: string): Promise<LeadDetailResponse> =>
 /** The recording URL for one of the caller's leads (null = not available yet). */
 export const getLeadRecording = (leadId: string): Promise<RecordingResponse> =>
 	qsPost('/policyPrinter/dialer/lead/recording', {lead_id: leadId});
+
+/**
+ * The recording URL for one of the caller's calls — used by call-only activity rows
+ * (no lead was saved). null = not available yet / none produced.
+ */
+export const getCallRecording = (callId: string): Promise<RecordingResponse> =>
+	qsPost('/policyPrinter/dialer/call/recording', {call_id: callId});
