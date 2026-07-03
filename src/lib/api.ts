@@ -333,7 +333,11 @@ export interface LeadEvent {
 	created_at: string;
 }
 
-/** The linked call's lifecycle + recording (null when no call is linked). */
+/**
+ * The linked call's lifecycle (null when no call is linked). The recording is NOT
+ * on this shape — fetch it separately via getLeadRecording, which mints a fresh
+ * short-lived URL from the durable stored key (null = no recording yet / ever).
+ */
 export interface LeadCall {
 	id: string;
 	twilio_call_sid: string | null;
@@ -342,7 +346,6 @@ export interface LeadCall {
 	started_at: string | null;
 	answered_at: string | null;
 	ended_at: string | null;
-	recording_url: string | null;
 }
 
 /** Full lead detail: the lead + its frozen snapshot, timeline, and call. */
