@@ -12,6 +12,8 @@
  */
 
 import {useEffect, useMemo, useState} from 'react';
+import {CheckCircle2, Loader2, RotateCcw, Save} from 'lucide-react';
+import {Badge} from '@/components/ui/badge';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {Button} from '@/components/ui/button';
 import {
@@ -44,6 +46,13 @@ export function LeadForm({
 	const [saveError, setSaveError] = useState<string | null>(null);
 	const [savedLeadId, setSavedLeadId] = useState<string | null>(null);
 
+	const initialFormData = (nextForm: DialerForm | null): LeadFormData => {
+		const phoneField = (nextForm?.schema ?? []).find(
+			(f) => f.type === 'phone' || f.key === 'phone'
+		);
+		return phoneField && callerPhone ? {[phoneField.key]: callerPhone} : {};
+	};
+
 	// Best-effort name field key (so we can send a top-level name column too).
 	const nameFieldKey = useMemo(() => {
 		const keys = (form?.schema ?? []).map((f) => f.key);
@@ -64,11 +73,10 @@ export function LeadForm({
 				}
 				setForm(res.form ?? null);
 				setDispositions(res.dispositions ?? []);
-				// Pre-fill the caller's phone into a phone field if the form has one.
-				const phoneField = (res.form?.schema ?? []).find(
-					(f) => f.type === 'phone' || f.key === 'phone'
-				);
-				setFormData(phoneField && callerPhone ? {[phoneField.key]: callerPhone} : {});
+				setDispositionKey(null);
+				setSaveError(null);
+				setSavedLeadId(null);
+				setFormData(initialFormData(res.form ?? null));
 			})
 			.catch((err) => {
 				if (cancelled) return;
@@ -122,19 +130,30 @@ export function LeadForm({
 	};
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle className="flex items-center justify-between">
-					<span>Lead</span>
-					{savedLeadId && (
-						<span className="rounded-full bg-success px-2 py-0.5 text-xs text-success-foreground">
-							saved
+		<Card className="shadow-xs">
+			<CardHeader className="space-y-2">
+				<CardTitle className="flex items-start justify-between gap-4">
+					<span>
+						<span className="block text-xl">New lead</span>
+						<span className="mt-1 block text-sm font-normal leading-6 text-muted-foreground">
+							Capture caller details while the call is active.
 						</span>
+					</span>
+					{savedLeadId && (
+						<Badge className="bg-success text-success-foreground">
+							<CheckCircle2 className="size-3" />
+							saved
+						</Badge>
 					)}
 				</CardTitle>
 			</CardHeader>
-			<CardContent className="space-y-4 text-sm">
-				{loading && <p className="text-muted-foreground">Loading form…</p>}
+			<CardContent className="space-y-5 text-sm">
+				{loading && (
+					<p className="flex items-center gap-2 text-muted-foreground">
+						<Loader2 className="size-4 animate-spin" />
+						Loading form…
+					</p>
+				)}
 				{loadError && <p className="text-destructive">{loadError}</p>}
 
 				{!loading && !loadError && (
@@ -153,8 +172,8 @@ export function LeadForm({
 							</p>
 						)}
 
-						<div className="space-y-1 border-t border-border pt-3">
-							<p className="text-muted-foreground">Disposition</p>
+						<div className="space-y-2 border-t pt-4">
+							<p className="text-sm font-medium">Disposition</p>
 							<DispositionSelect
 								dispositions={dispositions}
 								value={dispositionKey}
@@ -165,13 +184,37 @@ export function LeadForm({
 
 						{saveError && <p className="text-destructive">{saveError}</p>}
 
-						<div className="flex items-center gap-3">
+						<div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center">
 							<Button variant="success" onClick={onSave} disabled={saving}>
+								{saving ? (
+									<Loader2 className="size-4 animate-spin" />
+								) : (
+									<Save className="size-4" />
+								)}
 								{saving ? 'Saving…' : savedLeadId ? 'Save again' : 'Save lead'}
 							</Button>
+							<Button
+								type="button"
+								variant="outline"
+								disabled={saving}
+								onClick={() => {
+									setSaveError(null);
+									setSavedLeadId(null);
+									setDispositionKey(null);
+									setFormData(initialFormData(form));
+								}}
+							>
+								<RotateCcw className="size-4" />
+								Clear
+							</Button>
 							{savedLeadId && (
-								<span className="text-xs text-muted-foreground">
-									Lead saved. Editing & re-saving creates a new lead in V1.
+								<span className="text-xs leading-5 text-muted-foreground">
+									Lead saved. Editing and re-saving creates a new lead in V1.
+								</span>
+							)}
+							{!savedLeadId && (
+								<span className="text-xs leading-5 text-muted-foreground">
+									Lead will be linked to this call automatically.
 								</span>
 							)}
 						</div>

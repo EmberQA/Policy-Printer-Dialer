@@ -30,7 +30,7 @@ export function DispositionSelect({
 	}
 
 	return (
-		<div className="grid grid-cols-2 gap-2">
+		<div className="grid gap-2 sm:grid-cols-2">
 			{dispositions.map((d) => {
 				const selected = value === d.disposition_key;
 				return (
@@ -40,10 +40,10 @@ export function DispositionSelect({
 						disabled={disabled}
 						onClick={() => onChange(selected ? null : d.disposition_key)}
 						className={cn(
-							'rounded-md border px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+							'rounded-md border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
 							selected
-								? 'border-success bg-success/15 text-foreground'
-								: 'border-input hover:bg-secondary/60'
+								? 'border-primary bg-primary/5 text-foreground'
+								: 'border-input bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
 						)}
 					>
 						{d.label}

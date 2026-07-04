@@ -11,7 +11,7 @@ Browser softphone for Policy Printer agents — served at `dialer.policyprinter.
 
 Stack (current as of June 2026): React 19 + Vite 8 + TypeScript 5.9 + Tailwind
 CSS v4 (CSS-first, `@tailwindcss/vite`, no `tailwind.config.js`) + shadcn/ui
-(new-york) + react-router 7. Dark purple/gray/black theme, dark-only.
+(new-york) + react-router 7. Light, neutral agent-workflow theme.
 
 ## Auth — there is no login here
 

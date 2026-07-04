@@ -1,4 +1,6 @@
 import {useEffect, useState} from 'react';
+import {Mic, MicOff, PhoneCall, PhoneOff} from 'lucide-react';
+import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import type {ActiveCall} from '@/twilio/useDevice';
 
@@ -19,27 +21,39 @@ export function ActiveCallBanner({
 	const elapsed = useElapsedSeconds(call.startedAt);
 
 	return (
-		<div className="flex items-center justify-between rounded-lg border border-success/40 bg-success/10 px-4 py-3">
-			<div className="space-y-0.5">
-				<div className="flex items-center gap-2">
-					<span className="h-2 w-2 animate-pulse rounded-full bg-success" />
-					<span className="text-sm font-medium">On a call</span>
+		<div className="flex flex-col gap-3 rounded-lg border bg-card px-4 py-3 shadow-xs sm:flex-row sm:items-center sm:justify-between">
+			<div className="flex min-w-0 items-center gap-3">
+				<div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-success/10 text-success">
+					<PhoneCall className="size-4" />
 				</div>
-				<div className="font-mono text-sm">{call.from}</div>
+				<div className="min-w-0">
+					<div className="flex flex-wrap items-center gap-2">
+						<Badge className="bg-success text-success-foreground">
+							Active call
+						</Badge>
+						<span className="font-mono text-sm tabular-nums text-muted-foreground">
+							{formatDuration(elapsed)}
+						</span>
+					</div>
+					<div className="mt-1 truncate font-mono text-sm">{call.from}</div>
+				</div>
 			</div>
 
-			<div className="flex items-center gap-3">
-				<span className="font-mono text-sm tabular-nums text-muted-foreground">
-					{formatDuration(elapsed)}
-				</span>
+			<div className="flex items-center gap-2 self-end sm:self-auto">
 				<Button
 					variant={call.muted ? 'secondary' : 'outline'}
 					size="sm"
 					onClick={() => onMute(!call.muted)}
 				>
+					{call.muted ? (
+						<Mic className="size-4" />
+					) : (
+						<MicOff className="size-4" />
+					)}
 					{call.muted ? 'Unmute' : 'Mute'}
 				</Button>
 				<Button variant="destructive" size="sm" onClick={onHangup}>
+					<PhoneOff className="size-4" />
 					Hang up
 				</Button>
 			</div>

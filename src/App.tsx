@@ -1,5 +1,6 @@
 import {useEffect, useState} from 'react';
 import {Navigate, NavLink, Route, Routes} from 'react-router-dom';
+import {Badge} from '@/components/ui/badge';
 import {runHandoff, HandoffResult} from '@/auth/handoff';
 import {hasSession} from '@/auth/session';
 import {cn} from '@/lib/utils';
@@ -10,6 +11,8 @@ type BootState =
 	| {phase: 'booting'}
 	| {phase: 'ready'}
 	| {phase: 'unauthenticated'; message?: string};
+
+const THEME_KEY = 'pp_dialer_theme';
 
 /**
  * App boot: run the one-time handoff (or fall back to a stored session), then
@@ -39,39 +42,64 @@ export default function App() {
 		};
 	}, []);
 
+	useEffect(() => {
+		document.documentElement.classList.remove('dark');
+		localStorage.setItem(THEME_KEY, 'light');
+	}, []);
+
 	if (boot.phase === 'booting') {
 		return (
-			<div className="flex min-h-screen items-center justify-center text-muted-foreground">
-				Signing you in…
+			<div className="flex min-h-screen items-center justify-center bg-background px-6 text-muted-foreground">
+				<div className="rounded-lg border bg-card px-4 py-3 text-sm shadow-xs">
+					Signing you in…
+				</div>
 			</div>
 		);
 	}
 
 	if (boot.phase === 'unauthenticated') {
 		return (
-			<div className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
-				<h1 className="text-xl font-semibold">Open the dialer from Policy Printer</h1>
-				<p className="max-w-md text-sm text-muted-foreground">
-					Launch the dialer using the <span className="text-foreground">Open Dialer</span>{' '}
-					button in the main Policy Printer app so we can sign you in automatically.
-				</p>
-				{boot.message && (
-					<p className="text-xs text-destructive">{boot.message}</p>
-				)}
+			<div className="flex min-h-screen items-center justify-center bg-background px-6">
+				<div className="relative w-full max-w-md rounded-lg border bg-card p-6 text-center shadow-xs">
+					<Badge variant="secondary" className="mb-4">
+						Dialer access
+					</Badge>
+					<h1 className="text-xl font-semibold tracking-tight">
+						Open the dialer from Policy Printer
+					</h1>
+					<p className="mt-2 text-sm leading-6 text-muted-foreground">
+						Launch this page with the Open Dialer button in the main Policy
+						Printer app so we can sign you in automatically.
+					</p>
+					{boot.message && (
+						<p className="mt-3 text-xs text-destructive">{boot.message}</p>
+					)}
+				</div>
 			</div>
 		);
 	}
 
 	return (
-		<div className="min-h-screen">
-			<header className="flex items-center gap-1 border-b border-border px-4 py-3">
-				<span className="mr-4 font-semibold tracking-tight text-primary">
-					Policy Printer Dialer
-				</span>
-				<NavTab to="/dial" label="Dial" />
-				<NavTab to="/leads" label="Activity" />
+		<div className="min-h-screen bg-background">
+			<header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+				<div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+					<div className="flex min-w-0 items-center gap-5">
+						<span className="truncate font-semibold tracking-tight">
+							Policy Printer Dialer
+						</span>
+						<nav className="flex items-center gap-1" aria-label="Primary">
+							<NavTab to="/dial" label="Calls" />
+							<NavTab to="/leads" label="Activity" />
+						</nav>
+					</div>
+					<div className="flex shrink-0 items-center gap-2">
+						<Badge variant="outline" className="hidden sm:inline-flex">
+							Signed in
+						</Badge>
+					</div>
+				</div>
 			</header>
-			<main className="p-4">
+			<main className="px-4 py-6 sm:px-6">
 				<Routes>
 					<Route path="/dial" element={<Dial />} />
 					<Route path="/leads" element={<Leads />} />
@@ -88,9 +116,9 @@ function NavTab({to, label}: {to: string; label: string}) {
 			to={to}
 			className={({isActive}) =>
 				cn(
-					'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+					'rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
 					isActive
-						? 'bg-secondary text-secondary-foreground'
+						? 'bg-secondary text-foreground'
 						: 'text-muted-foreground hover:text-foreground'
 				)
 			}

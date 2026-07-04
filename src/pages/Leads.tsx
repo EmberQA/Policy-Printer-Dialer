@@ -1,24 +1,40 @@
 /**
  * Activity page — the agent's own unified lead + call tracker.
  *
- * Lists the caller's activity (server-side scoped to their agent_id): every saved
- * LEAD and every CALL, so a call whose form was never saved still appears and its
- * recording stays reachable. Rows are one of three kinds — Lead, Call, or Lead+Call.
- * Filters (campaign, phone/name prefix, date range), pagination, and an expandable
- * detail:
- *   - rows with a lead → the FROZEN form snapshot + answers, disposition, timeline,
- *     recording (LeadDetailPanel, unchanged).
- *   - call-only rows → a compact call summary, the recording, and a "Log lead"
- *     button that opens LeadForm prefilled with the call's caller/campaign/CallSid,
- *     so saving turns the call into a lead (it relinks by CallSid).
- *
- * The recording URL is fetched on demand (short-lived SAS), via getLeadRecording
- * when the row has a lead_id, else getCallRecording by call_id.
+ * Lists every saved lead and every call scoped to the current agent. Calls whose
+ * lead form was never saved still appear, so the agent can retrieve a recording
+ * or log the lead after the fact.
  */
 
 import {useEffect, useMemo, useState} from 'react';
-import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {
+	CalendarDays,
+	Headphones,
+	Loader2,
+	RefreshCw,
+	Search,
+	Volume2
+} from 'lucide-react';
+import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
+import {Card, CardContent} from '@/components/ui/card';
+import {Input} from '@/components/ui/input';
+import {Label} from '@/components/ui/label';
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue
+} from '@/components/ui/select';
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow
+} from '@/components/ui/table';
 import {
 	listCampaigns,
 	listActivity,
@@ -33,10 +49,9 @@ import {
 } from '@/lib/api';
 import {FormRenderer} from '@/leads/FormRenderer';
 import {LeadForm} from '@/leads/LeadForm';
+import {cn} from '@/lib/utils';
 
 const PAGE_SIZE = 25;
-const inputClasses =
-	'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
 
 const KIND_LABEL: Record<ActivityKind, string> = {
 	lead: 'Lead',
@@ -54,14 +69,11 @@ export default function Leads() {
 	const [error, setError] = useState<string | null>(null);
 	const [expandedId, setExpandedId] = useState<string | null>(null);
 
-	// Draft filter inputs (applied on submit / page change).
 	const [campaignId, setCampaignId] = useState('');
 	const [search, setSearch] = useState('');
-	const [searchKind, setSearchKind] = useState<'name' | 'phone'>('name');
 	const [kind, setKind] = useState<'' | ActivityKind>('');
 	const [from, setFrom] = useState('');
 	const [to, setTo] = useState('');
-	// The filters actually in effect (bumped on Apply).
 	const [applied, setApplied] = useState<ActivityFilters>({});
 
 	useEffect(() => {
@@ -98,12 +110,14 @@ export default function Leads() {
 	}, [applied, page]);
 
 	const onApply = () => {
+		const q = search.trim();
+		const looksLikePhone = /\d/.test(q) && /^[\d\s()+.-]+$/.test(q);
 		setExpandedId(null);
 		setPage(1);
 		setApplied({
 			campaign_id: campaignId || null,
-			name: searchKind === 'name' ? search || null : null,
-			caller_phone: searchKind === 'phone' ? search || null : null,
+			name: q && !looksLikePhone ? q : null,
+			caller_phone: q && looksLikePhone ? q : null,
 			kind: kind || null,
 			created_from: from || null,
 			created_to: to ? `${to} 23:59:59` : null
@@ -113,7 +127,6 @@ export default function Leads() {
 	const onReset = () => {
 		setCampaignId('');
 		setSearch('');
-		setSearchKind('name');
 		setKind('');
 		setFrom('');
 		setTo('');
@@ -123,114 +136,159 @@ export default function Leads() {
 	};
 
 	return (
-		<div className="mx-auto max-w-4xl space-y-4">
-			<Card>
-				<CardHeader>
-					<CardTitle className="flex items-center justify-between">
-						<span>Activity</span>
-						<span className="text-xs font-normal text-muted-foreground">
-							{total} total
-						</span>
-					</CardTitle>
-				</CardHeader>
-				<CardContent className="space-y-4 text-sm">
-					{/* Filter bar */}
-					<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-						<select
-							value={campaignId}
-							onChange={(e) => setCampaignId(e.target.value)}
-							className={inputClasses}
-							aria-label="Campaign"
-						>
-							<option value="">All campaigns</option>
-							{campaigns.map((c) => (
-								<option key={c.id} value={c.id}>
-									{c.name}
-								</option>
-							))}
-						</select>
+		<div className="mx-auto max-w-6xl space-y-5">
+			<div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+				<div className="space-y-1">
+					<h1 className="text-2xl font-semibold tracking-tight">Activity</h1>
+					<p className="text-sm leading-6 text-muted-foreground">
+						Your calls and saved leads.
+					</p>
+				</div>
+				<div className="flex items-center gap-2">
+					<Badge variant="outline">{total} records</Badge>
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() => setApplied((cur) => ({...cur}))}
+						disabled={loading}
+					>
+						<RefreshCw className={cn('size-4', loading && 'animate-spin')} />
+						Refresh
+					</Button>
+				</div>
+			</div>
 
-						<select
-							value={kind}
-							onChange={(e) => setKind(e.target.value as '' | ActivityKind)}
-							className={inputClasses}
-							aria-label="Type"
-						>
-							<option value="">All types</option>
-							<option value="call">Calls only</option>
-							<option value="lead">Leads only</option>
-							<option value="both">Lead + Call</option>
-						</select>
-
-						<div className="flex gap-2">
-							<select
-								value={searchKind}
-								onChange={(e) => setSearchKind(e.target.value as 'name' | 'phone')}
-								className={`${inputClasses} w-28`}
-								aria-label="Search by"
+			<Card className="shadow-xs">
+				<CardContent className="p-4">
+					<div className="grid gap-3 lg:grid-cols-[1.1fr_0.8fr_1.5fr_0.9fr_0.9fr_auto] lg:items-end">
+						<div className="space-y-2">
+							<Label>Campaign</Label>
+							<Select
+								value={campaignId || 'all'}
+								onValueChange={(next) =>
+									setCampaignId(next === 'all' ? '' : next)
+								}
 							>
-								<option value="name">Name</option>
-								<option value="phone">Phone</option>
-							</select>
-							<input
-								value={search}
-								onChange={(e) => setSearch(e.target.value)}
-								onKeyDown={(e) => e.key === 'Enter' && onApply()}
-								placeholder={searchKind === 'name' ? 'Name starts with…' : 'Phone starts with…'}
-								className={inputClasses}
+								<SelectTrigger className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="all">All campaigns</SelectItem>
+									{campaigns.map((campaign) => (
+										<SelectItem key={campaign.id} value={campaign.id}>
+											{campaign.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+
+						<div className="space-y-2">
+							<Label>Type</Label>
+							<Select
+								value={kind || 'all'}
+								onValueChange={(next) =>
+									setKind(next === 'all' ? '' : (next as ActivityKind))
+								}
+							>
+								<SelectTrigger className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="all">All</SelectItem>
+									<SelectItem value="lead">Lead</SelectItem>
+									<SelectItem value="call">Call</SelectItem>
+									<SelectItem value="both">Lead + Call</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+
+						<div className="space-y-2">
+							<Label htmlFor="activity-search">Search</Label>
+							<div className="relative">
+								<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+								<Input
+									id="activity-search"
+									value={search}
+									onChange={(e) => setSearch(e.target.value)}
+									onKeyDown={(e) => e.key === 'Enter' && onApply()}
+									placeholder="Name or phone starts with…"
+									className="pl-9"
+								/>
+							</div>
+						</div>
+
+						<div className="space-y-2">
+							<Label htmlFor="activity-from">From</Label>
+							<Input
+								id="activity-from"
+								type="date"
+								value={from}
+								onChange={(e) => setFrom(e.target.value)}
+							/>
+						</div>
+
+						<div className="space-y-2">
+							<Label htmlFor="activity-to">To</Label>
+							<Input
+								id="activity-to"
+								type="date"
+								value={to}
+								onChange={(e) => setTo(e.target.value)}
 							/>
 						</div>
 
 						<div className="flex gap-2">
-							<label className="flex flex-1 items-center gap-2 text-xs text-muted-foreground">
-								From
-								<input
-									type="date"
-									value={from}
-									onChange={(e) => setFrom(e.target.value)}
-									className={inputClasses}
-								/>
-							</label>
-							<label className="flex flex-1 items-center gap-2 text-xs text-muted-foreground">
-								To
-								<input
-									type="date"
-									value={to}
-									onChange={(e) => setTo(e.target.value)}
-									className={inputClasses}
-								/>
-							</label>
+							<Button size="sm" onClick={onApply}>
+								Apply filters
+							</Button>
+							<Button size="sm" variant="outline" onClick={onReset}>
+								Reset
+							</Button>
 						</div>
 					</div>
+				</CardContent>
+			</Card>
 
-					<div className="flex gap-2">
-						<Button size="sm" onClick={onApply}>
-							Apply filters
-						</Button>
-						<Button size="sm" variant="outline" onClick={onReset}>
-							Reset
-						</Button>
+			<Card className="overflow-hidden shadow-xs">
+				{error && (
+					<div className="border-b border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+						{error}
 					</div>
-
-					{error && <p className="text-destructive">{error}</p>}
-
-					{/* Table */}
-					<div className="overflow-hidden rounded-md border border-border">
-						<div className="grid grid-cols-[6rem_1fr_1fr_1fr_1fr] gap-2 border-b border-border bg-secondary/40 px-3 py-2 text-xs font-medium text-muted-foreground">
-							<span>Type</span>
-							<span>Name</span>
-							<span>Phone</span>
-							<span>Campaign</span>
-							<span>Disposition</span>
-						</div>
-
+				)}
+				<Table>
+					<TableHeader>
+						<TableRow className="bg-muted/50 hover:bg-muted/50">
+							<TableHead>Type</TableHead>
+							<TableHead>Name</TableHead>
+							<TableHead>Phone</TableHead>
+							<TableHead>Campaign</TableHead>
+							<TableHead>Disposition</TableHead>
+							<TableHead>Last activity</TableHead>
+							<TableHead className="text-right">Action</TableHead>
+						</TableRow>
+					</TableHeader>
+					<TableBody>
 						{loading && (
-							<p className="px-3 py-4 text-muted-foreground">Loading…</p>
+							<TableRow>
+								<TableCell colSpan={7} className="h-24 text-center">
+									<span className="inline-flex items-center gap-2 text-muted-foreground">
+										<Loader2 className="size-4 animate-spin" />
+										Loading activity…
+									</span>
+								</TableCell>
+							</TableRow>
 						)}
 						{!loading && items.length === 0 && (
-							<p className="px-3 py-4 text-muted-foreground">No activity found.</p>
+							<TableRow>
+								<TableCell colSpan={7} className="h-24 text-center">
+									<div className="mx-auto flex max-w-sm flex-col items-center gap-2 text-muted-foreground">
+										<CalendarDays className="size-5" />
+										<p>No activity found.</p>
+									</div>
+								</TableCell>
+							</TableRow>
 						)}
-
 						{!loading &&
 							items.map((item) => (
 								<ActivityRow
@@ -243,33 +301,32 @@ export default function Leads() {
 									}
 								/>
 							))}
-					</div>
+					</TableBody>
+				</Table>
 
-					{/* Pagination */}
-					{totalPages > 1 && (
-						<div className="flex items-center justify-between">
-							<Button
-								size="sm"
-								variant="outline"
-								disabled={page <= 1 || loading}
-								onClick={() => setPage((p) => Math.max(1, p - 1))}
-							>
-								Previous
-							</Button>
-							<span className="text-xs text-muted-foreground">
-								Page {page} of {totalPages}
-							</span>
-							<Button
-								size="sm"
-								variant="outline"
-								disabled={page >= totalPages || loading}
-								onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-							>
-								Next
-							</Button>
-						</div>
-					)}
-				</CardContent>
+				{totalPages > 1 && (
+					<div className="flex items-center justify-between border-t px-4 py-3">
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={page <= 1 || loading}
+							onClick={() => setPage((p) => Math.max(1, p - 1))}
+						>
+							Previous
+						</Button>
+						<span className="text-xs text-muted-foreground">
+							Page {page} of {totalPages}
+						</span>
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={page >= totalPages || loading}
+							onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+						>
+							Next
+						</Button>
+					</div>
+				)}
 			</Card>
 		</div>
 	);
@@ -278,14 +335,16 @@ export default function Leads() {
 function KindBadge({kind}: {kind: ActivityKind}) {
 	const tone =
 		kind === 'both'
-			? 'bg-success/15 text-success'
-			: kind === 'lead'
-				? 'bg-secondary text-secondary-foreground'
-				: 'bg-muted text-muted-foreground';
+			? 'border-success/30 bg-success/5 text-success'
+			: kind === 'call'
+				? 'border-blue-200 bg-blue-50 text-blue-700'
+				: 'bg-secondary text-secondary-foreground';
+
 	return (
-		<span className={`inline-block w-fit rounded px-1.5 py-0.5 text-[10px] font-medium ${tone}`}>
+		<Badge variant="outline" className={tone}>
+			{kind === 'call' && <Headphones className="size-3" />}
 			{KIND_LABEL[kind]}
-		</span>
+		</Badge>
 	);
 }
 
@@ -301,33 +360,49 @@ function ActivityRow({
 	onToggle: () => void;
 }) {
 	return (
-		<div className="border-b border-border last:border-b-0">
-			<button
-				type="button"
-				onClick={onToggle}
-				className="grid w-full grid-cols-[6rem_1fr_1fr_1fr_1fr] items-center gap-2 px-3 py-2 text-left text-sm hover:bg-secondary/30"
-			>
-				<KindBadge kind={item.kind} />
-				<span className="truncate">{item.name || '—'}</span>
-				<span className="truncate font-mono text-xs">{item.caller_phone || '—'}</span>
-				<span className="truncate text-muted-foreground">
+		<>
+			<TableRow aria-expanded={expanded}>
+				<TableCell>
+					<KindBadge kind={item.kind} />
+				</TableCell>
+				<TableCell className="font-medium">{item.name || 'Unknown caller'}</TableCell>
+				<TableCell className="font-mono text-xs">
+					{item.caller_phone || '—'}
+				</TableCell>
+				<TableCell className="text-muted-foreground">
 					{item.campaign_name || '—'}
-				</span>
-				<span className="truncate text-muted-foreground">
+				</TableCell>
+				<TableCell className="text-muted-foreground">
 					{item.disposition_label || '—'}
-				</span>
-			</button>
-			{expanded &&
-				(item.lead_id ? (
-					<LeadDetailPanel leadId={item.lead_id} />
-				) : (
-					<CallDetailPanel item={item} campaigns={campaigns} />
-				))}
-		</div>
+				</TableCell>
+				<TableCell className="text-muted-foreground">
+					{fmt(item.activity_at ?? item.started_at ?? item.ended_at)}
+				</TableCell>
+				<TableCell className="text-right">
+					<Button size="sm" variant="outline" onClick={onToggle}>
+						{expanded
+							? 'Close'
+							: item.kind === 'call'
+								? 'Log lead'
+								: 'View'}
+					</Button>
+				</TableCell>
+			</TableRow>
+			{expanded && (
+				<TableRow className="bg-muted/30 hover:bg-muted/30">
+					<TableCell colSpan={7} className="p-0">
+						{item.lead_id ? (
+							<LeadDetailPanel leadId={item.lead_id} />
+						) : (
+							<CallDetailPanel item={item} campaigns={campaigns} />
+						)}
+					</TableCell>
+				</TableRow>
+			)}
+		</>
 	);
 }
 
-/** Recording control shared by both detail panels: fetch-on-demand → open link. */
 function RecordingControl({
 	fetchUrl,
 	hasRecording
@@ -350,12 +425,17 @@ function RecordingControl({
 	};
 
 	return (
-		<div className="border-t border-border pt-3">
-			<p className="mb-1 text-xs text-muted-foreground">Recording</p>
+		<div className="space-y-2">
+			<p className="text-sm font-medium">Recording</p>
 			{!hasRecording ? (
-				<p className="text-xs text-muted-foreground">No recording.</p>
+				<p className="text-sm text-muted-foreground">No recording.</p>
 			) : recording === undefined ? (
 				<Button size="sm" variant="outline" onClick={onLoad} disabled={recLoading}>
+					{recLoading ? (
+						<Loader2 className="size-4 animate-spin" />
+					) : (
+						<Volume2 className="size-4" />
+					)}
 					{recLoading ? 'Checking…' : 'Load recording'}
 				</Button>
 			) : recording ? (
@@ -363,18 +443,18 @@ function RecordingControl({
 					href={recording}
 					target="_blank"
 					rel="noreferrer"
-					className="text-sm text-success underline"
+					className="inline-flex items-center gap-2 text-sm font-medium text-primary underline-offset-4 hover:underline"
 				>
-					Play recording ↗
+					<Volume2 className="size-4" />
+					Play recording
 				</a>
 			) : (
-				<p className="text-xs text-muted-foreground">Recording not available yet.</p>
+				<p className="text-sm text-muted-foreground">Recording not available yet.</p>
 			)}
 		</div>
 	);
 }
 
-/** Detail for a call-only activity row: summary + recording + "Log lead". */
 function CallDetailPanel({
 	item,
 	campaigns
@@ -383,59 +463,63 @@ function CallDetailPanel({
 	campaigns: DialerCampaign[];
 }) {
 	const [logging, setLogging] = useState(false);
-	// campaign_id may be null (agent hadn't selected one) — let them pick before logging.
 	const [pickedCampaign, setPickedCampaign] = useState(item.campaign_id ?? '');
 	const effectiveCampaign = item.campaign_id ?? pickedCampaign;
 
 	return (
-		<div className="space-y-4 bg-secondary/10 px-3 py-3 text-sm">
-			<div className="grid grid-cols-2 gap-2 text-xs">
-				<Row label="Status" value={item.call_status || '—'} />
-				<Row label="Phone" value={item.caller_phone || '—'} />
-				<Row label="Started" value={fmt(item.started_at)} />
-				<Row label="Ended" value={fmt(item.ended_at)} />
+		<div className="space-y-5 px-4 py-4">
+			<div className="grid gap-5 md:grid-cols-[1fr_1fr_auto] md:items-start">
+				<div className="space-y-3">
+					<p className="text-sm font-medium">Call details</p>
+					<div className="grid gap-2 text-sm">
+						<Row label="Status" value={item.call_status || '—'} />
+						<Row label="Started" value={fmt(item.started_at)} />
+						<Row label="Ended" value={fmt(item.ended_at)} />
+						<Row label="Campaign" value={item.campaign_name || '—'} />
+					</div>
+				</div>
+
+				<RecordingControl
+					hasRecording={item.has_recording}
+					fetchUrl={() =>
+						getCallRecording(item.call_id!).then((r) => r.recording_url ?? null)
+					}
+				/>
+
+				{!logging && (
+					<Button size="sm" onClick={() => setLogging(true)}>
+						Log lead from call
+					</Button>
+				)}
 			</div>
 
-			<RecordingControl
-				hasRecording={item.has_recording}
-				fetchUrl={() =>
-					getCallRecording(item.call_id!).then((r) => r.recording_url ?? null)
-				}
-			/>
-
-			{/* Turn this call into a lead (relinks by CallSid). */}
-			<div className="border-t border-border pt-3">
-				{!logging ? (
-					<Button size="sm" variant="outline" onClick={() => setLogging(true)}>
-						Log lead
-					</Button>
-				) : !effectiveCampaign ? (
-					<div className="space-y-2">
-						<p className="text-xs text-muted-foreground">
-							Pick a campaign to log this lead against:
-						</p>
-						<select
-							value={pickedCampaign}
-							onChange={(e) => setPickedCampaign(e.target.value)}
-							className={inputClasses}
-							aria-label="Campaign"
-						>
-							<option value="">Select campaign…</option>
-							{campaigns.map((c) => (
-								<option key={c.id} value={c.id}>
-									{c.name}
-								</option>
+			{logging && !effectiveCampaign && (
+				<div className="max-w-sm space-y-2">
+					<Label>Campaign</Label>
+					<Select value={pickedCampaign || undefined} onValueChange={setPickedCampaign}>
+						<SelectTrigger className="w-full">
+							<SelectValue placeholder="Select campaign…" />
+						</SelectTrigger>
+						<SelectContent>
+							{campaigns.map((campaign) => (
+								<SelectItem key={campaign.id} value={campaign.id}>
+									{campaign.name}
+								</SelectItem>
 							))}
-						</select>
-					</div>
-				) : (
+						</SelectContent>
+					</Select>
+				</div>
+			)}
+
+			{logging && effectiveCampaign && (
+				<div className="max-w-3xl">
 					<LeadForm
 						campaignId={effectiveCampaign}
 						callSid={item.twilio_call_sid}
 						callerPhone={item.caller_phone}
 					/>
-				)}
-			</div>
+				</div>
+			)}
 		</div>
 	);
 }
@@ -473,18 +557,22 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 	const schema = useMemo(() => detail?.lead?.form_schema_snapshot ?? [], [detail]);
 
 	if (loading) {
-		return <p className="px-3 py-3 text-xs text-muted-foreground">Loading detail…</p>;
+		return (
+			<div className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
+				<Loader2 className="size-4 animate-spin" />
+				Loading detail…
+			</div>
+		);
 	}
 	if (error) {
-		return <p className="px-3 py-3 text-xs text-destructive">{error}</p>;
+		return <p className="px-4 py-4 text-sm text-destructive">{error}</p>;
 	}
 	if (!detail?.lead) return null;
 
 	const hasRecording = !!detail.call?.id;
 
 	return (
-		<div className="space-y-4 bg-secondary/10 px-3 py-3 text-sm">
-			{/* Frozen form snapshot + answers (read-only). */}
+		<div className="space-y-5 px-4 py-4">
 			{schema.length > 0 ? (
 				<FormRenderer
 					schema={schema}
@@ -493,28 +581,28 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 					disabled
 				/>
 			) : (
-				<p className="text-xs text-muted-foreground">No form captured for this lead.</p>
+				<p className="text-sm text-muted-foreground">No form captured for this lead.</p>
 			)}
 
-			<div className="grid grid-cols-2 gap-2 border-t border-border pt-3 text-xs">
-				<Row label="Campaign" value={detail.campaign_name || '—'} />
-				<Row label="Disposition" value={detail.lead.disposition_label || '—'} />
-				<Row label="Created" value={fmt(detail.lead.created_at)} />
-				<Row label="Phone" value={detail.lead.caller_phone || '—'} />
+			<div className="grid gap-5 border-t pt-4 md:grid-cols-2">
+				<div className="grid gap-2 text-sm">
+					<Row label="Campaign" value={detail.campaign_name || '—'} />
+					<Row label="Disposition" value={detail.lead.disposition_label || '—'} />
+					<Row label="Created" value={fmt(detail.lead.created_at)} />
+					<Row label="Phone" value={detail.lead.caller_phone || '—'} />
+				</div>
+
+				<RecordingControl
+					hasRecording={hasRecording}
+					fetchUrl={() =>
+						getLeadRecording(leadId).then((r) => r.recording_url ?? null)
+					}
+				/>
 			</div>
 
-			{/* Recording */}
-			<RecordingControl
-				hasRecording={hasRecording}
-				fetchUrl={() =>
-					getLeadRecording(leadId).then((r) => r.recording_url ?? null)
-				}
-			/>
-
-			{/* Event timeline */}
 			{detail.events && detail.events.length > 0 && (
-				<div className="border-t border-border pt-3">
-					<p className="mb-1 text-xs text-muted-foreground">Activity</p>
+				<div className="border-t pt-4">
+					<p className="mb-2 text-sm font-medium">Activity</p>
 					<ul className="space-y-1">
 						{detail.events.map((ev) => (
 							<li key={ev.id} className="flex justify-between gap-4 text-xs">
@@ -533,7 +621,7 @@ function Row({label, value}: {label: string; value: string}) {
 	return (
 		<div className="flex justify-between gap-4">
 			<span className="text-muted-foreground">{label}</span>
-			<span className="font-mono">{value}</span>
+			<span className="text-right font-mono">{value}</span>
 		</div>
 	);
 }

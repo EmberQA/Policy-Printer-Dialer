@@ -12,9 +12,18 @@
  */
 
 import type {FormField} from '@/lib/api';
-
-const inputClasses =
-	'flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
+import {Input} from '@/components/ui/input';
+import {Label} from '@/components/ui/label';
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue
+} from '@/components/ui/select';
+import {Switch} from '@/components/ui/switch';
+import {Textarea} from '@/components/ui/textarea';
+import {cn} from '@/lib/utils';
 
 export type LeadFormData = Record<string, unknown>;
 
@@ -42,7 +51,7 @@ export function FormRenderer({
 	}
 
 	return (
-		<div className="space-y-3">
+		<div className="grid gap-4 sm:grid-cols-2">
 			{fields.map((field) => (
 				<Field
 					key={field.key}
@@ -69,12 +78,18 @@ function Field({
 }) {
 	const id = `lf_${field.key}`;
 	return (
-		<div className="space-y-1">
+		<div
+			className={cn(
+				'space-y-2',
+				(field.type === 'textarea' || field.type === 'checkbox') &&
+					'sm:col-span-2'
+			)}
+		>
 			{field.type !== 'boolean' && (
-				<label className="text-sm text-muted-foreground" htmlFor={id}>
+				<Label className="text-sm text-foreground" htmlFor={id}>
 					{field.label}
 					{field.required && <span className="text-destructive"> *</span>}
-				</label>
+				</Label>
 			)}
 			<Control field={field} id={id} value={value} onChange={onChange} disabled={disabled} />
 			{field.help && (
@@ -102,45 +117,56 @@ function Control({
 	switch (field.type) {
 		case 'textarea':
 			return (
-				<textarea
+				<Textarea
 					id={id}
 					value={str}
 					disabled={disabled}
 					onChange={(e) => onChange(e.target.value)}
-					rows={3}
-					className={inputClasses.replace('h-10', 'min-h-[72px]')}
+					rows={4}
 				/>
 			);
 
 		case 'select':
 			return (
-				<select
-					id={id}
-					value={str}
+				<Select
+					value={str || '__empty'}
 					disabled={disabled}
-					onChange={(e) => onChange(e.target.value)}
-					className={inputClasses}
+					onValueChange={(next) => onChange(next === '__empty' ? '' : next)}
 				>
-					<option value="">Select…</option>
-					{(field.options ?? []).map((o) => (
-						<option key={o.value} value={o.value}>
-							{o.label}
-						</option>
-					))}
-				</select>
+					<SelectTrigger id={id} className="w-full">
+						<SelectValue placeholder="Select…" />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="__empty">Select…</SelectItem>
+						{(field.options ?? []).map((o) => (
+							<SelectItem key={o.value} value={o.value}>
+								{o.label}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
 			);
 
 		case 'radio':
 			return (
-				<div className="flex flex-wrap gap-3 pt-1">
+				<div className="flex flex-wrap gap-2 pt-1">
 					{(field.options ?? []).map((o) => (
-						<label key={o.value} className="flex items-center gap-1.5 text-sm">
+						<label
+							key={o.value}
+							className={cn(
+								'inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+								str === o.value
+									? 'border-primary bg-primary/5 text-foreground'
+									: 'border-input bg-card text-muted-foreground hover:bg-accent'
+							)}
+						>
 							<input
 								type="radio"
 								name={id}
 								checked={str === o.value}
 								disabled={disabled}
 								onChange={() => onChange(o.value)}
+								className="size-3.5 accent-primary"
 							/>
 							{o.label}
 						</label>
@@ -157,14 +183,18 @@ function Control({
 				onChange(next);
 			};
 			return (
-				<div className="flex flex-wrap gap-3 pt-1">
+				<div className="grid gap-2 pt-1 sm:grid-cols-2">
 					{(field.options ?? []).map((o) => (
-						<label key={o.value} className="flex items-center gap-1.5 text-sm">
+						<label
+							key={o.value}
+							className="flex cursor-pointer items-center gap-2 rounded-md border border-input bg-card px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent"
+						>
 							<input
 								type="checkbox"
 								checked={arr.includes(o.value)}
 								disabled={disabled}
 								onChange={() => toggle(o.value)}
+								className="size-4 accent-primary"
 							/>
 							{o.label}
 						</label>
@@ -175,21 +205,23 @@ function Control({
 
 		case 'boolean':
 			return (
-				<label className="flex items-center gap-2 text-sm">
-					<input
-						type="checkbox"
+				<label className="flex items-center justify-between rounded-md border border-input px-3 py-2 text-sm">
+					<span>
+						{field.label}
+						{field.required && <span className="text-destructive"> *</span>}
+					</span>
+					<Switch
 						id={id}
 						checked={value === true}
 						disabled={disabled}
-						onChange={(e) => onChange(e.target.checked)}
+						onCheckedChange={onChange}
 					/>
-					{field.label}
 				</label>
 			);
 
 		case 'number':
 			return (
-				<input
+				<Input
 					id={id}
 					type="number"
 					value={typeof value === 'number' ? value : str}
@@ -197,56 +229,51 @@ function Control({
 					onChange={(e) =>
 						onChange(e.target.value === '' ? '' : Number(e.target.value))
 					}
-					className={inputClasses}
 				/>
 			);
 
 		case 'date':
 			return (
-				<input
+				<Input
 					id={id}
 					type="date"
 					value={str}
 					disabled={disabled}
 					onChange={(e) => onChange(e.target.value)}
-					className={inputClasses}
 				/>
 			);
 
 		case 'email':
 			return (
-				<input
+				<Input
 					id={id}
 					type="email"
 					value={str}
 					disabled={disabled}
 					onChange={(e) => onChange(e.target.value)}
-					className={inputClasses}
 				/>
 			);
 
 		case 'phone':
 			return (
-				<input
+				<Input
 					id={id}
 					type="tel"
 					value={str}
 					disabled={disabled}
 					onChange={(e) => onChange(e.target.value)}
-					className={inputClasses}
 				/>
 			);
 
 		case 'text':
 		default:
 			return (
-				<input
+				<Input
 					id={id}
 					type="text"
 					value={str}
 					disabled={disabled}
 					onChange={(e) => onChange(e.target.value)}
-					className={inputClasses}
 				/>
 			);
 	}
