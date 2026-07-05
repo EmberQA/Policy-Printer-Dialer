@@ -12,9 +12,13 @@
 import axios from 'axios';
 import {setSession, hasSession} from './session';
 
+// Same prod-aware base as src/lib/api.ts: prod build → deployed backend, dev →
+// local :3000, both still overridable via VITE_API_BASE / VITE_DIALER_AUTH_BASE.
+const API_BASE =
+	import.meta.env.VITE_API_BASE ??
+	(import.meta.env.PROD ? 'https://api.emberqa.com' : 'http://localhost:3000');
 const DIALER_AUTH_BASE =
-	import.meta.env.VITE_DIALER_AUTH_BASE ??
-	`${import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'}/dialer-auth/v1`;
+	import.meta.env.VITE_DIALER_AUTH_BASE ?? `${API_BASE}/dialer-auth/v1`;
 
 export type HandoffResult =
 	| {status: 'authenticated'}

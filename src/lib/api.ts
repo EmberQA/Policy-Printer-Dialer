@@ -20,9 +20,13 @@ import {
 	clearSession
 } from '@/auth/session';
 
-// Dev fallback is the BACKEND port (3000) — matches EmberQA's fetchWithAuth
-// convention. 3001 is the EmberQA frontend, not the API. Prod sets VITE_API_BASE.
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000';
+// Prod build (`vite build`) targets the deployed backend; dev (`vite`) targets
+// the LOCAL backend on :3000 (matches EmberQA's fetchWithAuth convention — 3001
+// is the EmberQA frontend, not the API). Still overridable by VITE_API_BASE if a
+// build ever needs a different host.
+const API_BASE =
+	import.meta.env.VITE_API_BASE ??
+	(import.meta.env.PROD ? 'https://api.emberqa.com' : 'http://localhost:3000');
 
 export const api: AxiosInstance = axios.create({
 	baseURL: `${API_BASE}/api/v1`
