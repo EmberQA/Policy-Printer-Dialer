@@ -6,6 +6,7 @@ import {
   Headphones,
   ListChecks,
   Loader2,
+  PhoneCall,
   Power,
   RadioTower,
   Wifi,
@@ -26,14 +27,16 @@ import {
   getPresence,
   listCampaigns,
   setCampaignReady,
+  setOnCall,
   setPresence,
   type DialerCampaign,
   type DialerPresence,
   type PresenceStatus,
 } from "@/lib/api";
 import { useHeartbeat } from "@/presence/useHeartbeat";
-import { useDevice } from "@/twilio/useDevice";
+import { useDevice, type ActiveCall } from "@/twilio/useDevice";
 import { ActiveCallBanner } from "@/twilio/ActiveCallBanner";
+import { AudioSetupDialog } from "@/twilio/AudioSetupDialog";
 import { LeadForm } from "@/leads/LeadForm";
 import { cn } from "@/lib/utils";
 
@@ -62,9 +65,19 @@ export default function Dial() {
     useState<PresenceStatus | null>(null);
   const [readyRequestSettled, setReadyRequestSettled] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [debugIncomingCall, setDebugIncomingCall] = useState(false);
+  const [debugCallMuted, setDebugCallMuted] = useState(false);
+  const [debugCallStartedAt, setDebugCallStartedAt] = useState<number | null>(
+    null,
+  );
   // Which campaign the active call's lead form is for. Defaults to the sole armed
   // campaign; when several are armed the agent picks (the call can be from any buyer).
   const [leadCampaignId, setLeadCampaignId] = useState<string>("");
+  const [wrapUpCall, setWrapUpCall] = useState<ActiveCall | null>(null);
+  const [completedWrapUpCallKey, setCompletedWrapUpCallKey] = useState<
+    string | null
+  >(null);
+  const [wrapUpReleasePending, setWrapUpReleasePending] = useState(false);
 
   const provisioned = Boolean(profile?.provisioned);
 
@@ -202,14 +215,99 @@ export default function Dial() {
       .finally(() => setBusy(null));
   };
 
-  // On a call if the live Device says so, or the backend flag is set (covers the
-  // brief window before the device 'accept' event lands).
-  const onCall = Boolean(device.activeCall) || Boolean(presence?.on_call);
+  const onToggleDebugIncomingCall = () => {
+    setDebugIncomingCall((current) => {
+      if (current) {
+        setDebugCallStartedAt(null);
+        setDebugCallMuted(false);
+        return false;
+      }
+      setDebugCallStartedAt(Date.now());
+      setDebugCallMuted(false);
+      return true;
+    });
+  };
+
+  // On a call if the live Device says so, the backend flag is set, or a disconnected
+  // call still needs disposition/lead wrap-up before this agent can receive another.
+  const liveOnCall = Boolean(device.activeCall) || Boolean(presence?.on_call);
+  const debugCallActive = debugIncomingCall && !device.activeCall;
+  const debugCall: ActiveCall | null = debugCallActive
+    ? {
+        from: "+15555550100",
+        callSid: "debug-incoming-call",
+        muted: debugCallMuted,
+        startedAt: debugCallStartedAt ?? Date.now(),
+      }
+    : null;
+  const activeCall = device.activeCall ?? debugCall;
+  const workCall = activeCall ?? wrapUpCall;
+  const wrapUpCallKey = workCall ? callKey(workCall) : null;
+  const wrapUpCompleted =
+    Boolean(wrapUpCallKey) && completedWrapUpCallKey === wrapUpCallKey;
+  const onCall = liveOnCall || debugIncomingCall || Boolean(wrapUpCall);
+  const displayAvailable = onCall ? 0 : available;
   const canGoReady = anyArmed; // must arm ≥1 campaign first
   const deviceError = device.error;
 
+  useEffect(() => {
+    if (!activeCall) return;
+    const nextCallKey = callKey(activeCall);
+    if (!wrapUpCall || callKey(wrapUpCall) !== nextCallKey) {
+      setCompletedWrapUpCallKey(null);
+    }
+    setWrapUpCall(activeCall);
+  }, [activeCall, wrapUpCall]);
+
+  const releaseCallWrapUp = async () => {
+    if (!wrapUpCall) return;
+    setWrapUpReleasePending(true);
+    setError(null);
+    try {
+      const res = await setOnCall(false);
+      if (res.statusCode !== "SP100") {
+        throw new Error(res.statusMessage || "Could not release call");
+      }
+      setPresenceState(res.presence ?? null);
+      setWrapUpCall(null);
+      setCompletedWrapUpCallKey(null);
+    } catch (err) {
+      setError(readError(err, "Could not release call"));
+      throw err;
+    } finally {
+      setWrapUpReleasePending(false);
+    }
+  };
+
+  const onWrapUpComplete = async () => {
+    if (!workCall) return;
+    setCompletedWrapUpCallKey(callKey(workCall));
+    if (!activeCall) {
+      await releaseCallWrapUp();
+    }
+  };
+
+  useEffect(() => {
+    if (
+      !wrapUpCall ||
+      activeCall ||
+      !completedWrapUpCallKey ||
+      completedWrapUpCallKey !== callKey(wrapUpCall) ||
+      wrapUpReleasePending
+    ) {
+      return;
+    }
+
+    void releaseCallWrapUp().catch(() => undefined);
+  }, [activeCall, completedWrapUpCallKey, wrapUpCall, wrapUpReleasePending]);
+
   return (
     <div className="relative min-h-[calc(100vh-7rem)] w-full space-y-6">
+      <DebugIncomingCallToggle
+        active={debugIncomingCall}
+        onToggle={onToggleDebugIncomingCall}
+      />
+
       {error && (
         <div className="mx-auto max-w-3xl rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {error}
@@ -249,33 +347,37 @@ export default function Dial() {
 
         {profile && provisioned && (
           <>
-            {device.activeCall ? (
+            {activeCall ? (
               <ActiveCallBanner
-                call={device.activeCall}
-                onMute={device.mute}
-                onHangup={device.hangup}
+                call={activeCall}
+                onMute={device.activeCall ? device.mute : setDebugCallMuted}
+                onHangup={
+                  device.activeCall ? device.hangup : onToggleDebugIncomingCall
+                }
+              />
+            ) : wrapUpCall ? (
+              <WrapUpCallPanel
+                call={wrapUpCall}
+                completed={wrapUpCompleted}
+                releasePending={wrapUpReleasePending}
+                onRelease={releaseCallWrapUp}
               />
             ) : (
-              <IdleCallPanel
-                available={available}
-                connected={heartbeat.connected}
-                deviceStatus={device.deviceStatus}
-                anyArmed={anyArmed}
-                presence={presence}
-              />
+              <IdleCallPanel available={displayAvailable} />
             )}
 
-            {/* Lead capture — shown while on a call once a campaign is chosen for it.
-						    Keyed by CallSid so each new call starts a fresh, blank form. */}
-            {device.activeCall && leadCampaignId && (
+            {/* Lead capture — held open after hangup until the call is dispositioned. */}
+            {workCall && leadCampaignId && !wrapUpCompleted && (
               <LeadForm
-                key={device.activeCall.callSid}
+                key={workCall.callSid || "active-call"}
                 campaignId={leadCampaignId}
-                callSid={device.activeCall.callSid || null}
-                callerPhone={device.activeCall.from}
+                callSid={workCall.callSid || null}
+                callerPhone={workCall.from}
+                onComplete={onWrapUpComplete}
+                showClear={false}
               />
             )}
-            {device.activeCall && !leadCampaignId && (
+            {workCall && !leadCampaignId && !wrapUpCompleted && (
               <Card className="shadow-xs">
                 <CardHeader>
                   <CardTitle>Choose a campaign</CardTitle>
@@ -315,7 +417,9 @@ export default function Dial() {
         onToggleReady={onToggleReady}
         campaigns={campaigns}
         onToggleCampaign={onToggleCampaign}
-        available={available}
+        onInputDeviceChange={device.setInputDevice}
+        onOutputDeviceChange={device.setOutputDevice}
+        available={displayAvailable}
         connected={heartbeat.connected}
         deviceStatus={device.deviceStatus}
         armedCount={armedCampaigns.length}
@@ -328,6 +432,80 @@ export default function Dial() {
   );
 }
 
+function callKey(call: ActiveCall): string {
+  return call.callSid || `${call.from}-${call.startedAt}`;
+}
+
+function WrapUpCallPanel({
+  call,
+  completed,
+  releasePending,
+  onRelease,
+}: {
+  call: ActiveCall;
+  completed: boolean;
+  releasePending: boolean;
+  onRelease: () => Promise<void>;
+}) {
+  return (
+    <Card className="border-amber-200 bg-amber-50/50 shadow-xs dark:border-amber-400/30 dark:bg-amber-400/10">
+      <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+            {completed ? (
+              <CircleCheck className="size-5" />
+            ) : (
+              <PhoneCall className="size-5" />
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="font-medium">
+              {completed ? "Call wrap-up complete" : "Finish call wrap-up"}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              {completed
+                ? "Releasing availability so another call can route."
+                : `Select a disposition for ${call.from} before taking another call.`}
+            </p>
+          </div>
+        </div>
+        {completed && (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={releasePending}
+            onClick={() => void onRelease().catch(() => undefined)}
+          >
+            {releasePending && <Loader2 className="size-4 animate-spin" />}
+            Finalize
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DebugIncomingCallToggle({
+  active,
+  onToggle,
+}: {
+  active: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={active ? "destructive" : "outline"}
+      size="sm"
+      onClick={onToggle}
+      aria-pressed={active}
+      className="fixed left-2 top-2 z-50 h-7 px-2 text-[11px] opacity-25 hover:opacity-100"
+    >
+      {active ? "End call" : "Debug call"}
+    </Button>
+  );
+}
+
 function DialSidebar({
   status,
   busy,
@@ -337,6 +515,8 @@ function DialSidebar({
   onToggleReady,
   campaigns,
   onToggleCampaign,
+  onInputDeviceChange,
+  onOutputDeviceChange,
   available,
   connected,
   deviceStatus,
@@ -354,6 +534,8 @@ function DialSidebar({
   onToggleReady: () => void;
   campaigns: DialerCampaign[];
   onToggleCampaign: (campaignId: string, ready: boolean) => void;
+  onInputDeviceChange: (deviceId: string) => Promise<void>;
+  onOutputDeviceChange: (deviceId: string) => Promise<void>;
   available: 0 | 1 | null;
   connected: boolean;
   deviceStatus: string;
@@ -401,6 +583,10 @@ function DialSidebar({
               busy={busy}
               onCall={onCall}
               onToggleCampaign={onToggleCampaign}
+            />
+            <AudioSetupDialog
+              onInputDeviceChange={onInputDeviceChange}
+              onOutputDeviceChange={onOutputDeviceChange}
             />
           </div>
         </CardContent>
@@ -503,19 +689,7 @@ function CampaignMenu({
   );
 }
 
-function IdleCallPanel({
-  available,
-  connected,
-  deviceStatus,
-  anyArmed,
-  presence,
-}: {
-  available: 0 | 1 | null;
-  connected: boolean;
-  deviceStatus: string;
-  anyArmed: boolean;
-  presence: DialerPresence | null;
-}) {
+function IdleCallPanel({ available }: { available: 0 | 1 | null }) {
   const routable = available === 1;
 
   return (
@@ -527,7 +701,7 @@ function IdleCallPanel({
           </div>
           <div className="min-w-0">
             <p className="font-medium">
-              {routable ? "Ready for routed calls" : "Not Ready"}
+              {routable ? "Ready For Calls" : "Not Ready"}
             </p>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
               {routable
@@ -596,6 +770,7 @@ function StatusPreview({
           <AvailabilityBadge
             available={available}
             connected={connected}
+            onCall={onCall}
             pending={readyStatePending}
           />
         </CardTitle>
@@ -603,11 +778,13 @@ function StatusPreview({
       {open && (
         <CardContent className="space-y-4">
           <StatusRow
-            icon={isAvailable ? CircleCheck : CircleAlert}
+            icon={onCall ? PhoneCall : isAvailable ? CircleCheck : CircleAlert}
             label="Availability"
-            value={isAvailable ? "Available" : "Unavailable"}
+            value={
+              onCall ? "On Call" : isAvailable ? "Available" : "Unavailable"
+            }
             helper={availabilityHelper}
-            tone={isAvailable ? "success" : "destructive"}
+            tone={onCall ? "warning" : isAvailable ? "success" : "destructive"}
           />
           <StatusRow
             icon={readyStatePending ? Loader2 : Power}
@@ -672,17 +849,39 @@ function StatusRow({
   label: string;
   value: string;
   helper: string;
-  tone: "success" | "destructive";
+  tone: "success" | "destructive" | "warning";
   pending?: boolean;
 }) {
+  const toneClass = {
+    success: {
+      icon: "bg-success/10 text-success",
+      badge: cn(
+        "border-success/30 bg-success/5 text-success",
+        pending && "ring-2 ring-success/15",
+      ),
+    },
+    destructive: {
+      icon: "bg-destructive/10 text-destructive",
+      badge: cn(
+        "border-destructive/30 bg-destructive/5 text-destructive",
+        pending && "ring-2 ring-destructive/15",
+      ),
+    },
+    warning: {
+      icon: "bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300",
+      badge: cn(
+        "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300",
+        pending && "ring-2 ring-amber-300/25",
+      ),
+    },
+  }[tone];
+
   return (
     <div className={cn("flex gap-3", pending && "animate-pulse")}>
       <div
         className={cn(
           "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full",
-          tone === "success"
-            ? "bg-success/10 text-success"
-            : "bg-destructive/10 text-destructive",
+          toneClass.icon,
         )}
       >
         <Icon className={cn("size-4", pending && "animate-spin")} />
@@ -690,20 +889,7 @@ function StatusRow({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-medium">{label}</p>
-          <Badge
-            variant="outline"
-            className={
-              tone === "success"
-                ? cn(
-                    "border-success/30 bg-success/5 text-success",
-                    pending && "ring-2 ring-success/15",
-                  )
-                : cn(
-                    "border-destructive/30 bg-destructive/5 text-destructive",
-                    pending && "ring-2 ring-destructive/15",
-                  )
-            }
-          >
+          <Badge variant="outline" className={toneClass.badge}>
             {value}
           </Badge>
         </div>
@@ -716,12 +902,29 @@ function StatusRow({
 function AvailabilityBadge({
   available,
   connected,
+  onCall,
   pending = false,
 }: {
   available: 0 | 1 | null;
   connected: boolean;
+  onCall: boolean;
   pending?: boolean;
 }) {
+  if (onCall) {
+    return (
+      <Badge
+        variant="outline"
+        className={cn(
+          "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300",
+          pending && "ring-2 ring-amber-300/25",
+        )}
+      >
+        {pending && <Loader2 className="animate-spin" />}
+        On Call
+      </Badge>
+    );
+  }
+
   if (!connected || available === null) {
     return (
       <Badge

@@ -7,7 +7,7 @@
  *   - reports the device registration status (consumed by useHeartbeat so the
  *     backend's computeReady only routes when the Device is actually 'registered'),
  *   - refreshes the token on `tokenWillExpire`,
- *   - signals on_call=true on accept / false on disconnect (mid-call availability=0),
+ *   - signals on_call=true on accept (the page releases it after lead wrap-up),
  *   - exposes the live Call + mute/hangup so the active-call UI can drive it.
  *
  * No outbound dialing, no conference. Mic permission is requested up front (the
@@ -47,6 +47,8 @@ export interface UseDeviceState {
 	 * (e.g. the "Go ready" toggle). Resolves true once audio is armed.
 	 */
 	armAudio: () => Promise<boolean>;
+	setInputDevice: (deviceId: string) => Promise<void>;
+	setOutputDevice: (deviceId: string) => Promise<void>;
 }
 
 export interface UseDeviceOptions {
@@ -71,6 +73,31 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 
 	const hangup = useCallback(() => {
 		callRef.current?.disconnect();
+	}, []);
+
+	const setInputDevice = useCallback(async (deviceId: string): Promise<void> => {
+		const audio = deviceRef.current?.audio;
+		if (!audio) {
+			throw new Error('Softphone audio is not ready yet.');
+		}
+		await audio.setInputDevice(deviceId);
+	}, []);
+
+	const setOutputDevice = useCallback(async (deviceId: string): Promise<void> => {
+		const audio = deviceRef.current?.audio;
+		if (!audio) {
+			throw new Error('Softphone audio is not ready yet.');
+		}
+		if (!audio.isOutputSelectionSupported) {
+			if (deviceId === 'default') return;
+			throw new Error(
+				'This browser cannot choose a speaker. Use Chrome or your system output settings.'
+			);
+		}
+		await Promise.all([
+			audio.speakerDevices.set(deviceId),
+			audio.ringtoneDevices.set(deviceId)
+		]);
 	}, []);
 
 	// Prime audio from a user gesture. The dialer auto-answers, so there's no
@@ -144,7 +171,6 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 				if (cancelled) return;
 				callRef.current = null;
 				setActiveCall(null);
-				void setOnCall(false).catch(() => undefined);
 			};
 			call.on('disconnect', clearCall);
 			call.on('cancel', clearCall);
@@ -233,7 +259,16 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 		};
 	}, [enabled]);
 
-	return {deviceStatus, activeCall, error, mute, hangup, armAudio};
+	return {
+		deviceStatus,
+		activeCall,
+		error,
+		mute,
+		hangup,
+		armAudio,
+		setInputDevice,
+		setOutputDevice
+	};
 }
 
 /** Turn a getUserMedia rejection into a user-facing message. */

@@ -12,7 +12,15 @@
  */
 
 import {useEffect, useMemo, useState} from 'react';
-import {CheckCircle2, Loader2, RotateCcw, Save} from 'lucide-react';
+import {
+	AlertTriangle,
+	Ban,
+	CheckCircle2,
+	Loader2,
+	RotateCcw,
+	Save
+} from 'lucide-react';
+import {Dialog as DialogPrimitive} from 'radix-ui';
 import {Badge} from '@/components/ui/badge';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {Button} from '@/components/ui/button';
@@ -28,12 +36,17 @@ import {DispositionSelect} from './DispositionSelect';
 export function LeadForm({
 	campaignId,
 	callSid,
-	callerPhone
+	callerPhone,
+	onComplete,
+	showClear = true
 }: {
 	campaignId: string;
 	/** Tying the lead to the call. Null for a manual lead with no live call. */
 	callSid: string | null;
 	callerPhone: string | null;
+	/** Called once this call has either a saved lead or confirmed no-lead outcome. */
+	onComplete?: () => Promise<void> | void;
+	showClear?: boolean;
 }) {
 	const [form, setForm] = useState<DialerForm | null>(null);
 	const [dispositions, setDispositions] = useState<DialerDisposition[]>([]);
@@ -43,8 +56,11 @@ export function LeadForm({
 	const [formData, setFormData] = useState<LeadFormData>({});
 	const [dispositionKey, setDispositionKey] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
+	const [completingWithoutLead, setCompletingWithoutLead] = useState(false);
 	const [saveError, setSaveError] = useState<string | null>(null);
 	const [savedLeadId, setSavedLeadId] = useState<string | null>(null);
+	const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
+	const busy = saving || completingWithoutLead;
 
 	const initialFormData = (nextForm: DialerForm | null): LeadFormData => {
 		const phoneField = (nextForm?.schema ?? []).find(
@@ -94,6 +110,21 @@ export function LeadForm({
 	const onField = (key: string, value: unknown) =>
 		setFormData((prev) => ({...prev, [key]: value}));
 
+	const selectedDisposition = useMemo(
+		() => dispositions.find((d) => d.disposition_key === dispositionKey) ?? null,
+		[dispositions, dispositionKey]
+	);
+
+	const requireDisposition = (): boolean => {
+		if (dispositionKey) return true;
+		setSaveError(
+			dispositions.length === 0
+				? 'A disposition is required, but none are configured for this campaign.'
+				: 'Select a disposition before completing this call.'
+		);
+		return false;
+	};
+
 	const derivedName = (): string | null => {
 		const fd = formData as Record<string, unknown>;
 		if (nameFieldKey && typeof fd[nameFieldKey] === 'string') {
@@ -106,6 +137,7 @@ export function LeadForm({
 	};
 
 	const onSave = async () => {
+		if (!requireDisposition()) return;
 		setSaving(true);
 		setSaveError(null);
 		try {
@@ -122,10 +154,30 @@ export function LeadForm({
 				return;
 			}
 			setSavedLeadId(res.lead_id ?? null);
+			await onComplete?.();
 		} catch (err) {
 			setSaveError(readError(err, 'Could not save lead'));
 		} finally {
 			setSaving(false);
+		}
+	};
+
+	const onOpenSkipConfirm = () => {
+		if (!requireDisposition()) return;
+		setSkipConfirmOpen(true);
+	};
+
+	const onConfirmNoLead = async () => {
+		if (!requireDisposition()) return;
+		setCompletingWithoutLead(true);
+		setSaveError(null);
+		try {
+			await onComplete?.();
+			setSkipConfirmOpen(false);
+		} catch (err) {
+			setSaveError(readError(err, 'Could not complete call wrap-up'));
+		} finally {
+			setCompletingWithoutLead(false);
 		}
 	};
 
@@ -163,7 +215,7 @@ export function LeadForm({
 								schema={form.schema}
 								value={formData}
 								onChange={onField}
-								disabled={saving}
+								disabled={busy}
 							/>
 						) : (
 							<p className="text-muted-foreground">
@@ -178,14 +230,14 @@ export function LeadForm({
 								dispositions={dispositions}
 								value={dispositionKey}
 								onChange={setDispositionKey}
-								disabled={saving}
+								disabled={busy}
 							/>
 						</div>
 
 						{saveError && <p className="text-destructive">{saveError}</p>}
 
 						<div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center">
-							<Button variant="success" onClick={onSave} disabled={saving}>
+							<Button variant="success" onClick={onSave} disabled={busy}>
 								{saving ? (
 									<Loader2 className="size-4 animate-spin" />
 								) : (
@@ -193,20 +245,84 @@ export function LeadForm({
 								)}
 								{saving ? 'Saving…' : savedLeadId ? 'Save again' : 'Save lead'}
 							</Button>
-							<Button
-								type="button"
-								variant="outline"
-								disabled={saving}
-								onClick={() => {
-									setSaveError(null);
-									setSavedLeadId(null);
-									setDispositionKey(null);
-									setFormData(initialFormData(form));
-								}}
+							<DialogPrimitive.Root
+								open={skipConfirmOpen}
+								onOpenChange={setSkipConfirmOpen}
 							>
-								<RotateCcw className="size-4" />
-								Clear
-							</Button>
+								<DialogPrimitive.Trigger asChild>
+									<Button
+										type="button"
+										variant="outline"
+										disabled={busy}
+										onClick={(event) => {
+											event.preventDefault();
+											onOpenSkipConfirm();
+										}}
+									>
+										<Ban className="size-4" />
+										Do not save lead
+									</Button>
+								</DialogPrimitive.Trigger>
+								<DialogPrimitive.Portal>
+									<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+									<DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 grid w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border bg-popover p-5 text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
+										<div className="flex gap-3">
+											<div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+												<AlertTriangle className="size-5" />
+											</div>
+											<div className="space-y-2">
+												<DialogPrimitive.Title className="text-base font-semibold">
+													Do not save a lead?
+												</DialogPrimitive.Title>
+												<DialogPrimitive.Description className="text-sm leading-6 text-muted-foreground">
+													This call will close without saving lead details.
+													{selectedDisposition
+														? ` Selected disposition: ${selectedDisposition.label}.`
+														: ''}
+												</DialogPrimitive.Description>
+											</div>
+										</div>
+										<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+											<DialogPrimitive.Close asChild>
+												<Button
+													type="button"
+													variant="outline"
+													disabled={completingWithoutLead}
+												>
+													Cancel
+												</Button>
+											</DialogPrimitive.Close>
+											<Button
+												type="button"
+												variant="destructive"
+												disabled={completingWithoutLead}
+												onClick={onConfirmNoLead}
+											>
+												{completingWithoutLead && (
+													<Loader2 className="size-4 animate-spin" />
+												)}
+												Confirm no lead
+											</Button>
+										</div>
+									</DialogPrimitive.Content>
+								</DialogPrimitive.Portal>
+							</DialogPrimitive.Root>
+							{showClear && (
+								<Button
+									type="button"
+									variant="outline"
+									disabled={busy}
+									onClick={() => {
+										setSaveError(null);
+										setSavedLeadId(null);
+										setDispositionKey(null);
+										setFormData(initialFormData(form));
+									}}
+								>
+									<RotateCcw className="size-4" />
+									Clear
+								</Button>
+							)}
 							{savedLeadId && (
 								<span className="text-xs leading-5 text-muted-foreground">
 									Lead saved. Editing and re-saving creates a new lead in V1.

@@ -2,10 +2,11 @@ import {useEffect, useState} from 'react';
 import {Navigate, NavLink, Route, Routes} from 'react-router-dom';
 import {Badge} from '@/components/ui/badge';
 import {runHandoff, HandoffResult} from '@/auth/handoff';
-import {hasSession} from '@/auth/session';
+import {getUser, hasSession} from '@/auth/session';
 import {cn} from '@/lib/utils';
 import Dial from '@/pages/Dial';
 import Leads from '@/pages/Leads';
+import policyPrinterLogo from '@/assets/policy-printer-logo.png';
 
 type BootState =
 	| {phase: 'booting'}
@@ -22,6 +23,9 @@ const THEME_KEY = 'pp_dialer_theme';
  */
 export default function App() {
 	const [boot, setBoot] = useState<BootState>({phase: 'booting'});
+	const user = getUser();
+	const userName =
+		[user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'Unknown user';
 
 	useEffect(() => {
 		let cancelled = false;
@@ -82,20 +86,22 @@ export default function App() {
 	return (
 		<div className="min-h-screen bg-background">
 			<header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-				<div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-					<div className="flex min-w-0 items-center gap-5">
-						<span className="truncate font-semibold tracking-tight">
-							Policy Printer Dialer
-						</span>
+				<div className="mx-auto flex min-h-24 max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-2 sm:px-6">
+					<div className="flex min-w-0 flex-wrap items-center gap-5">
+						<img
+							src={policyPrinterLogo}
+							alt="Policy Printer"
+							className="h-20 w-auto shrink-0 object-contain"
+						/>
 						<nav className="flex items-center gap-1" aria-label="Primary">
 							<NavTab to="/dial" label="Calls" />
 							<NavTab to="/leads" label="Activity" />
 						</nav>
 					</div>
 					<div className="flex shrink-0 items-center gap-2">
-						<Badge variant="outline" className="hidden sm:inline-flex">
-							Signed in
-						</Badge>
+						<p className="hidden text-sm text-muted-foreground sm:block">
+							Logged in as: {userName}
+						</p>
 					</div>
 				</div>
 			</header>
