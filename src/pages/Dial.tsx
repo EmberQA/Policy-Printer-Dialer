@@ -28,26 +28,23 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import {
-  fetchDialerProfile,
-  getPresence,
-  listCampaigns,
   setCampaignReady,
   setOnCall,
   setPresence,
   startOutboundCall,
   type DialerCampaign,
-  type DialerPresence,
   type PresenceStatus,
 } from "@/lib/api";
 import { Input } from "@/components/ui/input";
-import { useHeartbeat } from "@/presence/useHeartbeat";
-import { useDevice, type ActiveCall } from "@/twilio/useDevice";
+import { useDialerSession } from "@/session/DialerSessionProvider";
+import { type ActiveCall } from "@/twilio/useDevice";
 import { ActiveCallBanner } from "@/twilio/ActiveCallBanner";
 import { AudioSetupDialog } from "@/twilio/AudioSetupDialog";
 import { LeadForm } from "@/leads/LeadForm";
 import { ReturningCallerCard } from "@/leads/ReturningCallerCard";
 import { useReturningCaller } from "@/leads/useReturningCaller";
 import { cn } from "@/lib/utils";
+import { normalizeDialInput } from "@/lib/phone";
 
 /**
  * Dial page (Subplan 02 + 03) — presence, heartbeat, per-campaign ready toggles, and
@@ -66,9 +63,16 @@ import { cn } from "@/lib/utils";
  * is armed, otherwise the agent picks it).
  */
 export default function Dial() {
-  const [profile, setProfile] = useState<any>(null);
-  const [campaigns, setCampaigns] = useState<DialerCampaign[]>([]);
-  const [presence, setPresenceState] = useState<DialerPresence | null>(null);
+  // Shared session: the single Device + heartbeat + bootstrap (profile/campaigns/
+  // presence) live in the provider so they survive tab switches. Destructure using
+  // the SAME local names this component already used, so the rest of the body is
+  // unchanged.
+  const session = useDialerSession();
+  const { device, heartbeat, profile, provisioned, campaigns } = session;
+  const presence = session.presence;
+  const setCampaigns = session.setCampaigns;
+  const setPresenceState = session.setPresence;
+
   const [busy, setBusy] = useState<"status" | string | null>(null);
   const [pendingReadyStatus, setPendingReadyStatus] =
     useState<PresenceStatus | null>(null);
@@ -92,44 +96,10 @@ export default function Dial() {
   const [dialInput, setDialInput] = useState("");
   const [dialPending, setDialPending] = useState(false);
 
-  const provisioned = Boolean(profile?.provisioned);
-
-  // The Twilio Device registers once the agent is provisioned; its status feeds
-  // the heartbeat so the backend only advertises availability when the softphone
-  // can actually receive a call. The active call (if any) drives the banner.
-  const device = useDevice({ enabled: provisioned });
-
-  // Heartbeat runs once we know the agent is provisioned (a usable session
-  // exists by then — handoff already ran). It reports the live device status and
-  // echoes back the recomputed availability.
-  const heartbeat = useHeartbeat({
-    enabled: provisioned,
-    deviceStatus: device.deviceStatus,
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([fetchDialerProfile(), listCampaigns(), getPresence()])
-      .then(([prof, camps, pres]: any[]) => {
-        if (cancelled) return;
-        setProfile(prof);
-        setCampaigns(camps?.campaigns ?? []);
-        setPresenceState(pres?.presence ?? null);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(readError(err, "Failed to load dialer"));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Keep the local presence row in sync with what the heartbeat observes (e.g.
-  // on_call flipping, or another tab changing status).
-  useEffect(() => {
-    if (heartbeat.presence) setPresenceState(heartbeat.presence);
-  }, [heartbeat.presence]);
+  // device, heartbeat, profile, provisioned, campaigns, presence + bootstrap and the
+  // presence-sync effect now live in DialerSessionProvider (destructured above), so
+  // the Device survives tab switches. The effects below still run here because they
+  // depend on Dial-local UI state.
 
   useEffect(() => {
     if (
@@ -275,6 +245,9 @@ export default function Dial() {
   const displayAvailable = onCall ? 0 : available;
   const canGoReady = anyArmed; // must arm ≥1 campaign first
   const deviceError = device.error;
+  // Local `error` is for action failures (presence/campaign/dial/wrap-up); bootstrap
+  // (load) failures come from the shared session. Show either in the banner.
+  const displayError = error || session.bootError;
 
   useEffect(() => {
     if (!activeCall) return;
@@ -367,9 +340,9 @@ export default function Dial() {
         onToggle={onToggleDebugIncomingCall}
       />
 
-      {error && (
+      {displayError && (
         <div className="mx-auto max-w-3xl rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          {error}
+          {displayError}
         </div>
       )}
       {deviceError && (
@@ -386,7 +359,7 @@ export default function Dial() {
           )}
         </div>
 
-        {!profile && !error && (
+        {!session.bootstrapped && !displayError && (
           <Card className="shadow-xs">
             <CardContent className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
@@ -1213,19 +1186,4 @@ function formatDid(did: string): string {
       : null;
   if (!ten) return did;
   return `+1 (${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
-}
-
-/**
- * Normalize a typed dialpad number to canonical NANP +1XXXXXXXXXX, or null if it
- * isn't a valid US/CA number. Mirrors the backend's normalizeToNanpE164 so the Call
- * button's enabled state matches what the server will accept (the server re-validates
- * — this is just UX). NANP: area-code + exchange leading digits are both 2–9. `*`/`#`
- * keys are stripped as non-digits (they're on the keypad for parity, not diallable).
- */
-function normalizeDialInput(raw: string): string | null {
-  let digits = raw.replace(/\D/g, "");
-  if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
-  if (digits.length !== 10) return null;
-  if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(digits)) return null;
-  return `+1${digits}`;
 }

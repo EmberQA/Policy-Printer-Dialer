@@ -1,9 +1,17 @@
-import {useEffect, useState} from 'react';
-import {Navigate, NavLink, Route, Routes} from 'react-router-dom';
+import {useEffect, useRef, useState} from 'react';
+import {
+	Navigate,
+	NavLink,
+	Route,
+	Routes,
+	useLocation,
+	useNavigate
+} from 'react-router-dom';
 import {Badge} from '@/components/ui/badge';
 import {runHandoff, HandoffResult} from '@/auth/handoff';
 import {getUser, hasSession} from '@/auth/session';
 import {cn} from '@/lib/utils';
+import {DialerSessionProvider, useDialerSession} from '@/session/DialerSessionProvider';
 import Dial from '@/pages/Dial';
 import Leads from '@/pages/Leads';
 import policyPrinterLogo from '@/assets/policy-printer-logo.png';
@@ -84,36 +92,69 @@ export default function App() {
 	}
 
 	return (
-		<div className="min-h-screen bg-background">
-			<header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-				<div className="mx-auto flex min-h-24 max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-2 sm:px-6">
-					<div className="flex min-w-0 flex-wrap items-center gap-5">
-						<img
-							src={policyPrinterLogo}
-							alt="Policy Printer"
-							className="h-20 w-auto shrink-0 object-contain"
-						/>
-						<nav className="flex items-center gap-1" aria-label="Primary">
-							<NavTab to="/dial" label="Calls" />
-							<NavTab to="/leads" label="Activity" />
-						</nav>
+		<DialerSessionProvider>
+			<div className="min-h-screen bg-background">
+				<header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+					<div className="mx-auto flex min-h-24 max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-2 sm:px-6">
+						<div className="flex min-w-0 flex-wrap items-center gap-5">
+							<img
+								src={policyPrinterLogo}
+								alt="Policy Printer"
+								className="h-20 w-auto shrink-0 object-contain"
+							/>
+							<nav className="flex items-center gap-1" aria-label="Primary">
+								<NavTab to="/dial" label="Calls" />
+								<NavTab to="/leads" label="Activity" />
+							</nav>
+						</div>
+						<div className="flex shrink-0 items-center gap-2">
+							<p className="hidden text-sm text-muted-foreground sm:block">
+								Logged in as: {userName}
+							</p>
+						</div>
 					</div>
-					<div className="flex shrink-0 items-center gap-2">
-						<p className="hidden text-sm text-muted-foreground sm:block">
-							Logged in as: {userName}
-						</p>
-					</div>
-				</div>
-			</header>
-			<main className="px-4 py-6 sm:px-6">
-				<Routes>
-					<Route path="/dial" element={<Dial />} />
-					<Route path="/leads" element={<Leads />} />
-					<Route path="*" element={<Navigate to="/dial" replace />} />
-				</Routes>
-			</main>
-		</div>
+				</header>
+				<main className="px-4 py-6 sm:px-6">
+					<InboundCallAutoNav />
+					<Routes>
+						<Route path="/dial" element={<Dial />} />
+						<Route path="/leads" element={<Leads />} />
+						<Route path="*" element={<Navigate to="/dial" replace />} />
+					</Routes>
+				</main>
+			</div>
+		</DialerSessionProvider>
 	);
+}
+
+/**
+ * When a call STARTS while the agent is on another tab, swap them to the Dial page
+ * where the active-call banner / wrap-up / lead form live. Fires only on the
+ * null→non-null edge of the active call (tracked by CallSid ref, so one call ending
+ * and another starting still triggers), and only for INBOUND — outbound paths (dialpad
+ * on Dial, click-to-dial on Activity) navigate imperatively from their click handlers.
+ * Renders nothing; must live inside both the provider and the Router.
+ */
+function InboundCallAutoNav() {
+	const {device} = useDialerSession();
+	const navigate = useNavigate();
+	const location = useLocation();
+	const prevSid = useRef<string | null>(null);
+
+	useEffect(() => {
+		const call = device.activeCall;
+		if (
+			call &&
+			prevSid.current === null &&
+			call.direction === 'inbound' &&
+			location.pathname !== '/dial'
+		) {
+			navigate('/dial');
+		}
+		prevSid.current = call?.callSid ?? null;
+	}, [device.activeCall, navigate, location.pathname]);
+
+	return null;
 }
 
 function NavTab({to, label}: {to: string; label: string}) {
