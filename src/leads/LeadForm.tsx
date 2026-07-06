@@ -27,8 +27,10 @@ import {Button} from '@/components/ui/button';
 import {
 	getLeadFormBundle,
 	saveLead,
+	updateLead,
 	type DialerDisposition,
-	type DialerForm
+	type DialerForm,
+	type ReturningCallerLead
 } from '@/lib/api';
 import {FormRenderer, type LeadFormData} from './FormRenderer';
 import {DispositionSelect} from './DispositionSelect';
@@ -38,7 +40,8 @@ export function LeadForm({
 	callSid,
 	callerPhone,
 	onComplete,
-	showClear = true
+	showClear = true,
+	editLead = null
 }: {
 	campaignId: string;
 	/** Tying the lead to the call. Null for a manual lead with no live call. */
@@ -47,6 +50,12 @@ export function LeadForm({
 	/** Called once this call has either a saved lead or confirmed no-lead outcome. */
 	onComplete?: () => Promise<void> | void;
 	showClear?: boolean;
+	/**
+	 * Edit-in-place mode for direct-dial callbacks: when set, this form is seeded from
+	 * the caller's most-recent prior lead and Save UPDATES that lead (bumping its info +
+	 * timestamps) instead of creating a new one. Null → normal blank New-Lead behavior.
+	 */
+	editLead?: ReturningCallerLead | null;
 }) {
 	const [form, setForm] = useState<DialerForm | null>(null);
 	const [dispositions, setDispositions] = useState<DialerDisposition[]>([]);
@@ -66,7 +75,14 @@ export function LeadForm({
 		const phoneField = (nextForm?.schema ?? []).find(
 			(f) => f.type === 'phone' || f.key === 'phone'
 		);
-		return phoneField && callerPhone ? {[phoneField.key]: callerPhone} : {};
+		const phonePrefill: LeadFormData =
+			phoneField && callerPhone ? {[phoneField.key]: callerPhone} : {};
+		// Edit-in-place (callback): seed the prior lead's answers first, then let the
+		// live caller number win for the phone field.
+		if (editLead) {
+			return {...(editLead.form_data ?? {}), ...phonePrefill};
+		}
+		return phonePrefill;
 	};
 
 	// Best-effort name field key (so we can send a top-level name column too).
@@ -89,7 +105,8 @@ export function LeadForm({
 				}
 				setForm(res.form ?? null);
 				setDispositions(res.dispositions ?? []);
-				setDispositionKey(null);
+				// Edit-in-place seeds the prior lead's disposition; new leads start blank.
+				setDispositionKey(editLead?.disposition_id ?? null);
 				setSaveError(null);
 				setSavedLeadId(null);
 				setFormData(initialFormData(res.form ?? null));
@@ -104,8 +121,8 @@ export function LeadForm({
 		return () => {
 			cancelled = true;
 		};
-		// Re-fetch + reset when the campaign or the call changes.
-	}, [campaignId, callSid, callerPhone]);
+		// Re-fetch + reset when the campaign, the call, or the edited lead changes.
+	}, [campaignId, callSid, callerPhone, editLead?.id]);
 
 	const onField = (key: string, value: unknown) =>
 		setFormData((prev) => ({...prev, [key]: value}));
@@ -141,19 +158,28 @@ export function LeadForm({
 		setSaving(true);
 		setSaveError(null);
 		try {
-			const res = await saveLead({
-				campaign_id: campaignId,
-				twilio_call_sid: callSid,
-				caller_phone: callerPhone,
-				name: derivedName(),
-				disposition_id: dispositionKey,
-				form_data: formData
-			});
+			// Edit-in-place (callback): UPDATE the prior lead so its info + timestamps
+			// refresh, rather than creating a duplicate. Otherwise create a new lead.
+			const res = editLead
+				? await updateLead({
+						lead_id: editLead.id,
+						name: derivedName(),
+						disposition_id: dispositionKey,
+						form_data: formData
+				  })
+				: await saveLead({
+						campaign_id: campaignId,
+						twilio_call_sid: callSid,
+						caller_phone: callerPhone,
+						name: derivedName(),
+						disposition_id: dispositionKey,
+						form_data: formData
+				  });
 			if (res.statusCode !== 'SP100') {
 				setSaveError(res.statusMessage || 'Could not save lead');
 				return;
 			}
-			setSavedLeadId(res.lead_id ?? null);
+			setSavedLeadId(res.lead_id ?? editLead?.id ?? null);
 			await onComplete?.();
 		} catch (err) {
 			setSaveError(readError(err, 'Could not save lead'));
@@ -186,9 +212,13 @@ export function LeadForm({
 			<CardHeader className="space-y-2">
 				<CardTitle className="flex items-start justify-between gap-4">
 					<span>
-						<span className="block text-xl">New lead</span>
+						<span className="block text-xl">
+							{editLead ? 'Update lead' : 'New lead'}
+						</span>
 						<span className="mt-1 block text-sm font-normal leading-6 text-muted-foreground">
-							Capture caller details while the call is active.
+							{editLead
+								? 'Review and update this returning caller’s details.'
+								: 'Capture caller details while the call is active.'}
 						</span>
 					</span>
 					{savedLeadId && (
@@ -243,7 +273,15 @@ export function LeadForm({
 								) : (
 									<Save className="size-4" />
 								)}
-								{saving ? 'Saving…' : savedLeadId ? 'Save again' : 'Save lead'}
+								{saving
+									? 'Saving…'
+									: editLead
+									? savedLeadId
+										? 'Update again'
+										: 'Update lead'
+									: savedLeadId
+									? 'Save again'
+									: 'Save lead'}
 							</Button>
 							<DialogPrimitive.Root
 								open={skipConfirmOpen}
@@ -325,12 +363,16 @@ export function LeadForm({
 							)}
 							{savedLeadId && (
 								<span className="text-xs leading-5 text-muted-foreground">
-									Lead saved. Editing and re-saving creates a new lead in V1.
+									{editLead
+										? 'Lead updated.'
+										: 'Lead saved. Editing and re-saving creates a new lead in V1.'}
 								</span>
 							)}
 							{!savedLeadId && (
 								<span className="text-xs leading-5 text-muted-foreground">
-									Lead will be linked to this call automatically.
+									{editLead
+										? 'Updating this returning caller’s existing lead.'
+										: 'Lead will be linked to this call automatically.'}
 								</span>
 							)}
 						</div>

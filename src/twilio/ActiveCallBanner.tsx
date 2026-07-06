@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {Mic, MicOff, PhoneCall, PhoneOff} from 'lucide-react';
+import {Mic, MicOff, PhoneCall, PhoneOff, PhoneOutgoing} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import type {ActiveCall} from '@/twilio/useDevice';
@@ -19,17 +19,22 @@ export function ActiveCallBanner({
 	onHangup: () => void;
 }) {
 	const elapsed = useElapsedSeconds(call.startedAt);
+	const isOutbound = call.direction === 'outbound';
 
 	return (
 		<div className="flex flex-col gap-3 rounded-lg border bg-card px-4 py-3 shadow-xs sm:flex-row sm:items-center sm:justify-between">
 			<div className="flex min-w-0 items-center gap-3">
 				<div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-success/10 text-success">
-					<PhoneCall className="size-4" />
+					{isOutbound ? (
+						<PhoneOutgoing className="size-4" />
+					) : (
+						<PhoneCall className="size-4" />
+					)}
 				</div>
 				<div className="min-w-0">
 					<div className="flex flex-wrap items-center gap-2">
 						<Badge className="bg-success text-success-foreground">
-							Active call
+							{isOutbound ? 'Outbound call' : 'Active call'}
 						</Badge>
 						<span className="font-mono text-sm tabular-nums text-muted-foreground">
 							{formatDuration(elapsed)}
