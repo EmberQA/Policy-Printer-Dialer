@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Check,
   ChevronDown,
   CircleAlert,
   CircleCheck,
+  Copy,
+  Delete,
   Headphones,
   ListChecks,
   Loader2,
   PhoneCall,
+  Phone,
+  PhoneOutgoing,
   Power,
   RadioTower,
   Wifi,
@@ -23,22 +28,24 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import {
-  fetchDialerProfile,
-  getPresence,
-  listCampaigns,
   setCampaignReady,
   setOnCall,
   setPresence,
+  startOutboundCall,
   type DialerCampaign,
   type DialerPresence,
   type PresenceStatus,
 } from "@/lib/api";
-import { useHeartbeat } from "@/presence/useHeartbeat";
-import { useDevice, type ActiveCall } from "@/twilio/useDevice";
+import { Input } from "@/components/ui/input";
+import { useDialerSession } from "@/session/DialerSessionProvider";
+import { type ActiveCall } from "@/twilio/useDevice";
 import { ActiveCallBanner } from "@/twilio/ActiveCallBanner";
 import { AudioSetupDialog } from "@/twilio/AudioSetupDialog";
 import { LeadForm } from "@/leads/LeadForm";
+import { ReturningCallerCard } from "@/leads/ReturningCallerCard";
+import { useReturningCaller } from "@/leads/useReturningCaller";
 import { cn } from "@/lib/utils";
+import { normalizeDialInput } from "@/lib/phone";
 
 /**
  * Dial page (Subplan 02 + 03) — presence, heartbeat, per-campaign ready toggles, and
@@ -57,9 +64,16 @@ import { cn } from "@/lib/utils";
  * is armed, otherwise the agent picks it).
  */
 export default function Dial() {
-  const [profile, setProfile] = useState<any>(null);
-  const [campaigns, setCampaigns] = useState<DialerCampaign[]>([]);
-  const [presence, setPresenceState] = useState<DialerPresence | null>(null);
+  // Shared session: the single Device + heartbeat + bootstrap (profile/campaigns/
+  // presence) live in the provider so they survive tab switches. Destructure using
+  // the SAME local names this component already used, so the rest of the body is
+  // unchanged.
+  const session = useDialerSession();
+  const { device, heartbeat, profile, provisioned, campaigns } = session;
+  const presence = session.presence;
+  const setCampaigns = session.setCampaigns;
+  const setPresenceState = session.setPresence;
+
   const [busy, setBusy] = useState<"status" | string | null>(null);
   const [pendingReadyStatus, setPendingReadyStatus] =
     useState<PresenceStatus | null>(null);
@@ -77,46 +91,21 @@ export default function Dial() {
   const [completedWrapUpCallKey, setCompletedWrapUpCallKey] = useState<
     string | null
   >(null);
+  // Returning-caller pane dismissal, keyed to the call it was dismissed on. A new
+  // call has a different callKey, so the pane re-shows automatically (reset per call).
+  const [dismissedCallerKey, setDismissedCallerKey] = useState<string | null>(
+    null,
+  );
   const [wrapUpReleasePending, setWrapUpReleasePending] = useState(false);
+  // Outbound dialpad: the digits the agent has typed + an in-flight guard so the
+  // Call button can't double-fire while startOutboundCall is resolving.
+  const [dialInput, setDialInput] = useState("");
+  const [dialPending, setDialPending] = useState(false);
 
-  const provisioned = Boolean(profile?.provisioned);
-
-  // The Twilio Device registers once the agent is provisioned; its status feeds
-  // the heartbeat so the backend only advertises availability when the softphone
-  // can actually receive a call. The active call (if any) drives the banner.
-  const device = useDevice({ enabled: provisioned });
-
-  // Heartbeat runs once we know the agent is provisioned (a usable session
-  // exists by then — handoff already ran). It reports the live device status and
-  // echoes back the recomputed availability.
-  const heartbeat = useHeartbeat({
-    enabled: provisioned,
-    deviceStatus: device.deviceStatus,
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([fetchDialerProfile(), listCampaigns(), getPresence()])
-      .then(([prof, camps, pres]: any[]) => {
-        if (cancelled) return;
-        setProfile(prof);
-        setCampaigns(camps?.campaigns ?? []);
-        setPresenceState(pres?.presence ?? null);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(readError(err, "Failed to load dialer"));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Keep the local presence row in sync with what the heartbeat observes (e.g.
-  // on_call flipping, or another tab changing status).
-  useEffect(() => {
-    if (heartbeat.presence) setPresenceState(heartbeat.presence);
-  }, [heartbeat.presence]);
+  // device, heartbeat, profile, provisioned, campaigns, presence + bootstrap and the
+  // presence-sync effect now live in DialerSessionProvider (destructured above), so
+  // the Device survives tab switches. The effects below still run here because they
+  // depend on Dial-local UI state.
 
   useEffect(() => {
     if (
@@ -238,23 +227,42 @@ export default function Dial() {
         callSid: "debug-incoming-call",
         muted: debugCallMuted,
         startedAt: debugCallStartedAt ?? Date.now(),
+        direction: "inbound",
       }
     : null;
   const activeCall = device.activeCall ?? debugCall;
   const workCall = activeCall ?? wrapUpCall;
   const wrapUpCallKey = workCall ? callKey(workCall) : null;
+
+  // Direct-dial callback pull-up: the backend classifies the call (direct-dial vs
+  // Retreaver-routed) and only returns prior history for a direct dial. Fire-and-forget
+  // — it never blocks the blank New-Lead form. Keyed to the call's SID so it re-runs
+  // per call. `editLead` (below) is the caller's most-recent prior lead, if any.
+  const returningCaller = useReturningCaller(
+    workCall?.from ?? null,
+    workCall?.callSid ?? null,
+  );
+  const editLead = returningCaller.data?.is_direct_dial
+    ? (returningCaller.data.most_recent_lead?.lead ?? null)
+    : null;
   const wrapUpCompleted =
     Boolean(wrapUpCallKey) && completedWrapUpCallKey === wrapUpCallKey;
+  const returningCallerDismissed =
+    Boolean(wrapUpCallKey) && dismissedCallerKey === wrapUpCallKey;
   const onCall = liveOnCall || debugIncomingCall || Boolean(wrapUpCall);
   const displayAvailable = onCall ? 0 : available;
   const canGoReady = anyArmed; // must arm ≥1 campaign first
   const deviceError = device.error;
+  // Local `error` is for action failures (presence/campaign/dial/wrap-up); bootstrap
+  // (load) failures come from the shared session. Show either in the banner.
+  const displayError = error || session.bootError;
 
   useEffect(() => {
     if (!activeCall) return;
     const nextCallKey = callKey(activeCall);
     if (!wrapUpCall || callKey(wrapUpCall) !== nextCallKey) {
       setCompletedWrapUpCallKey(null);
+      setDismissedCallerKey(null);
     }
     setWrapUpCall(activeCall);
   }, [activeCall, wrapUpCall]);
@@ -287,6 +295,39 @@ export default function Dial() {
     }
   };
 
+  // Place an outbound call from the dialpad. The backend originates the call and
+  // bridges the answered customer to this browser (it arrives via the same incoming
+  // path inbound uses), so we (1) arm audio from this click gesture — the bridged leg
+  // auto-answers, so there's no per-call click to satisfy the browser's autoplay
+  // policy — then (2) POST the number, then (3) arm the device so it tags that
+  // incoming leg as outbound with the dialed number.
+  const canDial =
+    provisioned &&
+    device.deviceStatus === "registered" &&
+    !onCall &&
+    !dialPending &&
+    normalizeDialInput(dialInput) !== null;
+
+  const onDialOut = async () => {
+    const to = normalizeDialInput(dialInput);
+    if (!to || dialPending) return;
+    setDialPending(true);
+    setError(null);
+    try {
+      await device.armAudio();
+      const res = await startOutboundCall(to);
+      if (res.statusCode !== "SP100") {
+        throw new Error(res.statusMessage || "Could not place the call");
+      }
+      device.armOutbound(to);
+      setDialInput("");
+    } catch (err) {
+      setError(readError(err, "Could not place the call"));
+    } finally {
+      setDialPending(false);
+    }
+  };
+
   useEffect(() => {
     if (
       !wrapUpCall ||
@@ -302,132 +343,176 @@ export default function Dial() {
   }, [activeCall, completedWrapUpCallKey, wrapUpCall, wrapUpReleasePending]);
 
   return (
-    <div className="relative min-h-[calc(100vh-7rem)] w-full space-y-6">
+    <div className="min-h-[calc(100vh-7rem)] w-full">
       <DebugIncomingCallToggle
         active={debugIncomingCall}
         onToggle={onToggleDebugIncomingCall}
       />
 
-      {error && (
-        <div className="mx-auto max-w-3xl rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-      {deviceError && (
-        <div className="mx-auto max-w-3xl rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          Softphone: {deviceError}
-        </div>
-      )}
+      {/* 1-3-1 layout: LEFT (dialer + notifications), CENTER (call core / lead form),
+          RIGHT (controls + status). Fixed, roomy side columns and a flexible center;
+          side-by-side at xl, stacked below (center first). */}
+      <div className="grid grid-cols-1 gap-8 xl:grid-cols-[22rem_minmax(0,1fr)_22rem] xl:items-start">
+        {/* LEFT — errors, outbound dialer, returning-caller pane. */}
+        <div className="order-2 flex flex-col items-stretch gap-4 xl:order-none">
+          {displayError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {displayError}
+            </div>
+          )}
+          {deviceError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              Softphone: {deviceError}
+            </div>
+          )}
 
-      <div className="mx-auto w-full max-w-3xl space-y-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Calls</h1>
-        </div>
-
-        {!profile && !error && (
-          <Card className="shadow-xs">
-            <CardContent className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Loading dialer…
-            </CardContent>
-          </Card>
-        )}
-
-        {profile && !provisioned && (
-          <Card className="shadow-xs">
-            <CardHeader>
-              <CardTitle>Agent setup required</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm leading-6 text-muted-foreground">
-              Your dialer agent is not provisioned yet. An admin must set your
-              phone number and buyer id before you can go ready.
-            </CardContent>
-          </Card>
-        )}
-
-        {profile && provisioned && (
-          <>
-            {activeCall ? (
-              <ActiveCallBanner
-                call={activeCall}
-                onMute={device.activeCall ? device.mute : setDebugCallMuted}
-                onHangup={
-                  device.activeCall ? device.hangup : onToggleDebugIncomingCall
-                }
+          {profile && provisioned && (
+            <>
+              {/* Outbound dialpad — always present here; canDial folds in the onCall
+                  gate so the Call button disables itself during an active call. */}
+              <Dialpad
+                value={dialInput}
+                onChange={setDialInput}
+                onDial={onDialOut}
+                canDial={canDial}
+                pending={dialPending}
+                deviceRegistered={device.deviceStatus === "registered"}
               />
-            ) : wrapUpCall ? (
-              <WrapUpCallPanel
-                call={wrapUpCall}
-                completed={wrapUpCompleted}
-                releasePending={wrapUpReleasePending}
-                onRelease={releaseCallWrapUp}
-              />
-            ) : (
-              <IdleCallPanel available={displayAvailable} />
-            )}
 
-            {/* Lead capture — held open after hangup until the call is dispositioned. */}
-            {workCall && leadCampaignId && !wrapUpCompleted && (
-              <LeadForm
-                key={workCall.callSid || "active-call"}
-                campaignId={leadCampaignId}
-                callSid={workCall.callSid || null}
-                callerPhone={workCall.from}
-                onComplete={onWrapUpComplete}
-                showClear={false}
-              />
+              {/* Returning-caller callback notification + prior-history strip (direct
+                  dials only; renders nothing otherwise). On an OUTBOUND call it re-labels
+                  to a neutral "Prior history". Dismissable per call via the X. */}
+              {workCall && !wrapUpCompleted && !returningCallerDismissed && (
+                <ReturningCallerCard
+                  result={returningCaller.data}
+                  direction={workCall.direction}
+                  onDismiss={() => setDismissedCallerKey(wrapUpCallKey)}
+                />
+              )}
+            </>
+          )}
+        </div>
+
+        {/* CENTER — the interactive call core (banners + lead form). Capped + centered
+            in its track so cards aren't stretched edge-to-edge on wide screens. */}
+        <div className="order-1 mx-auto flex w-full max-w-2xl flex-col gap-5 xl:order-none">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight">Calls</h1>
+            {provisioned && profile?.agent?.twilio_phone_number && (
+              <CallbackNumber number={profile.agent.twilio_phone_number} />
             )}
-            {workCall && !leadCampaignId && !wrapUpCompleted && (
-              <Card className="shadow-xs">
-                <CardHeader>
-                  <CardTitle>Choose a campaign</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <p className="text-muted-foreground">
-                    Pick the campaign to log this lead under.
-                  </p>
-                  <div className="grid gap-2">
-                    {(armedCampaigns.length ? armedCampaigns : campaigns).map(
-                      (c) => (
-                        <Button
-                          key={c.id}
-                          type="button"
-                          variant="outline"
-                          className="justify-start"
-                          onClick={() => setLeadCampaignId(c.id)}
-                        >
-                          {c.name}
-                        </Button>
-                      ),
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </>
-        )}
+          </div>
+
+          {!session.bootstrapped && !displayError && (
+            <Card className="shadow-xs">
+              <CardContent className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Loading dialer…
+              </CardContent>
+            </Card>
+          )}
+
+          {profile && !provisioned && (
+            <Card className="shadow-xs">
+              <CardHeader>
+                <CardTitle>Agent setup required</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm leading-6 text-muted-foreground">
+                Your dialer agent is not provisioned yet. An admin must set your
+                phone number and buyer id before you can go ready.
+              </CardContent>
+            </Card>
+          )}
+
+          {profile && provisioned && (
+            <>
+              {activeCall ? (
+                <ActiveCallBanner
+                  call={activeCall}
+                  onMute={device.activeCall ? device.mute : setDebugCallMuted}
+                  onHangup={
+                    device.activeCall
+                      ? device.hangup
+                      : onToggleDebugIncomingCall
+                  }
+                />
+              ) : wrapUpCall ? (
+                <WrapUpCallPanel
+                  call={wrapUpCall}
+                  completed={wrapUpCompleted}
+                  releasePending={wrapUpReleasePending}
+                  onRelease={releaseCallWrapUp}
+                />
+              ) : (
+                <IdleCallPanel available={displayAvailable} />
+              )}
+
+              {/* Lead capture — held open after hangup until the call is dispositioned.
+                  On a direct-dial callback, editLead switches this to update-in-place. */}
+              {workCall && leadCampaignId && !wrapUpCompleted && (
+                <LeadForm
+                  key={`${workCall.callSid || "active-call"}:${editLead?.id ?? "new"}`}
+                  campaignId={leadCampaignId}
+                  callSid={workCall.callSid || null}
+                  callerPhone={workCall.from}
+                  onComplete={onWrapUpComplete}
+                  showClear={false}
+                  editLead={editLead}
+                />
+              )}
+              {workCall && !leadCampaignId && !wrapUpCompleted && (
+                <Card className="shadow-xs">
+                  <CardHeader>
+                    <CardTitle>Choose a campaign</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    <p className="text-muted-foreground">
+                      Pick the campaign to log this lead under.
+                    </p>
+                    <div className="grid gap-2">
+                      {(armedCampaigns.length ? armedCampaigns : campaigns).map(
+                        (c) => (
+                          <Button
+                            key={c.id}
+                            type="button"
+                            variant="outline"
+                            className="justify-start"
+                            onClick={() => setLeadCampaignId(c.id)}
+                          >
+                            {c.name}
+                          </Button>
+                        ),
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* RIGHT — controls (Go Ready / Campaigns / Audio) + status recap. */}
+        <DialSidebar
+          status={status}
+          busy={busy}
+          onCall={onCall}
+          provisioned={provisioned}
+          canGoReady={canGoReady}
+          onToggleReady={onToggleReady}
+          campaigns={campaigns}
+          onToggleCampaign={onToggleCampaign}
+          onInputDeviceChange={device.setInputDevice}
+          onOutputDeviceChange={device.setOutputDevice}
+          available={displayAvailable}
+          connected={heartbeat.connected}
+          deviceStatus={device.deviceStatus}
+          armedCount={armedCampaigns.length}
+          campaignCount={campaigns.length}
+          anyArmed={anyArmed}
+          presence={presence}
+          readyStatePending={pendingReadyStatus !== null}
+        />
       </div>
-
-      <DialSidebar
-        status={status}
-        busy={busy}
-        onCall={onCall}
-        provisioned={provisioned}
-        canGoReady={canGoReady}
-        onToggleReady={onToggleReady}
-        campaigns={campaigns}
-        onToggleCampaign={onToggleCampaign}
-        onInputDeviceChange={device.setInputDevice}
-        onOutputDeviceChange={device.setOutputDevice}
-        available={displayAvailable}
-        connected={heartbeat.connected}
-        deviceStatus={device.deviceStatus}
-        armedCount={armedCampaigns.length}
-        campaignCount={campaigns.length}
-        anyArmed={anyArmed}
-        presence={presence}
-        readyStatePending={pendingReadyStatus !== null}
-      />
     </div>
   );
 }
@@ -546,7 +631,7 @@ function DialSidebar({
   readyStatePending: boolean;
 }) {
   return (
-    <aside className="mx-auto flex w-full max-w-3xl flex-col gap-3 2xl:absolute 2xl:right-0 2xl:top-0 2xl:mx-0 2xl:w-80">
+    <aside className="order-3 flex w-full flex-col gap-3 xl:order-none">
       <Card className="shadow-xs">
         <CardContent className="space-y-3 p-4">
           {/* <div className="space-y-1">
@@ -705,11 +790,109 @@ function IdleCallPanel({ available }: { available: 0 | 1 | null }) {
             </p>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
               {routable
-                ? "Keep this tab open. Incoming calls answer automatically."
+                ? "Incoming calls answer automatically."
                 : "Check status and click Go Ready to start accepting calls."}
             </p>
           </div>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Outbound dialpad — the agent types a US/CA number and places a call. The backend
+ * originates it (presenting the agent's own DID) and bridges the answered customer
+ * back to this browser as an incoming leg. Rendered in the idle state only; `canDial`
+ * folds in the on-call / device-registered / valid-number gates. In V1 the dialpad is
+ * the only way to populate the number (autofill/click-to-dial are future work that
+ * will call the same startOutboundCall).
+ */
+function Dialpad({
+  value,
+  onChange,
+  onDial,
+  canDial,
+  pending,
+  deviceRegistered,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onDial: () => void;
+  canDial: boolean;
+  pending: boolean;
+  deviceRegistered: boolean;
+}) {
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
+  const preview = normalizeDialInput(value);
+
+  return (
+    <Card className="shadow-xs">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <PhoneOutgoing className="size-4 text-muted-foreground" />
+          Place an outbound call
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Input
+            value={value}
+            inputMode="tel"
+            placeholder="(555) 123-4567"
+            className="h-12 font-mono text-lg"
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canDial) onDial();
+            }}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Delete last digit"
+            disabled={!value}
+            onClick={() => onChange(value.slice(0, -1))}
+          >
+            <Delete className="size-4" />
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2.5">
+          {keys.map((k) => (
+            <Button
+              key={k}
+              variant="outline"
+              className="h-14 text-xl font-medium"
+              onClick={() => onChange(value + k)}
+            >
+              {k}
+            </Button>
+          ))}
+        </div>
+
+        <Button
+          variant="success"
+          className="h-12 w-full text-base"
+          disabled={!canDial}
+          onClick={onDial}
+        >
+          {pending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <PhoneCall className="size-4" />
+          )}
+          {pending ? "Calling…" : "Call"}
+        </Button>
+
+        {!deviceRegistered ? (
+          <p className="text-center text-xs text-muted-foreground">
+            Softphone connecting… you can place a call once it's ready.
+          </p>
+        ) : value && !preview ? (
+          <p className="text-center text-xs text-muted-foreground">
+            Enter a valid US or Canada number.
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -978,4 +1161,56 @@ function reasonNotAvailable(
 
 function readError(err: any, fallback: string): string {
   return err?.response?.data?.statusMessage || err?.message || fallback;
+}
+
+/**
+ * The agent's own direct callback number (their Twilio DID), shown top-right so they
+ * can read it out to a caller ("call me back at …"). A direct dial back to this number
+ * bypasses Retreaver routing and triggers the returning-caller pull-up. Click to copy.
+ */
+function CallbackNumber({ number }: { number: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = () => {
+    void navigator.clipboard
+      ?.writeText(number)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => undefined);
+  };
+  return (
+    <button
+      type="button"
+      onClick={onCopy}
+      title="Copy your phone number"
+      className="group flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-sm transition-colors hover:bg-muted"
+    >
+      <Phone className="size-4 text-muted-foreground" />
+      <span className="flex flex-col items-start leading-tight">
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          Your phone number
+        </span>
+        <span className="font-mono font-medium">{formatDid(number)}</span>
+      </span>
+      {copied ? (
+        <Check className="size-4 text-success" />
+      ) : (
+        <Copy className="size-4 text-muted-foreground opacity-60 group-hover:opacity-100" />
+      )}
+    </button>
+  );
+}
+
+/** Format a +1 E.164 US DID as +1 (555) 123-4567; leave anything else as-is. */
+function formatDid(did: string): string {
+  const digits = did.replace(/\D/g, "");
+  const ten =
+    digits.length === 11 && digits.startsWith("1")
+      ? digits.slice(1)
+      : digits.length === 10
+        ? digits
+        : null;
+  if (!ten) return did;
+  return `+1 (${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
 }

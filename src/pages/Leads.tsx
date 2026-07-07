@@ -7,10 +7,12 @@
  */
 
 import {useEffect, useMemo, useState} from 'react';
+import {useNavigate} from 'react-router-dom';
 import {
 	CalendarDays,
 	Headphones,
 	Loader2,
+	Phone,
 	RefreshCw,
 	Search,
 	Volume2
@@ -41,6 +43,7 @@ import {
 	getLeadDetail,
 	getLeadRecording,
 	getCallRecording,
+	startOutboundCall,
 	type DialerCampaign,
 	type LeadDetailResponse,
 	type ActivityFilters,
@@ -50,6 +53,8 @@ import {
 import {FormRenderer} from '@/leads/FormRenderer';
 import {LeadForm} from '@/leads/LeadForm';
 import {cn} from '@/lib/utils';
+import {normalizeDialInput} from '@/lib/phone';
+import {useDialerSession} from '@/session/DialerSessionProvider';
 
 const PAGE_SIZE = 25;
 
@@ -75,6 +80,38 @@ export default function Leads() {
 	const [from, setFrom] = useState('');
 	const [to, setTo] = useState('');
 	const [applied, setApplied] = useState<ActivityFilters>({});
+
+	// Click-to-dial: place an outbound call to a history row's number, then swap to
+	// the Dial tab (where the active-call UI lives). Reuses the shared session's Device
+	// so it works even though Leads never owns one.
+	const {device, canDialBase} = useDialerSession();
+	const navigate = useNavigate();
+	const [dialingId, setDialingId] = useState<string | null>(null);
+	const [dialError, setDialError] = useState<string | null>(null);
+
+	const onClickToDial = (rowId: string, phone: string) => {
+		const dest = normalizeDialInput(phone);
+		if (!dest || !canDialBase || dialingId) return;
+		// (1) arm audio SYNCHRONOUSLY from the click gesture (autoplay/mic unlock) —
+		//     before any await, same constraint as the dialpad's onDialOut.
+		void device.armAudio();
+		setDialingId(rowId);
+		setDialError(null);
+		// (2) swap to the Dial page so the agent sees the active-call banner + lead form.
+		//     This unmounts Leads but NOT the provider/Device, so the in-flight call +
+		//     armOutbound below still land on the persistent Device instance.
+		navigate('/dial');
+		// (3) place the call; tag the bridged leg as outbound on success.
+		startOutboundCall(dest)
+			.then((res) => {
+				if (res.statusCode !== 'SP100') {
+					throw new Error(res.statusMessage || 'Could not place the call');
+				}
+				device.armOutbound(dest);
+			})
+			.catch((err) => setDialError(readError(err, 'Could not place the call')))
+			.finally(() => setDialingId(null));
+	};
 
 	useEffect(() => {
 		listCampaigns()
@@ -251,9 +288,9 @@ export default function Leads() {
 			</Card>
 
 			<Card className="overflow-hidden shadow-xs">
-				{error && (
+				{(error || dialError) && (
 					<div className="border-b border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-						{error}
+						{error || dialError}
 					</div>
 				)}
 				<Table>
@@ -299,6 +336,9 @@ export default function Leads() {
 									onToggle={() =>
 										setExpandedId(expandedId === item.id ? null : item.id)
 									}
+									onClickToDial={onClickToDial}
+									canDialBase={canDialBase}
+									dialing={dialingId === item.id}
 								/>
 							))}
 					</TableBody>
@@ -352,13 +392,24 @@ function ActivityRow({
 	item,
 	campaigns,
 	expanded,
-	onToggle
+	onToggle,
+	onClickToDial,
+	canDialBase,
+	dialing
 }: {
 	item: ActivityListItem;
 	campaigns: DialerCampaign[];
 	expanded: boolean;
 	onToggle: () => void;
+	onClickToDial: (rowId: string, phone: string) => void;
+	canDialBase: boolean;
+	dialing: boolean;
 }) {
+	// Show the click-to-dial icon only when the row's number is a valid NANP number
+	// AND the agent is free to dial (provisioned, device registered, not on a call).
+	const dialTo = item.caller_phone ? normalizeDialInput(item.caller_phone) : null;
+	const showDial = dialTo !== null && canDialBase;
+
 	return (
 		<>
 			<TableRow aria-expanded={expanded}>
@@ -379,13 +430,31 @@ function ActivityRow({
 					{fmt(item.activity_at ?? item.started_at ?? item.ended_at)}
 				</TableCell>
 				<TableCell className="text-right">
-					<Button size="sm" variant="outline" onClick={onToggle}>
-						{expanded
-							? 'Close'
-							: item.kind === 'call'
-								? 'Log lead'
-								: 'View'}
-					</Button>
+					<div className="flex items-center justify-end gap-2">
+						{showDial && (
+							<Button
+								size="icon"
+								variant="outline"
+								aria-label={`Call ${item.caller_phone}`}
+								title={`Call ${item.caller_phone}`}
+								disabled={dialing}
+								onClick={() => onClickToDial(item.id, item.caller_phone!)}
+							>
+								{dialing ? (
+									<Loader2 className="size-4 animate-spin" />
+								) : (
+									<Phone className="size-4" />
+								)}
+							</Button>
+						)}
+						<Button size="sm" variant="outline" onClick={onToggle}>
+							{expanded
+								? 'Close'
+								: item.kind === 'call'
+									? 'Log lead'
+									: 'View'}
+						</Button>
+					</div>
 				</TableCell>
 			</TableRow>
 			{expanded && (

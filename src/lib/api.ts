@@ -212,6 +212,26 @@ export interface TwilioTokenResponse {
 export const getTwilioToken = (): Promise<TwilioTokenResponse> =>
 	qsPost('/policyPrinter/dialer/twilio/token');
 
+export interface StartOutboundCallResponse {
+	statusCode: string;
+	statusMessage: string;
+	/** Twilio CallSid of the placed call (present on success). */
+	call_sid?: string;
+}
+
+/**
+ * Place an outbound call to `to`. The backend REST-originates the call presenting
+ * the agent's own DID as caller ID, then bridges the answered customer to this
+ * agent's browser (it arrives as an incoming leg) and blocks inbound routing for the
+ * duration. `to` may be any format the agent typed — the backend normalizes +
+ * validates it (US/CA only). Check statusCode === 'SP100'; on success call
+ * device.armOutbound(to) so the bridged leg is tagged as outbound.
+ */
+export const startOutboundCall = (
+	to: string
+): Promise<StartOutboundCallResponse> =>
+	qsPost('/policyPrinter/dialer/call/start', {to});
+
 /** Signal call accept (true) / disconnect (false) → flips the on_call flag so
  *  mid-call availability is 0. Returns the recomputed availability/presence. */
 export const setOnCall = (onCall: boolean): Promise<PresenceResponse> =>
@@ -450,3 +470,59 @@ export const getLeadRecording = (leadId: string): Promise<RecordingResponse> =>
  */
 export const getCallRecording = (callId: string): Promise<RecordingResponse> =>
 	qsPost('/policyPrinter/dialer/call/recording', {call_id: callId});
+
+/* -------------------------------------------------------------------------- */
+/* Direct-dial returning-caller pull-up                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The full most-recent lead surfaced for a returning caller — the same shape as
+ * lead/detail's `lead` + `campaign_name` + `call`, so the FE can drive LeadForm's
+ * edit-in-place mode directly from it.
+ */
+export interface ReturningCallerLead {
+	id: string;
+	caller_phone: string | null;
+	name: string | null;
+	campaign_id: string | null;
+	disposition_id: string | null;
+	disposition_label: string | null;
+	form_id: string | null;
+	form_version: number | null;
+	form_schema_snapshot: FormField[] | null;
+	form_data: Record<string, unknown>;
+	created_at: string;
+	updated_at: string;
+}
+
+/**
+ * returningCaller response. `is_direct_dial` is decided server-side from the agent's
+ * reservation state: false ⇒ this was a Retreaver-routed call (a fresh lead, so no
+ * history is returned). `most_recent_lead` (with its frozen snapshot + answers) drives
+ * edit-in-place; `activity` is the prior leads+calls strip.
+ */
+export interface ReturningCallerResponse {
+	statusCode: string;
+	statusMessage: string;
+	is_direct_dial?: boolean;
+	most_recent_lead?: {
+		lead: ReturningCallerLead;
+		campaign_name: string | null;
+		events: LeadEvent[];
+		call: LeadCall | null;
+	} | null;
+	activity?: ActivityListItem[];
+	total_matches?: number;
+}
+
+/**
+ * Returning-caller pull-up for a live inbound call. The backend classifies the call
+ * (direct-dial callback vs Retreaver-routed) and only returns prior history for a
+ * direct dial. Owning-agent scoped. Empty history is a normal success.
+ */
+export const lookupReturningCaller = (
+	callerPhone: string
+): Promise<ReturningCallerResponse> =>
+	qsPost('/policyPrinter/dialer/lead/returningCaller', {
+		caller_phone: callerPhone
+	});

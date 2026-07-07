@@ -23,13 +23,19 @@ import {Call, Device} from '@twilio/voice-sdk';
 import {getTwilioToken, setOnCall, type TwilioDeviceStatus} from '@/lib/api';
 
 export interface ActiveCall {
-	/** E.164 / SIP caller number from Twilio params (best-effort). */
+	/** E.164 / SIP caller number from Twilio params (best-effort). For an OUTBOUND
+	 *  call this is the number the agent dialed (the SDK's incoming `From` is the
+	 *  agent DID, so we override it with the dialed number from armOutbound). */
 	from: string;
 	/** Twilio CallSid — ties the lead (Subplan 04) back to dialer_calls. */
 	callSid: string;
 	muted: boolean;
 	/** Epoch ms when the call connected — the UI derives the timer from this. */
 	startedAt: number;
+	/** 'inbound' (Retreaver-routed or a direct-dial callback) or 'outbound' (agent
+	 *  originated via the dialpad). Both arrive at the Device as an incoming leg —
+	 *  outbound is distinguished by armOutbound() flagging the next incoming call. */
+	direction: 'inbound' | 'outbound';
 }
 
 export interface UseDeviceState {
@@ -47,6 +53,16 @@ export interface UseDeviceState {
 	 * (e.g. the "Go ready" toggle). Resolves true once audio is armed.
 	 */
 	armAudio: () => Promise<boolean>;
+	/**
+	 * Flag the next incoming leg as an OUTBOUND call the agent just placed. The
+	 * backend REST-originates the call and bridges the answered customer to this
+	 * agent's <Client>, so it arrives via the same `incoming` event as a normal
+	 * inbound call — this is how we tell them apart. `toNumber` (the dialed number)
+	 * overrides the SDK's `From` (which is the agent DID) so the UI + lead form show
+	 * who we called. Cleared once consumed or after a short window if the call never
+	 * connects. Call this right after startOutboundCall() resolves SP100.
+	 */
+	armOutbound: (toNumber: string) => void;
 	setInputDevice: (deviceId: string) => Promise<void>;
 	setOutputDevice: (deviceId: string) => Promise<void>;
 }
@@ -63,6 +79,17 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 
 	const deviceRef = useRef<Device | null>(null);
 	const callRef = useRef<Call | null>(null);
+	// Set by armOutbound() when the agent places an outbound call; the next incoming
+	// leg (the bridged customer) is tagged direction:'outbound' with this dialed number
+	// as its `from`. Auto-expires so a call that never connects can't mislabel a later
+	// unrelated inbound call.
+	const pendingOutboundRef = useRef<{toNumber: string; armedAt: number} | null>(
+		null
+	);
+
+	const armOutbound = useCallback((toNumber: string) => {
+		pendingOutboundRef.current = {toNumber, armedAt: Date.now()};
+	}, []);
 
 	const mute = useCallback((muted: boolean) => {
 		const call = callRef.current;
@@ -157,13 +184,25 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 
 			call.on('accept', () => {
 				if (cancelled) return;
+				// If the agent just placed an outbound call (armOutbound), this bridged
+				// leg is that call — tag it 'outbound' and show the dialed number (the
+				// SDK's `From` here is the agent DID, not the customer). The window guards
+				// against a stale flag mislabelling a later unrelated inbound call.
+				const pending = pendingOutboundRef.current;
+				const isOutbound =
+					!!pending && Date.now() - pending.armedAt < OUTBOUND_ARM_WINDOW_MS;
+				pendingOutboundRef.current = null;
 				setActiveCall({
-					from: call.parameters.From || 'Unknown',
+					from: isOutbound
+						? (pending as {toNumber: string}).toNumber
+						: call.parameters.From || 'Unknown',
 					callSid: call.parameters.CallSid || '',
 					muted: false,
-					startedAt: Date.now()
+					startedAt: Date.now(),
+					direction: isOutbound ? 'outbound' : 'inbound'
 				});
 				// Best-effort: tell the backend we're busy (mid-call availability=0).
+				// Outbound already set on_call server-side; this is idempotent.
 				void setOnCall(true).catch(() => undefined);
 			});
 
@@ -266,10 +305,16 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 		mute,
 		hangup,
 		armAudio,
+		armOutbound,
 		setInputDevice,
 		setOutputDevice
 	};
 }
+
+/** How long after armOutbound() an incoming leg is treated as the placed outbound
+ *  call. Generous enough to cover ring+answer, short enough that a stale flag can't
+ *  mislabel a much-later inbound call. */
+const OUTBOUND_ARM_WINDOW_MS = 60_000;
 
 /** Turn a getUserMedia rejection into a user-facing message. */
 function micErrorMessage(e: unknown): string {
