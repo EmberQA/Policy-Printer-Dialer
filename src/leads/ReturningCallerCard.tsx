@@ -9,14 +9,16 @@
  * this card is the "this is a returning caller" cue + the read-only history context.
  */
 
-import {History, PhoneIncoming, PhoneOutgoing} from 'lucide-react';
+import {History, PhoneIncoming, PhoneOutgoing, X} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import type {ReturningCallerResponse} from '@/lib/api';
 
 export function ReturningCallerCard({
 	result,
-	direction = 'inbound'
+	direction = 'inbound',
+	onDismiss
 }: {
 	result: ReturningCallerResponse | null;
 	/** 'inbound' → returning-caller / callback framing. 'outbound' → the agent
@@ -24,6 +26,9 @@ export function ReturningCallerCard({
 	 *  still surfaced, just without the "callback" wording that misreads on a call we
 	 *  initiated). Same underlying is_direct_dial history either way. */
 	direction?: 'inbound' | 'outbound';
+	/** Dismiss the pane for the current call. The parent keys visibility to the call,
+	 *  so a new call re-shows it. Omit to render without a close button. */
+	onDismiss?: () => void;
 }) {
 	// Only surface with real prior history. is_direct_dial is true for a genuine
 	// inbound callback AND for an outbound call (no reservation → classified direct-dial
@@ -53,14 +58,28 @@ export function ReturningCallerCard({
 							<span className="mt-0.5 block text-sm font-normal leading-6 text-muted-foreground">
 								This {isOutbound ? 'contact' : 'caller'} has {total} prior{' '}
 								{total === 1 ? 'record' : 'records'} — the most recent lead is
-								loaded below for you to review and update.
+								loaded in the form for you to review and update.
 							</span>
 						</span>
 					</span>
-					<Badge className="bg-amber-500 text-white">
-						<History className="size-3" />
-						{isOutbound ? 'history' : 'callback'}
-					</Badge>
+					<span className="flex shrink-0 items-center gap-1">
+						<Badge className="bg-amber-500 text-white">
+							<History className="size-3" />
+							{isOutbound ? 'history' : 'callback'}
+						</Badge>
+						{onDismiss && (
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon"
+								className="size-7 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300"
+								aria-label="Dismiss returning-caller notice"
+								onClick={onDismiss}
+							>
+								<X className="size-4" />
+							</Button>
+						)}
+					</span>
 				</CardTitle>
 			</CardHeader>
 			<CardContent className="space-y-3 text-sm">
