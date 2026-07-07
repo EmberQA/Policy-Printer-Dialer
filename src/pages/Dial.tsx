@@ -1,16 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Check,
   ChevronDown,
   CircleAlert,
   CircleCheck,
-  Copy,
   Delete,
   Headphones,
   ListChecks,
   Loader2,
   PhoneCall,
-  Phone,
   PhoneOutgoing,
   Power,
   RadioTower,
@@ -91,6 +88,9 @@ export default function Dial() {
   const [completedWrapUpCallKey, setCompletedWrapUpCallKey] = useState<
     string | null
   >(null);
+  const [confirmedAvailable, setConfirmedAvailable] = useState<0 | 1 | null>(
+    null,
+  );
   // Returning-caller pane dismissal, keyed to the call it was dismissed on. A new
   // call has a different callKey, so the pane re-shows automatically (reset per call).
   const [dismissedCallerKey, setDismissedCallerKey] = useState<string | null>(
@@ -118,6 +118,12 @@ export default function Dial() {
       setBusy((current) => (current === "status" ? null : current));
     }
   }, [heartbeat.presence?.status, pendingReadyStatus, readyRequestSettled]);
+
+  useEffect(() => {
+    if (heartbeat.available !== null) {
+      setConfirmedAvailable(heartbeat.available);
+    }
+  }, [heartbeat.available]);
 
   const status: PresenceStatus = presence?.status ?? "paused";
   const armedCampaigns = useMemo(
@@ -148,9 +154,10 @@ export default function Dial() {
     }
   }, [reservedCampaignId, campaigns, armedCampaigns, leadCampaignId]);
 
-  // Prefer the live heartbeat value; fall back to the bootstrap presence read.
+  // Prefer the newest backend-computed availability: heartbeat responses and
+  // presence mutation responses both return the same computeReady result.
   const available =
-    heartbeat.available ?? (status === "ready" && anyArmed ? null : 0);
+    confirmedAvailable ?? (status === "ready" && anyArmed ? null : 0);
 
   const onToggleReady = () => {
     const next: PresenceStatus = status === "ready" ? "paused" : "ready";
@@ -170,6 +177,8 @@ export default function Dial() {
         if (res.statusCode !== "SP100") {
           throw new Error(res.statusMessage || "Could not update presence");
         }
+        if (res.presence) setPresenceState(res.presence);
+        if (res.available !== undefined) setConfirmedAvailable(res.available);
         setReadyRequestSettled(true);
       })
       .catch((err) => {
@@ -193,6 +202,7 @@ export default function Dial() {
           throw new Error(res.statusMessage || "Could not update campaign");
         }
         if (res.presence) setPresenceState(res.presence);
+        if (res.available !== undefined) setConfirmedAvailable(res.available);
       })
       .catch((err) => {
         setError(readError(err, "Could not update campaign"));
@@ -272,11 +282,25 @@ export default function Dial() {
     setWrapUpReleasePending(true);
     setError(null);
     try {
+      // Pause first so clearing on_call cannot immediately make the agent routable.
+      const pauseRes = await setPresence({ status: "paused" });
+      if (pauseRes.statusCode !== "SP100") {
+        throw new Error(pauseRes.statusMessage || "Could not pause after call");
+      }
+      setPresenceState(pauseRes.presence ?? null);
+      if (pauseRes.available !== undefined) {
+        setConfirmedAvailable(pauseRes.available);
+      }
+      setPendingReadyStatus(null);
+      setReadyRequestSettled(false);
+      setBusy((current) => (current === "status" ? null : current));
+
       const res = await setOnCall(false);
       if (res.statusCode !== "SP100") {
         throw new Error(res.statusMessage || "Could not release call");
       }
       setPresenceState(res.presence ?? null);
+      if (res.available !== undefined) setConfirmedAvailable(res.available);
       setWrapUpCall(null);
       setCompletedWrapUpCallKey(null);
     } catch (err) {
@@ -349,11 +373,11 @@ export default function Dial() {
         onToggle={onToggleDebugIncomingCall}
       />
 
-      {/* 1-3-1 layout: LEFT (dialer + notifications), CENTER (call core / lead form),
+      {/* 1-3-1 layout: LEFT (notifications), CENTER (call core / lead form),
           RIGHT (controls + status). Fixed, roomy side columns and a flexible center;
           side-by-side at xl, stacked below (center first). */}
       <div className="grid grid-cols-1 gap-8 xl:grid-cols-[22rem_minmax(0,1fr)_22rem] xl:items-start">
-        {/* LEFT — errors, outbound dialer, returning-caller pane. */}
+        {/* LEFT — errors and returning-caller pane. */}
         <div className="order-2 flex flex-col items-stretch gap-4 xl:order-none">
           {displayError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -368,17 +392,6 @@ export default function Dial() {
 
           {profile && provisioned && (
             <>
-              {/* Outbound dialpad — always present here; canDial folds in the onCall
-                  gate so the Call button disables itself during an active call. */}
-              <Dialpad
-                value={dialInput}
-                onChange={setDialInput}
-                onDial={onDialOut}
-                canDial={canDial}
-                pending={dialPending}
-                deviceRegistered={device.deviceStatus === "registered"}
-              />
-
               {/* Returning-caller callback notification + prior-history strip (direct
                   dials only; renders nothing otherwise). On an OUTBOUND call it re-labels
                   to a neutral "Prior history". Dismissable per call via the X. */}
@@ -398,9 +411,6 @@ export default function Dial() {
         <div className="order-1 mx-auto flex w-full max-w-2xl flex-col gap-5 xl:order-none">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">Calls</h1>
-            {provisioned && profile?.agent?.twilio_phone_number && (
-              <CallbackNumber number={profile.agent.twilio_phone_number} />
-            )}
           </div>
 
           {!session.bootstrapped && !displayError && (
@@ -511,6 +521,12 @@ export default function Dial() {
           anyArmed={anyArmed}
           presence={presence}
           readyStatePending={pendingReadyStatus !== null}
+          showOutboundDialer={Boolean(profile && provisioned)}
+          dialInput={dialInput}
+          onDialInputChange={setDialInput}
+          onDialOut={onDialOut}
+          canDial={canDial}
+          dialPending={dialPending}
         />
       </div>
     </div>
@@ -610,6 +626,12 @@ function DialSidebar({
   anyArmed,
   presence,
   readyStatePending,
+  showOutboundDialer,
+  dialInput,
+  onDialInputChange,
+  onDialOut,
+  canDial,
+  dialPending,
 }: {
   status: PresenceStatus;
   busy: "status" | string | null;
@@ -629,6 +651,12 @@ function DialSidebar({
   anyArmed: boolean;
   presence: DialerPresence | null;
   readyStatePending: boolean;
+  showOutboundDialer: boolean;
+  dialInput: string;
+  onDialInputChange: (value: string) => void;
+  onDialOut: () => void;
+  canDial: boolean;
+  dialPending: boolean;
 }) {
   return (
     <aside className="order-3 flex w-full flex-col gap-3 xl:order-none">
@@ -676,6 +704,17 @@ function DialSidebar({
           </div>
         </CardContent>
       </Card>
+
+      {showOutboundDialer && (
+        <Dialpad
+          value={dialInput}
+          onChange={onDialInputChange}
+          onDial={onDialOut}
+          canDial={canDial}
+          pending={dialPending}
+          deviceRegistered={deviceStatus === "registered"}
+        />
+      )}
 
       <StatusPreview
         available={available}
@@ -790,8 +829,8 @@ function IdleCallPanel({ available }: { available: 0 | 1 | null }) {
             </p>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
               {routable
-                ? "Incoming calls answer automatically."
-                : "Check status and click Go Ready to start accepting calls."}
+                ? "Searching for a call... \n Incoming calls will answer automatically."
+                : "Click Go Ready on the right-side panel to recieve a call."}
             </p>
           </div>
         </div>
@@ -823,77 +862,93 @@ function Dialpad({
   pending: boolean;
   deviceRegistered: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
   const preview = normalizeDialInput(value);
 
   return (
     <Card className="shadow-xs">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <PhoneOutgoing className="size-4 text-muted-foreground" />
-          Place an outbound call
+      <CardHeader className={cn("pb-3", !open && "pb-4")}>
+        <CardTitle className="flex items-center justify-between gap-3 text-base">
+          <button
+            type="button"
+            onClick={() => setOpen((current) => !current)}
+            className="inline-flex min-w-0 items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-expanded={open}
+          >
+            <PhoneOutgoing className="size-4 shrink-0 text-muted-foreground" />
+            <span className="truncate">Outbound Dialer</span>
+            <ChevronDown
+              className={cn(
+                "size-4 shrink-0 text-muted-foreground transition-transform",
+                open && "rotate-180",
+              )}
+            />
+          </button>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Input
-            value={value}
-            inputMode="tel"
-            placeholder="(555) 123-4567"
-            className="h-12 font-mono text-lg"
-            onChange={(e) => onChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && canDial) onDial();
-            }}
-          />
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Delete last digit"
-            disabled={!value}
-            onClick={() => onChange(value.slice(0, -1))}
-          >
-            <Delete className="size-4" />
-          </Button>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2.5">
-          {keys.map((k) => (
+      {open && (
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Input
+              value={value}
+              inputMode="tel"
+              placeholder="(555) 123-4567"
+              className="h-12 font-mono text-lg"
+              onChange={(e) => onChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && canDial) onDial();
+              }}
+            />
             <Button
-              key={k}
-              variant="outline"
-              className="h-14 text-xl font-medium"
-              onClick={() => onChange(value + k)}
+              variant="ghost"
+              size="icon"
+              aria-label="Delete last digit"
+              disabled={!value}
+              onClick={() => onChange(value.slice(0, -1))}
             >
-              {k}
+              <Delete className="size-4" />
             </Button>
-          ))}
-        </div>
+          </div>
 
-        <Button
-          variant="success"
-          className="h-12 w-full text-base"
-          disabled={!canDial}
-          onClick={onDial}
-        >
-          {pending ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <PhoneCall className="size-4" />
-          )}
-          {pending ? "Calling…" : "Call"}
-        </Button>
+          <div className="grid grid-cols-3 gap-2.5">
+            {keys.map((k) => (
+              <Button
+                key={k}
+                variant="outline"
+                className="h-14 text-xl font-medium"
+                onClick={() => onChange(value + k)}
+              >
+                {k}
+              </Button>
+            ))}
+          </div>
 
-        {!deviceRegistered ? (
-          <p className="text-center text-xs text-muted-foreground">
-            Softphone connecting… you can place a call once it's ready.
-          </p>
-        ) : value && !preview ? (
-          <p className="text-center text-xs text-muted-foreground">
-            Enter a valid US or Canada number.
-          </p>
-        ) : null}
-      </CardContent>
+          <Button
+            variant="success"
+            className="h-12 w-full text-base"
+            disabled={!canDial}
+            onClick={onDial}
+          >
+            {pending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <PhoneCall className="size-4" />
+            )}
+            {pending ? "Calling…" : "Call"}
+          </Button>
+
+          {!deviceRegistered ? (
+            <p className="text-center text-xs text-muted-foreground">
+              Softphone connecting… you can place a call once it's ready.
+            </p>
+          ) : value && !preview ? (
+            <p className="text-center text-xs text-muted-foreground">
+              Enter a valid US or Canada number.
+            </p>
+          ) : null}
+        </CardContent>
+      )}
     </Card>
   );
 }
@@ -970,16 +1025,24 @@ function StatusPreview({
             tone={onCall ? "warning" : isAvailable ? "success" : "destructive"}
           />
           <StatusRow
-            icon={readyStatePending ? Loader2 : Power}
+            icon={onCall ? PhoneCall : readyStatePending ? Loader2 : Power}
             label="Ready State"
-            value={status === "ready" ? "Ready" : "Paused"}
+            value={onCall ? "On Call" : status === "ready" ? "Ready" : "Paused"}
             helper={
-              status === "ready"
-                ? "You are marked ready to accept calls."
-                : "Click Go Ready when you are ready for calls."
+              onCall
+                ? "Currently on a call."
+                : status === "ready"
+                  ? "You are marked ready to accept calls."
+                  : "Click Go Ready when you are ready for calls."
             }
-            tone={status === "ready" ? "success" : "destructive"}
-            pending={readyStatePending}
+            tone={
+              onCall
+                ? "warning"
+                : status === "ready"
+                  ? "success"
+                  : "destructive"
+            }
+            pending={!onCall && readyStatePending}
           />
           <StatusRow
             icon={deviceRegistered ? Wifi : WifiOff}
@@ -1161,56 +1224,4 @@ function reasonNotAvailable(
 
 function readError(err: any, fallback: string): string {
   return err?.response?.data?.statusMessage || err?.message || fallback;
-}
-
-/**
- * The agent's own direct callback number (their Twilio DID), shown top-right so they
- * can read it out to a caller ("call me back at …"). A direct dial back to this number
- * bypasses Retreaver routing and triggers the returning-caller pull-up. Click to copy.
- */
-function CallbackNumber({ number }: { number: string }) {
-  const [copied, setCopied] = useState(false);
-  const onCopy = () => {
-    void navigator.clipboard
-      ?.writeText(number)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => undefined);
-  };
-  return (
-    <button
-      type="button"
-      onClick={onCopy}
-      title="Copy your phone number"
-      className="group flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-sm transition-colors hover:bg-muted"
-    >
-      <Phone className="size-4 text-muted-foreground" />
-      <span className="flex flex-col items-start leading-tight">
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-          Your phone number
-        </span>
-        <span className="font-mono font-medium">{formatDid(number)}</span>
-      </span>
-      {copied ? (
-        <Check className="size-4 text-success" />
-      ) : (
-        <Copy className="size-4 text-muted-foreground opacity-60 group-hover:opacity-100" />
-      )}
-    </button>
-  );
-}
-
-/** Format a +1 E.164 US DID as +1 (555) 123-4567; leave anything else as-is. */
-function formatDid(did: string): string {
-  const digits = did.replace(/\D/g, "");
-  const ten =
-    digits.length === 11 && digits.startsWith("1")
-      ? digits.slice(1)
-      : digits.length === 10
-        ? digits
-        : null;
-  if (!ten) return did;
-  return `+1 (${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
 }

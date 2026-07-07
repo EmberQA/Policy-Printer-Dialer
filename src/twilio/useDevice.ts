@@ -20,7 +20,12 @@
 
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {Call, Device} from '@twilio/voice-sdk';
-import {getTwilioToken, setOnCall, type TwilioDeviceStatus} from '@/lib/api';
+import {
+	getTwilioToken,
+	setOnCall,
+	setPresence,
+	type TwilioDeviceStatus
+} from '@/lib/api';
 
 export interface ActiveCall {
 	/** E.164 / SIP caller number from Twilio params (best-effort). For an OUTBOUND
@@ -201,9 +206,11 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 					startedAt: Date.now(),
 					direction: isOutbound ? 'outbound' : 'inbound'
 				});
-				// Best-effort: tell the backend we're busy (mid-call availability=0).
-				// Outbound already set on_call server-side; this is idempotent.
+				// Best-effort: tell the backend we're busy and no longer ready.
+				// on_call blocks routing immediately; paused keeps the agent unavailable
+				// after wrap-up until they explicitly go ready again.
 				void setOnCall(true).catch(() => undefined);
+				void setPresence({status: 'paused'}).catch(() => undefined);
 			});
 
 			const clearCall = () => {

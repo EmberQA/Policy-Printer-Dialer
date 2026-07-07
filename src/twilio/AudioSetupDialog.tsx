@@ -240,8 +240,8 @@ export function AudioSetupDialog({
 					)}
 
 					<div className="space-y-4">
-						<section className="space-y-3 rounded-md border p-3">
-							<div className="flex items-center gap-2">
+						<section className="min-w-0 space-y-3 rounded-md border p-3">
+							<div className="flex min-w-0 items-center gap-2">
 								<Mic className="size-4 text-muted-foreground" />
 								<Label htmlFor="audio-input-device">Microphone</Label>
 								<DeviceStatus
@@ -271,7 +271,7 @@ export function AudioSetupDialog({
 									))}
 								</SelectContent>
 							</Select>
-							<div className="h-2 overflow-hidden rounded-full bg-muted">
+							<div className="mx-auto h-2 w-64 max-w-full overflow-hidden rounded-full bg-muted">
 								<div
 									className="h-full rounded-full bg-success transition-[width]"
 									style={{width: `${micLevel}%`}}
@@ -361,9 +361,9 @@ function DeviceStatus({
 	loading: boolean;
 }) {
 	return (
-		<span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
+		<span className="ml-auto inline-flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
 			{loading && <Loader2 className="size-3 animate-spin" />}
-			{status}
+			<span className="truncate">{status}</span>
 		</span>
 	);
 }

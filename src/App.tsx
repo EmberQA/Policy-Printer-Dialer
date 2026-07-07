@@ -7,11 +7,15 @@ import {
 	useLocation,
 	useNavigate
 } from 'react-router-dom';
+import {Check, Copy, Phone} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {runHandoff, HandoffResult} from '@/auth/handoff';
 import {getUser, hasSession} from '@/auth/session';
 import {cn} from '@/lib/utils';
-import {DialerSessionProvider, useDialerSession} from '@/session/DialerSessionProvider';
+import {
+	DialerSessionProvider,
+	useDialerSession
+} from '@/session/DialerSessionProvider';
 import Dial from '@/pages/Dial';
 import Leads from '@/pages/Leads';
 import policyPrinterLogo from '@/assets/policy-printer-logo.png';
@@ -107,11 +111,7 @@ export default function App() {
 								<NavTab to="/leads" label="Activity" />
 							</nav>
 						</div>
-						<div className="flex shrink-0 items-center gap-2">
-							<p className="hidden text-sm text-muted-foreground sm:block">
-								Logged in as: {userName}
-							</p>
-						</div>
+						<HeaderUserBlock userName={userName} />
 					</div>
 				</header>
 				<main className="px-4 py-6 sm:px-6">
@@ -124,6 +124,22 @@ export default function App() {
 				</main>
 			</div>
 		</DialerSessionProvider>
+	);
+}
+
+function HeaderUserBlock({userName}: {userName: string}) {
+	const {profile, provisioned} = useDialerSession();
+	const callbackNumber = profile?.agent?.twilio_phone_number;
+
+	return (
+		<div className="flex shrink-0 flex-col items-end gap-2">
+			<p className="hidden text-sm text-muted-foreground sm:block">
+				Logged in as: {userName}
+			</p>
+			{provisioned && callbackNumber && (
+				<CallbackNumber number={callbackNumber} />
+			)}
+		</div>
 	);
 }
 
@@ -155,6 +171,58 @@ function InboundCallAutoNav() {
 	}, [device.activeCall, navigate, location.pathname]);
 
 	return null;
+}
+
+/**
+ * The agent's own direct callback number (their Twilio DID). A direct dial back to
+ * this number bypasses Retreaver routing and triggers the returning-caller pull-up.
+ */
+function CallbackNumber({number}: {number: string}) {
+	const [copied, setCopied] = useState(false);
+	const onCopy = () => {
+		void navigator.clipboard
+			?.writeText(number)
+			.then(() => {
+				setCopied(true);
+				window.setTimeout(() => setCopied(false), 1500);
+			})
+			.catch(() => undefined);
+	};
+
+	return (
+		<button
+			type="button"
+			onClick={onCopy}
+			title="Copy your phone number"
+			className="group flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-sm transition-colors hover:bg-muted"
+		>
+			<Phone className="size-4 text-muted-foreground" />
+			<span className="flex flex-col items-start leading-tight">
+				<span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+					Your phone number
+				</span>
+				<span className="font-mono font-medium">{formatDid(number)}</span>
+			</span>
+			{copied ? (
+				<Check className="size-4 text-success" />
+			) : (
+				<Copy className="size-4 text-muted-foreground opacity-60 group-hover:opacity-100" />
+			)}
+		</button>
+	);
+}
+
+/** Format a +1 E.164 US DID as +1 (555) 123-4567; leave anything else as-is. */
+function formatDid(did: string): string {
+	const digits = did.replace(/\D/g, '');
+	const ten =
+		digits.length === 11 && digits.startsWith('1')
+			? digits.slice(1)
+			: digits.length === 10
+				? digits
+				: null;
+	if (!ten) return did;
+	return `+1 (${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
 }
 
 function NavTab({to, label}: {to: string; label: string}) {
