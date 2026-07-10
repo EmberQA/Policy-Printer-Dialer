@@ -26,6 +26,11 @@ import {
 	setPresence,
 	type TwilioDeviceStatus
 } from '@/lib/api';
+import {
+	claimIncomingOwner,
+	clearActiveCallOwner,
+	clearCallOwner
+} from './callOwnership';
 
 export interface ActiveCall {
 	/** E.164 / SIP caller number from Twilio params (best-effort). For an OUTBOUND
@@ -185,7 +190,18 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 
 		/** Wire the per-call listeners + auto-answer. */
 		const onIncoming = (call: Call) => {
-			callRef.current = call;
+			const ownership = claimIncomingOwner(callRef.current, call);
+			if (!ownership.accepted) {
+				// Defense in depth: the server should already have rejected this parent
+				// leg, but never let a second SDK event replace ownership of the live call.
+				try {
+					call.reject();
+				} catch {
+					/* a canceled leg may already be terminal */
+				}
+				return;
+			}
+			callRef.current = ownership.owner;
 
 			call.on('accept', () => {
 				if (cancelled) return;
@@ -215,8 +231,10 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 
 			const clearCall = () => {
 				if (cancelled) return;
-				callRef.current = null;
-				setActiveCall(null);
+				// Late terminal events from an older leg must not erase the newer call.
+				callRef.current = clearCallOwner(callRef.current, call);
+				const callSid = call.parameters.CallSid || '';
+				setActiveCall((current) => clearActiveCallOwner(current, callSid));
 			};
 			call.on('disconnect', clearCall);
 			call.on('cancel', clearCall);
@@ -254,7 +272,8 @@ export function useDevice({enabled = true}: UseDeviceOptions = {}): UseDeviceSta
 				if (cancelled) return;
 
 				device = new Device(token, {
-					codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU]
+					codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
+					allowIncomingWhileBusy: false
 				});
 				deviceRef.current = device;
 

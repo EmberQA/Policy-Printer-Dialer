@@ -118,10 +118,14 @@ export interface DialerPresence {
 	 *  lazy-expires. */
 	reserved_at: string | null;
 	reserved_call_uuid: string | null;
+	reserved_retreaver_call_uuid: string | null;
 	/** The campaign whose buyer won the reserving ping — the authoritative campaign
 	 *  for the incoming call. The dialer uses it to auto-open the correct lead form
 	 *  even when several campaigns are armed. Null when unreserved. */
 	reserved_campaign_id: string | null;
+	bridging_call_sid: string | null;
+	bridging_claimed_at: string | null;
+	bridging_claim_fresh: boolean | null;
 	last_heartbeat_at: string | null;
 	session_id: string | null;
 	twilio_device_status: TwilioDeviceStatus | null;
