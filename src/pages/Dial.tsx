@@ -7,6 +7,7 @@ import {
   Headphones,
   ListChecks,
   Loader2,
+  Mic,
   PhoneCall,
   PhoneOutgoing,
   Power,
@@ -39,6 +40,7 @@ import { useDialerSession } from "@/session/DialerSessionProvider";
 import { type ActiveCall } from "@/twilio/useDevice";
 import { ActiveCallBanner } from "@/twilio/ActiveCallBanner";
 import { AudioSetupDialog } from "@/twilio/AudioSetupDialog";
+import { MicLevelMeter, useMicLevelMeter } from "@/twilio/MicLevelMeter";
 import { LeadForm } from "@/leads/LeadForm";
 import { LeadNotesPanel } from "@/leads/LeadNotesContext";
 import { ReturningCallerCard } from "@/leads/ReturningCallerCard";
@@ -369,7 +371,7 @@ export default function Dial() {
   }, [activeCall, completedWrapUpCallKey, wrapUpCall, wrapUpReleasePending]);
 
   return (
-    <div className="min-h-[calc(100vh-7rem)] w-full">
+    <div className="w-full">
       <DebugIncomingCallToggle
         active={debugIncomingCall}
         onToggle={onToggleDebugIncomingCall}
@@ -412,7 +414,7 @@ export default function Dial() {
 
         {/* CENTER — the interactive call core (banners + lead form). Capped + centered
             in its track so cards aren't stretched edge-to-edge on wide screens. */}
-        <div className="order-1 mx-auto flex w-full max-w-2xl flex-col gap-5 xl:order-none">
+        <div className="order-1 mx-auto flex w-full max-w-3xl flex-col gap-5 xl:order-none">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">Calls</h1>
           </div>
@@ -662,6 +664,8 @@ function DialSidebar({
   canDial: boolean;
   dialPending: boolean;
 }) {
+  const systemMicMeter = useMicLevelMeter({ enabled: provisioned });
+
   return (
     <aside className="order-3 flex w-full flex-col gap-3 xl:order-none">
       <Card className="shadow-xs">
@@ -705,6 +709,16 @@ function DialSidebar({
               onInputDeviceChange={onInputDeviceChange}
               onOutputDeviceChange={onOutputDeviceChange}
             />
+            <div
+              className="flex items-center gap-2 px-3 py-1"
+              title="Live microphone level"
+            >
+              <Mic className="size-4 shrink-0 text-muted-foreground" />
+              <MicLevelMeter
+                segments={systemMicMeter.segments}
+                className="min-w-0 flex-1"
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1111,8 +1125,8 @@ function StatusPreview({
             value={connected ? "Connected" : "Reconnecting"}
             helper={
               connected
-                ? "Device connected to PolicyPrinter call publishing network."
-                : "Device not connected to PolicyPrinter call publishing network."
+                ? "Device connected to Policy Printer call publishing network."
+                : "Device not connected to Policy Printer call publishing network."
             }
             tone={connected ? "success" : "destructive"}
           />

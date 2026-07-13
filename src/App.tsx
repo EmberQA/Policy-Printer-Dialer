@@ -159,11 +159,15 @@ function DialerPageRoutes() {
 }
 
 function HeaderUserBlock({userName}: {userName: string}) {
-	const {profile, provisioned} = useDialerSession();
+	const {profile, provisioned, device} = useDialerSession();
 	const callbackNumber = profile?.agent?.twilio_phone_number;
+	const pingMs = device.activeCall ? device.twilioRttMs : device.apiPingMs;
 
 	return (
 		<div className="flex shrink-0 flex-col items-end gap-2">
+			<span className="font-mono text-xs text-muted-foreground">
+				Ping: {pingMs === null ? '—' : `${pingMs} ms`}
+			</span>
 			<p className="hidden text-sm text-muted-foreground sm:block">
 				Logged in as: {userName}
 			</p>

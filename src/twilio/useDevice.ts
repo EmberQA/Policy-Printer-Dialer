@@ -19,7 +19,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Call, Device } from "@twilio/voice-sdk";
+import { Call, Device, type RTCSample } from "@twilio/voice-sdk";
 import {
   getTwilioToken,
   setOnCall,
@@ -54,6 +54,10 @@ export interface UseDeviceState {
   deviceStatus: TwilioDeviceStatus;
   /** Non-null while a call is connected. */
   activeCall: ActiveCall | null;
+  /** Live WebRTC round-trip time to Twilio, available during an active call. */
+  twilioRttMs: number | null;
+  /** HTTP response time to api.emberqa.com while no call is active. */
+  apiPingMs: number | null;
   /** Last device/call error message, for surfacing in the UI. */
   error: string | null;
   mute: (muted: boolean) => void;
@@ -90,6 +94,8 @@ export function useDevice({
   const [deviceStatus, setDeviceStatus] =
     useState<TwilioDeviceStatus>("offline");
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
+  const [twilioRttMs, setTwilioRttMs] = useState<number | null>(null);
+  const [apiPingMs, setApiPingMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const deviceRef = useRef<Device | null>(null);
@@ -191,6 +197,8 @@ export function useDevice({
 
     let cancelled = false;
     let device: Device | null = null;
+    let apiPingTimer: number | null = null;
+    let apiPingController: AbortController | null = null;
 
     const fetchToken = async (): Promise<string> => {
       const res = await getTwilioToken();
@@ -198,6 +206,39 @@ export function useDevice({
         throw new Error(res.statusMessage || "Failed to get Twilio token");
       }
       return res.token;
+    };
+
+    /** Time a cache-bypassed request to EmberQA without backend auth or DB work. */
+    const probeApi = async () => {
+      if (cancelled || callRef.current) return;
+      const controller = new AbortController();
+      apiPingController?.abort();
+      apiPingController = controller;
+      const timeout = window.setTimeout(
+        () => controller.abort(),
+        API_PING_TIMEOUT_MS,
+      );
+      const startedAt = performance.now();
+
+      try {
+        await fetch(`https://api.emberqa.com/?dialer-ping=${Date.now()}`, {
+          method: "HEAD",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!cancelled) {
+          setApiPingMs(Math.max(0, Math.round(performance.now() - startedAt)));
+        }
+      } catch {
+        if (!cancelled && apiPingController === controller) {
+          setApiPingMs(null);
+        }
+      } finally {
+        window.clearTimeout(timeout);
+        if (apiPingController === controller) {
+          apiPingController = null;
+        }
+      }
     };
 
     /** Wire the per-call listeners + auto-answer. */
@@ -257,11 +298,23 @@ export function useDevice({
         void setPresence({ status: "paused" }).catch(() => undefined);
       });
 
+      // Twilio publishes a WebRTC quality sample every second during a call.
+      // Its RTT is the closest possible browser-side ping to the actual media path.
+      call.on("sample", (sample: RTCSample) => {
+        if (cancelled || callRef.current !== call) return;
+        setTwilioRttMs(
+          Number.isFinite(sample.rtt)
+            ? Math.max(0, Math.round(sample.rtt))
+            : null,
+        );
+      });
+
       const clearCall = () => {
         if (cancelled) return;
         cancelAutoAnswer();
         // Late terminal events from an older leg must not erase the newer call.
         callRef.current = clearCallOwner(callRef.current, call);
+        if (!callRef.current) setTwilioRttMs(null);
         const callSid = call.parameters.CallSid || "";
         setActiveCall((current) => clearActiveCallOwner(current, callSid));
       };
@@ -348,6 +401,12 @@ export function useDevice({
 
         setDeviceStatus("connecting");
         await device.register();
+        if (cancelled) return;
+        void probeApi();
+        apiPingTimer = window.setInterval(
+          () => void probeApi(),
+          API_PING_INTERVAL_MS,
+        );
       } catch (e) {
         if (cancelled) return;
         setDeviceStatus("error");
@@ -359,6 +418,10 @@ export function useDevice({
 
     return () => {
       cancelled = true;
+      if (apiPingTimer !== null) {
+        window.clearInterval(apiPingTimer);
+      }
+      apiPingController?.abort();
       try {
         callRef.current?.disconnect();
       } catch {
@@ -377,6 +440,8 @@ export function useDevice({
   return {
     deviceStatus,
     activeCall,
+    twilioRttMs,
+    apiPingMs,
     error,
     mute,
     hangup,
@@ -394,6 +459,9 @@ const OUTBOUND_ARM_WINDOW_MS = 60_000;
 
 /** Keep Twilio's native inbound ringtone audible before automatic answer. */
 const INBOUND_AUTO_ANSWER_DELAY_MS = 1_500;
+
+const API_PING_INTERVAL_MS = 15_000;
+const API_PING_TIMEOUT_MS = 5_000;
 
 /** Turn a getUserMedia rejection into a user-facing message. */
 function micErrorMessage(e: unknown): string {
