@@ -10,6 +10,7 @@ import {
   PhoneCall,
   PhoneOutgoing,
   Power,
+  Radar,
   RadioTower,
   Wifi,
   WifiOff,
@@ -39,6 +40,7 @@ import { type ActiveCall } from "@/twilio/useDevice";
 import { ActiveCallBanner } from "@/twilio/ActiveCallBanner";
 import { AudioSetupDialog } from "@/twilio/AudioSetupDialog";
 import { LeadForm } from "@/leads/LeadForm";
+import { LeadNotesPanel } from "@/leads/LeadNotesContext";
 import { ReturningCallerCard } from "@/leads/ReturningCallerCard";
 import { useReturningCaller } from "@/leads/useReturningCaller";
 import { cn } from "@/lib/utils";
@@ -377,7 +379,7 @@ export default function Dial() {
           RIGHT (controls + status). Fixed, roomy side columns and a flexible center;
           side-by-side at xl, stacked below (center first). */}
       <div className="grid grid-cols-1 gap-8 xl:grid-cols-[22rem_minmax(0,1fr)_22rem] xl:items-start">
-        {/* LEFT — errors and returning-caller pane. */}
+        {/* LEFT — errors, prominent active-lead notes, then returning-caller pane. */}
         <div className="order-2 flex flex-col items-stretch gap-4 xl:order-none">
           {displayError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -389,6 +391,8 @@ export default function Dial() {
               Softphone: {deviceError}
             </div>
           )}
+
+          <LeadNotesPanel />
 
           {profile && provisioned && (
             <>
@@ -817,25 +821,71 @@ function IdleCallPanel({ available }: { available: 0 | 1 | null }) {
   const routable = available === 1;
 
   return (
-    <Card className="shadow-xs">
+    <Card
+      className={cn(
+        "relative overflow-hidden shadow-xs",
+        routable &&
+          "border-primary/15 bg-gradient-to-br from-primary/[0.07] via-card to-violet-500/[0.06]",
+      )}
+    >
+      {routable && (
+        <div
+          aria-hidden="true"
+          className="absolute -right-16 -top-24 size-56 rounded-full bg-primary/10 blur-3xl"
+        />
+      )}
       <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <Headphones className="size-5" />
-          </div>
+        <div className="relative flex min-w-0 items-center gap-4">
+          {routable ? <CallSearchAnimation /> : <IdleCallIcon />}
           <div className="min-w-0">
             <p className="font-medium">
               {routable ? "Ready For Calls" : "Not Ready"}
             </p>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
               {routable
-                ? "Searching for a call... \n Incoming calls will answer automatically."
+                ? "Searching for a call. Incoming calls will answer automatically."
                 : "Click Go Ready on the right-side panel to recieve a call."}
             </p>
           </div>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function IdleCallIcon() {
+  return (
+    <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+      <Headphones className="size-5" />
+    </div>
+  );
+}
+
+function CallSearchAnimation() {
+  return (
+    <div
+      aria-hidden="true"
+      className="relative flex size-16 shrink-0 items-center justify-center"
+    >
+      <div className="absolute inset-0 rounded-full border border-primary/15" />
+      <div className="absolute inset-2 rounded-full border border-primary/20 motion-reduce:animate-none animate-[ping_2.8s_cubic-bezier(0,0,0.2,1)_infinite]" />
+      <div className="absolute inset-5 rounded-full border border-primary/30 motion-reduce:animate-none animate-[ping_2.8s_cubic-bezier(0,0,0.2,1)_infinite] [animation-delay:900ms]" />
+      <div className="absolute inset-0 motion-reduce:animate-none animate-[spin_7s_linear_infinite]">
+        <span className="absolute left-1/2 -top-1 size-2 -translate-x-1/2 rounded-full bg-sky-400 ring-4 ring-card shadow-[0_0_10px_rgba(56,189,248,0.85)]" />
+      </div>
+      <div className="absolute inset-0 motion-reduce:animate-none animate-[spin_7s_linear_infinite_reverse]">
+        <span className="absolute -bottom-1 left-1/2 size-2 -translate-x-1/2 rounded-full bg-indigo-400 ring-4 ring-card shadow-[0_0_10px_rgba(129,140,248,0.8)]" />
+      </div>
+      <div className="absolute inset-0 motion-reduce:animate-none animate-[spin_5s_linear_infinite]">
+        <span className="absolute -right-1 top-1/2 size-2 -translate-y-1/2 rounded-full bg-violet-400 ring-4 ring-card shadow-[0_0_10px_rgba(167,139,250,0.8)]" />
+      </div>
+      <div className="absolute inset-0 motion-reduce:animate-none animate-[spin_5s_linear_infinite_reverse]">
+        <span className="absolute -left-1 top-1/2 size-2 -translate-y-1/2 rounded-full bg-purple-400 ring-4 ring-card shadow-[0_0_10px_rgba(192,132,252,0.8)]" />
+      </div>
+      <div className="relative flex size-11 items-center justify-center rounded-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500 text-primary-foreground shadow-[0_0_30px_rgba(99,102,241,0.4)]">
+        <Radar className="size-5" />
+      </div>
+    </div>
   );
 }
 

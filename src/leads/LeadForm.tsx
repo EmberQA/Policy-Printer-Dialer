@@ -24,6 +24,7 @@ import {Dialog as DialogPrimitive} from 'radix-ui';
 import {Badge} from '@/components/ui/badge';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {Button} from '@/components/ui/button';
+import {Label} from '@/components/ui/label';
 import {
 	getLeadFormBundle,
 	saveLead,
@@ -34,6 +35,7 @@ import {
 } from '@/lib/api';
 import {FormRenderer, type LeadFormData} from './FormRenderer';
 import {DispositionSelect} from './DispositionSelect';
+import {useLeadNotes} from './LeadNotesContext';
 
 export function LeadForm({
 	campaignId,
@@ -68,19 +70,43 @@ export function LeadForm({
 	const [completingWithoutLead, setCompletingWithoutLead] = useState(false);
 	const [saveError, setSaveError] = useState<string | null>(null);
 	const [savedLeadId, setSavedLeadId] = useState<string | null>(null);
-	const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
+	const [pendingDispositionAction, setPendingDispositionAction] = useState<
+		'save' | 'skip' | null
+	>(null);
 	const busy = saving || completingWithoutLead;
+	const {setNote} = useLeadNotes();
 
 	const initialFormData = (nextForm: DialerForm | null): LeadFormData => {
+		const priorAnswers = editLead?.form_data ?? {};
+		const priorFieldByLabel = new Map(
+			(editLead?.form_schema_snapshot ?? []).map((field) => [
+				normalizeFieldLabel(field.label),
+				field
+			])
+		);
+		// A returning caller is edited in the currently configured campaign form.
+		// Preserve prior answers where the field key still matches, otherwise match the
+		// human label (e.g. an old `phone_number` to a new `phone`). Fields that no
+		// longer exist are intentionally dropped rather than failing validation.
+		const matchingPriorAnswers: LeadFormData = {};
+		for (const field of nextForm?.schema ?? []) {
+			if (priorAnswers[field.key] !== undefined) {
+				matchingPriorAnswers[field.key] = priorAnswers[field.key];
+				continue;
+			}
+			const priorField = priorFieldByLabel.get(normalizeFieldLabel(field.label));
+			if (priorField && priorAnswers[priorField.key] !== undefined) {
+				matchingPriorAnswers[field.key] = priorAnswers[priorField.key];
+			}
+		}
 		const phoneField = (nextForm?.schema ?? []).find(
 			(f) => f.type === 'phone' || f.key === 'phone'
 		);
 		const phonePrefill: LeadFormData =
 			phoneField && callerPhone ? {[phoneField.key]: callerPhone} : {};
-		// Edit-in-place (callback): seed the prior lead's answers first, then let the
-		// live caller number win for the phone field.
+		// The live caller number always wins for the current form's phone field.
 		if (editLead) {
-			return {...(editLead.form_data ?? {}), ...phonePrefill};
+			return {...matchingPriorAnswers, ...phonePrefill};
 		}
 		return phonePrefill;
 	};
@@ -91,6 +117,13 @@ export function LeadForm({
 		if (keys.includes('first_name') || keys.includes('last_name')) return null;
 		return keys.find((k) => k === 'name') ?? null;
 	}, [form]);
+	const noteField = useMemo(
+		() =>
+			(form?.schema ?? []).find(
+				(field) => field.key === 'notes' || field.key === 'note'
+			) ?? null,
+		[form]
+	);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -127,6 +160,24 @@ export function LeadForm({
 	const onField = (key: string, value: unknown) =>
 		setFormData((prev) => ({...prev, [key]: value}));
 
+	useEffect(() => {
+		if (!noteField) {
+			setNote(null);
+			return;
+		}
+		setNote({
+			key: noteField.key,
+			label: noteField.label,
+			value:
+				typeof formData[noteField.key] === 'string'
+					? (formData[noteField.key] as string)
+					: '',
+			onChange: (value) => onField(noteField.key, value)
+		});
+	}, [formData, noteField, setNote]);
+
+	useEffect(() => () => setNote(null), [setNote]);
+
 	const selectedDisposition = useMemo(
 		() => dispositions.find((d) => d.disposition_key === dispositionKey) ?? null,
 		[dispositions, dispositionKey]
@@ -153,8 +204,7 @@ export function LeadForm({
 		return full || null;
 	};
 
-	const onSave = async () => {
-		if (!requireDisposition()) return;
+	const onSave = async (): Promise<boolean> => {
 		setSaving(true);
 		setSaveError(null);
 		try {
@@ -177,29 +227,31 @@ export function LeadForm({
 				  });
 			if (res.statusCode !== 'SP100') {
 				setSaveError(res.statusMessage || 'Could not save lead');
-				return;
+				return false;
 			}
 			setSavedLeadId(res.lead_id ?? editLead?.id ?? null);
 			await onComplete?.();
+			return true;
 		} catch (err) {
 			setSaveError(readError(err, 'Could not save lead'));
+			return false;
 		} finally {
 			setSaving(false);
 		}
 	};
 
-	const onOpenSkipConfirm = () => {
+	const onConfirmDispositionAction = async () => {
 		if (!requireDisposition()) return;
-		setSkipConfirmOpen(true);
-	};
-
-	const onConfirmNoLead = async () => {
-		if (!requireDisposition()) return;
+		if (pendingDispositionAction === 'save') {
+			if (await onSave()) setPendingDispositionAction(null);
+			return;
+		}
+		if (pendingDispositionAction !== 'skip') return;
 		setCompletingWithoutLead(true);
 		setSaveError(null);
 		try {
 			await onComplete?.();
-			setSkipConfirmOpen(false);
+			setPendingDispositionAction(null);
 		} catch (err) {
 			setSaveError(readError(err, 'Could not complete call wrap-up'));
 		} finally {
@@ -246,6 +298,7 @@ export function LeadForm({
 								value={formData}
 								onChange={onField}
 								disabled={busy}
+								excludeKeys={noteField ? [noteField.key] : []}
 							/>
 						) : (
 							<p className="text-muted-foreground">
@@ -254,20 +307,14 @@ export function LeadForm({
 							</p>
 						)}
 
-						<div className="space-y-2 border-t pt-4">
-							<p className="text-sm font-medium">Disposition</p>
-							<DispositionSelect
-								dispositions={dispositions}
-								value={dispositionKey}
-								onChange={setDispositionKey}
-								disabled={busy}
-							/>
-						</div>
-
 						{saveError && <p className="text-destructive">{saveError}</p>}
 
 						<div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center">
-							<Button variant="success" onClick={onSave} disabled={busy}>
+							<Button
+								variant="success"
+								onClick={() => setPendingDispositionAction('save')}
+								disabled={busy}
+							>
 								{saving ? (
 									<Loader2 className="size-4 animate-spin" />
 								) : (
@@ -283,63 +330,90 @@ export function LeadForm({
 									? 'Save again'
 									: 'Save lead'}
 							</Button>
-							<DialogPrimitive.Root
-								open={skipConfirmOpen}
-								onOpenChange={setSkipConfirmOpen}
+							<Button
+								type="button"
+								variant="outline"
+								disabled={busy}
+								onClick={() => setPendingDispositionAction('skip')}
 							>
-								<DialogPrimitive.Trigger asChild>
-									<Button
-										type="button"
-										variant="outline"
-										disabled={busy}
-										onClick={(event) => {
-											event.preventDefault();
-											onOpenSkipConfirm();
-										}}
-									>
-										<Ban className="size-4" />
-										Do not save lead
-									</Button>
-								</DialogPrimitive.Trigger>
+								<Ban className="size-4" />
+								Do not save lead
+							</Button>
+							<DialogPrimitive.Root
+								open={pendingDispositionAction !== null}
+								onOpenChange={(open) => {
+									if (!open) setPendingDispositionAction(null);
+								}}
+							>
 								<DialogPrimitive.Portal>
 									<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
 									<DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 grid w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border bg-popover p-5 text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
 										<div className="flex gap-3">
-											<div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-												<AlertTriangle className="size-5" />
-											</div>
+											{pendingDispositionAction === 'skip' && (
+												<div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+													<AlertTriangle className="size-5" />
+												</div>
+											)}
 											<div className="space-y-2">
 												<DialogPrimitive.Title className="text-base font-semibold">
-													Do not save a lead?
+													{pendingDispositionAction === 'save'
+														? editLead
+															? 'Update lead'
+															: 'Save lead'
+														: 'Do not save a lead?'}
 												</DialogPrimitive.Title>
 												<DialogPrimitive.Description className="text-sm leading-6 text-muted-foreground">
-													This call will close without saving lead details.
-													{selectedDisposition
-														? ` Selected disposition: ${selectedDisposition.label}.`
-														: ''}
+													Choose a disposition before completing this call.
 												</DialogPrimitive.Description>
 											</div>
+										</div>
+										<div className="space-y-2">
+											<Label>Disposition</Label>
+											<DispositionSelect
+												dispositions={dispositions}
+												value={dispositionKey}
+												onChange={setDispositionKey}
+												disabled={busy}
+											/>
+											{dispositions.length === 0 && (
+												<p className="text-sm text-destructive">
+													No dispositions are configured for this campaign.
+												</p>
+											)}
+											{selectedDisposition && (
+												<p className="text-xs text-muted-foreground">
+													Selected: {selectedDisposition.label}
+												</p>
+											)}
 										</div>
 										<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
 											<DialogPrimitive.Close asChild>
 												<Button
 													type="button"
 													variant="outline"
-													disabled={completingWithoutLead}
+													disabled={busy}
 												>
 													Cancel
 												</Button>
 											</DialogPrimitive.Close>
 											<Button
 												type="button"
-												variant="destructive"
-												disabled={completingWithoutLead}
-												onClick={onConfirmNoLead}
+												variant={
+													pendingDispositionAction === 'skip'
+														? 'destructive'
+														: 'success'
+												}
+												disabled={busy || !dispositionKey}
+												onClick={onConfirmDispositionAction}
 											>
 												{completingWithoutLead && (
 													<Loader2 className="size-4 animate-spin" />
 												)}
-												Confirm no lead
+												{pendingDispositionAction === 'save'
+													? editLead
+														? 'Update lead'
+														: 'Save lead'
+													: 'Confirm no lead'}
 											</Button>
 										</div>
 									</DialogPrimitive.Content>
@@ -382,6 +456,9 @@ export function LeadForm({
 		</Card>
 	);
 }
+
+const normalizeFieldLabel = (label: string): string =>
+	label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 function readError(err: any, fallback: string): string {
 	return err?.response?.data?.statusMessage || err?.message || fallback;

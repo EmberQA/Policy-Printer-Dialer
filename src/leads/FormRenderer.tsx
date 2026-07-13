@@ -31,18 +31,23 @@ export function FormRenderer({
 	schema,
 	value,
 	onChange,
-	disabled
+	disabled,
+	excludeKeys = []
 }: {
 	schema: FormField[];
 	value: LeadFormData;
 	onChange: (key: string, fieldValue: unknown) => void;
 	disabled?: boolean;
+	/** Fields rendered elsewhere while keeping the same parent form state. */
+	excludeKeys?: string[];
 }) {
-	const fields = [...schema]
-		.filter((f) => f.active !== false)
+	const activeFields = [...schema].filter((f) => f.active !== false);
+	const fields = activeFields
+		.filter((f) => !excludeKeys.includes(f.key))
 		.sort((a, b) => a.sort_order - b.sort_order);
 
 	if (fields.length === 0) {
+		if (activeFields.length > 0) return null;
 		return (
 			<p className="text-sm text-muted-foreground">
 				This campaign’s form has no fields yet.

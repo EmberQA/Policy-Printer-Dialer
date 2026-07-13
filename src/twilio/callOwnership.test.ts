@@ -30,4 +30,13 @@ describe('Twilio call ownership', () => {
 		expect(clearCallOwner(owner, owner)).toBeNull();
 		expect(clearActiveCallOwner({callSid: 'CA1'}, 'CA1')).toBeNull();
 	});
+
+	it('clears the client leg while keeping the parent SID for lead association', () => {
+		expect(
+			clearActiveCallOwner(
+				{callSid: 'CA-parent', clientCallSid: 'CA-client'},
+				'CA-client'
+			)
+		).toBeNull();
+	});
 });

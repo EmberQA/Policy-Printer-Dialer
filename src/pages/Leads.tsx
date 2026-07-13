@@ -10,6 +10,8 @@ import {useEffect, useMemo, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {
 	CalendarDays,
+	Check,
+	Copy,
 	Headphones,
 	Loader2,
 	Phone,
@@ -50,7 +52,6 @@ import {
 	type ActivityListItem,
 	type ActivityKind
 } from '@/lib/api';
-import {FormRenderer} from '@/leads/FormRenderer';
 import {LeadForm} from '@/leads/LeadForm';
 import {cn} from '@/lib/utils';
 import {normalizeDialInput} from '@/lib/phone';
@@ -597,6 +598,7 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 	const [detail, setDetail] = useState<LeadDetailResponse | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [copied, setCopied] = useState(false);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -624,6 +626,17 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 	}, [leadId]);
 
 	const schema = useMemo(() => detail?.lead?.form_schema_snapshot ?? [], [detail]);
+	const copyText = useMemo(() => leadToText(detail), [detail]);
+	const onCopy = () => {
+		if (!copyText || !navigator.clipboard) return;
+		void navigator.clipboard
+			.writeText(copyText)
+			.then(() => {
+				setCopied(true);
+				window.setTimeout(() => setCopied(false), 1500);
+			})
+			.catch(() => undefined);
+	};
 
 	if (loading) {
 		return (
@@ -642,13 +655,24 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 
 	return (
 		<div className="space-y-5 px-4 py-4">
+			<div className="flex items-center justify-between gap-4">
+				<p className="text-sm font-medium">Lead details</p>
+				<Button size="sm" variant="outline" onClick={onCopy} disabled={!copyText}>
+					{copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+					{copied ? 'Copied' : 'Copy all'}
+				</Button>
+			</div>
+
 			{schema.length > 0 ? (
-				<FormRenderer
-					schema={schema}
-					value={detail.lead.form_data ?? {}}
-					onChange={() => undefined}
-					disabled
-				/>
+				<div className="grid gap-3 sm:grid-cols-2">
+					{schema.map((field) => (
+						<CopyableLeadField
+							key={field.key}
+							label={field.label || field.key}
+							value={formatValue(detail.lead!.form_data?.[field.key])}
+						/>
+					))}
+				</div>
 			) : (
 				<p className="text-sm text-muted-foreground">No form captured for this lead.</p>
 			)}
@@ -672,7 +696,7 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 			{detail.events && detail.events.length > 0 && (
 				<div className="border-t pt-4">
 					<p className="mb-2 text-sm font-medium">Activity</p>
-					<ul className="space-y-1">
+					<ul className="space-y-1 select-text">
 						{detail.events.map((ev) => (
 							<li key={ev.id} className="flex justify-between gap-4 text-xs">
 								<span>{ev.event_type}</span>
@@ -688,9 +712,18 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 
 function Row({label, value}: {label: string; value: string}) {
 	return (
-		<div className="flex justify-between gap-4">
+		<div className="flex justify-between gap-4 select-text">
 			<span className="text-muted-foreground">{label}</span>
 			<span className="text-right font-mono">{value}</span>
+		</div>
+	);
+}
+
+function CopyableLeadField({label, value}: {label: string; value: string}) {
+	return (
+		<div className="min-w-0 rounded-md border bg-muted/20 p-3">
+			<p className="text-xs text-muted-foreground">{label}</p>
+			<p className="mt-1 whitespace-pre-wrap break-words text-sm select-text">{value}</p>
 		</div>
 	);
 }
@@ -699,6 +732,31 @@ function fmt(iso: string | null | undefined): string {
 	if (!iso) return '—';
 	const d = new Date(iso);
 	return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+}
+
+function formatValue(value: unknown): string {
+	if (value === null || value === undefined || value === '') return '—';
+	if (Array.isArray(value)) return value.join(', ');
+	if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+	if (typeof value === 'object') return JSON.stringify(value, null, 2);
+	return String(value);
+}
+
+function leadToText(detail: LeadDetailResponse | null): string {
+	if (!detail?.lead) return '';
+	const lead = detail.lead;
+	const lines = [
+		`Name: ${lead.name || '—'}`,
+		`Phone: ${lead.caller_phone || '—'}`,
+		`Campaign: ${detail.campaign_name || '—'}`,
+		`Disposition: ${lead.disposition_label || '—'}`,
+		`Created: ${fmt(lead.created_at)}`,
+		`Last updated: ${fmt(lead.updated_at)}`
+	];
+	for (const field of lead.form_schema_snapshot ?? []) {
+		lines.push(`${field.label || field.key}: ${formatValue(lead.form_data?.[field.key])}`);
+	}
+	return lines.join('\n');
 }
 
 function readError(err: any, fallback: string): string {

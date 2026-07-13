@@ -17,7 +17,9 @@ import {
 	useDialerSession
 } from '@/session/DialerSessionProvider';
 import Dial from '@/pages/Dial';
+import Crm from '@/pages/Crm';
 import Leads from '@/pages/Leads';
+import {LeadNotesProvider} from '@/leads/LeadNotesContext';
 import policyPrinterLogo from '@/assets/policy-printer-logo.png';
 
 type BootState =
@@ -97,7 +99,8 @@ export default function App() {
 
 	return (
 		<DialerSessionProvider>
-			<div className="min-h-screen bg-background">
+			<LeadNotesProvider>
+				<div className="min-h-screen bg-background">
 				<header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
 					<div className="mx-auto flex min-h-24 max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-2 sm:px-6">
 						<div className="flex min-w-0 flex-wrap items-center gap-5">
@@ -108,6 +111,7 @@ export default function App() {
 							/>
 							<nav className="flex items-center gap-1" aria-label="Primary">
 								<NavTab to="/dial" label="Calls" />
+								<NavTab to="/crm" label="CRM" />
 								<NavTab to="/leads" label="Activity" />
 							</nav>
 						</div>
@@ -116,14 +120,41 @@ export default function App() {
 				</header>
 				<main className="px-4 py-6 sm:px-6">
 					<InboundCallAutoNav />
-					<Routes>
-						<Route path="/dial" element={<Dial />} />
-						<Route path="/leads" element={<Leads />} />
-						<Route path="*" element={<Navigate to="/dial" replace />} />
-					</Routes>
+					<DialerPageRoutes />
 				</main>
 			</div>
+			</LeadNotesProvider>
 		</DialerSessionProvider>
+	);
+}
+
+/**
+ * Keep the Calls page mounted while a real call is active, even if the user
+ * temporarily navigates to CRM or Activity. Dial owns the lead form's local
+ * draft state, so hiding (rather than unmounting) it prevents a tab change from
+ * discarding fields already typed during that live call. Once no call is active,
+ * the inactive route unmounts normally and returns to the usual fresh-load flow.
+ */
+function DialerPageRoutes() {
+	const {device} = useDialerSession();
+	const location = useLocation();
+	const showingDial = location.pathname === '/dial';
+	const keepDialMounted = showingDial || Boolean(device.activeCall);
+
+	return (
+		<>
+			<Routes>
+				<Route path="/dial" element={null} />
+				<Route path="/crm" element={<Crm />} />
+				<Route path="/leads" element={<Leads />} />
+				<Route path="*" element={<Navigate to="/dial" replace />} />
+			</Routes>
+			{keepDialMounted && (
+				<div className={showingDial ? undefined : 'hidden'} aria-hidden={!showingDial}>
+					<Dial />
+				</div>
+			)}
+		</>
 	);
 }
 

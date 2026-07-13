@@ -460,6 +460,14 @@ export const listActivity = (
 ): Promise<ActivityListResponse> =>
 	qsPost('/policyPrinter/dialer/leads/list', {filters, limit, page});
 
+/** One latest activity record per caller, for the contact-oriented CRM view. */
+export const listCrmContacts = (
+	filters: ActivityFilters,
+	limit: number,
+	page: number
+): Promise<ActivityListResponse> =>
+	qsPost('/policyPrinter/dialer/crm/list', {filters, limit, page});
+
 /** Full detail for one of the caller's leads (owning-agent only). */
 export const getLeadDetail = (leadId: string): Promise<LeadDetailResponse> =>
 	qsPost('/policyPrinter/dialer/lead/detail', {lead_id: leadId});
