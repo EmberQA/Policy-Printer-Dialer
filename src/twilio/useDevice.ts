@@ -280,7 +280,7 @@ export function useDevice({
         // `CallSid` is the browser Client leg. The TwiML bridge passes the
         // parent SID so a lead save associates with the durable dialer_calls
         // record created for this call instead of materializing a second row.
-        const parentCallSid = call.parameters.parent_call_sid;
+        const parentCallSid = call.customParameters.get("parent_call_sid");
         setActiveCall({
           from: isOutbound
             ? (pending as { toNumber: string }).toNumber

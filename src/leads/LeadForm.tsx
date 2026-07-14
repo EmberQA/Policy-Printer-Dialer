@@ -33,6 +33,7 @@ import {
   type DialerForm,
   type ReturningCallerLead,
 } from "@/lib/api";
+import { stateFormValueFromPhone } from "@/lib/phone";
 import { FormRenderer, type LeadFormData } from "./FormRenderer";
 import { DispositionSelect } from "./DispositionSelect";
 import { useLeadNotes } from "./LeadNotesContext";
@@ -101,16 +102,35 @@ export function LeadForm({
         matchingPriorAnswers[field.key] = priorAnswers[priorField.key];
       }
     }
-    const phoneField = (nextForm?.schema ?? []).find(
+    const schema = nextForm?.schema ?? [];
+    const phoneField = schema.find(
       (f) => f.type === "phone" || f.key === "phone",
     );
-    const phonePrefill: LeadFormData =
-      phoneField && callerPhone ? { [phoneField.key]: callerPhone } : {};
+    const stateField = schema.find((field) => field.key === "state");
+    const initialData: LeadFormData = editLead
+      ? { ...matchingPriorAnswers }
+      : {};
+
     // The live caller number always wins for the current form's phone field.
-    if (editLead) {
-      return { ...matchingPriorAnswers, ...phonePrefill };
+    if (phoneField && callerPhone) {
+      initialData[phoneField.key] = callerPhone;
     }
-    return phonePrefill;
+
+    // Infer only the exact `state` key. Preserve an existing returning-caller answer,
+    // and leave unresolvable/non-geographic numbers or incompatible option lists blank.
+    if (
+      stateField &&
+      callerPhone &&
+      !hasFormValue(initialData[stateField.key])
+    ) {
+      const stateValue = stateFormValueFromPhone(
+        callerPhone,
+        stateField.options,
+      );
+      if (stateValue !== null) initialData[stateField.key] = stateValue;
+    }
+
+    return initialData;
   };
 
   // Best-effort name field key (so we can send a top-level name column too).
@@ -445,6 +465,10 @@ export function LeadForm({
       </CardContent>
     </Card>
   );
+}
+
+function hasFormValue(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== "";
 }
 
 const normalizeFieldLabel = (label: string): string =>
