@@ -314,11 +314,27 @@ export interface SaveLeadResponse {
 	lead_id?: string;
 }
 
+/** call/disposition response for a completed call with no saved lead. */
+export interface SaveCallDispositionResponse {
+	statusCode: string;
+	statusMessage: string;
+	call_id?: string;
+}
+
 /** Fetch the active form + dispositions for the selected campaign. */
 export const getLeadFormBundle = (
 	campaignId: string
 ): Promise<LeadFormBundleResponse> =>
 	qsPost('/policyPrinter/dialer/leadForm/get', {campaign_id: campaignId});
+
+/** Persist the selected outcome directly on a call without creating a lead. */
+export const saveCallDisposition = (payload: {
+	campaign_id: string;
+	twilio_call_sid: string;
+	caller_phone?: string | null;
+	disposition_id: string;
+}): Promise<SaveCallDispositionResponse> =>
+	qsPost('/policyPrinter/dialer/call/disposition', payload);
 
 /** Save a lead captured during/after a call. The backend validates server-side. */
 export const saveLead = (payload: {
@@ -346,6 +362,7 @@ export const updateLead = (payload: {
 
 /** What an activity row is: a saved lead, a call with no form saved, or both. */
 export type ActivityKind = 'lead' | 'call' | 'both';
+export type ActivityDirection = 'inbound' | 'outbound';
 
 /** Filters for the activity list. Omit/blank a field to not filter on it. */
 export interface ActivityFilters {
@@ -358,6 +375,7 @@ export interface ActivityFilters {
 	status?: string | null;
 	has_recording?: boolean | null;
 	kind?: ActivityKind | null;
+	direction?: ActivityDirection | null;
 }
 
 /**
@@ -371,6 +389,7 @@ export interface ActivityListItem {
 	lead_id: string | null;
 	call_id: string | null;
 	twilio_call_sid: string | null;
+	direction: ActivityDirection | null;
 	caller_phone: string | null;
 	name: string | null;
 	campaign_id: string | null;

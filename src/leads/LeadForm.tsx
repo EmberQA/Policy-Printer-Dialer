@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   getLeadFormBundle,
+  saveCallDisposition,
   saveLead,
   updateLead,
   type DialerDisposition,
@@ -273,6 +274,18 @@ export function LeadForm({
     setCompletingWithoutLead(true);
     setSaveError(null);
     try {
+      if (!callSid) {
+        throw new Error("This call is missing its call ID and cannot be dispositioned.");
+      }
+      const res = await saveCallDisposition({
+        campaign_id: campaignId,
+        twilio_call_sid: callSid,
+        caller_phone: callerPhone,
+        disposition_id: dispositionKey!,
+      });
+      if (res.statusCode !== "SP100") {
+        throw new Error(res.statusMessage || "Could not save call disposition");
+      }
       await onComplete?.();
       setPendingDispositionAction(null);
     } catch (err) {
@@ -374,10 +387,9 @@ export function LeadForm({
                             : "Do Not Save Lead"}
                         </DialogPrimitive.Title>
                         <DialogPrimitive.Description className="text-sm leading-6 text-muted-foreground">
-                          Are you sure you don't want to save a lead?
-                        </DialogPrimitive.Description>
-                        <DialogPrimitive.Description className="text-sm leading-6 text-muted-foreground">
-                          Choose a disposition before completing this call.
+                          {pendingDispositionAction === "skip"
+                            ? "The lead will not be saved, but the selected disposition will still be recorded for this call."
+                            : "Choose a disposition before saving this lead."}
                         </DialogPrimitive.Description>
                       </div>
                     </div>
