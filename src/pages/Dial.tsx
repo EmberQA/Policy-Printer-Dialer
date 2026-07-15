@@ -47,6 +47,7 @@ import { ReturningCallerCard } from "@/leads/ReturningCallerCard";
 import { useReturningCaller } from "@/leads/useReturningCaller";
 import { cn } from "@/lib/utils";
 import { normalizeDialInput } from "@/lib/phone";
+import { getUser } from "@/auth/session";
 
 /**
  * Dial page (Subplan 02 + 03) — presence, heartbeat, per-campaign ready toggles, and
@@ -71,6 +72,11 @@ export default function Dial() {
   // unchanged.
   const session = useDialerSession();
   const { device, heartbeat, profile, provisioned, campaigns } = session;
+  const user = getUser();
+  const userName = [user?.first_name, user?.last_name]
+    .filter(Boolean)
+    .join(" ");
+  const showDebugCall = userName === "dialer-test user";
   const presence = session.presence;
   const setCampaigns = session.setCampaigns;
   const setPresenceState = session.setPresence;
@@ -82,6 +88,7 @@ export default function Dial() {
   const [error, setError] = useState<string | null>(null);
   const [debugIncomingCall, setDebugIncomingCall] = useState(false);
   const [debugCallMuted, setDebugCallMuted] = useState(false);
+  const [debugCallSid, setDebugCallSid] = useState<string | null>(null);
   const [debugCallStartedAt, setDebugCallStartedAt] = useState<number | null>(
     null,
   );
@@ -223,10 +230,18 @@ export default function Dial() {
       if (current) {
         setDebugCallStartedAt(null);
         setDebugCallMuted(false);
+        setDebugCallSid(null);
         return false;
       }
-      setDebugCallStartedAt(Date.now());
+      const startedAt = Date.now();
+      setDebugCallStartedAt(startedAt);
       setDebugCallMuted(false);
+      // Use a fresh SID per simulated call so the real persistence path can
+      // materialize an agent-owned call row without colliding with an older
+      // debug session from another user/org.
+      setDebugCallSid(
+        `debug-incoming-call-${startedAt}-${Math.random().toString(36).slice(2)}`,
+      );
       return true;
     });
   };
@@ -234,11 +249,12 @@ export default function Dial() {
   // On a call if the live Device says so, the backend flag is set, or a disconnected
   // call still needs disposition/lead wrap-up before this agent can receive another.
   const liveOnCall = Boolean(device.activeCall) || Boolean(presence?.on_call);
-  const debugCallActive = debugIncomingCall && !device.activeCall;
+  const debugCallActive =
+    debugIncomingCall && !device.activeCall && Boolean(debugCallSid);
   const debugCall: ActiveCall | null = debugCallActive
     ? {
         from: "+15555550100",
-        callSid: "debug-incoming-call",
+        callSid: debugCallSid!,
         muted: debugCallMuted,
         startedAt: debugCallStartedAt ?? Date.now(),
         direction: "inbound",
@@ -372,10 +388,12 @@ export default function Dial() {
 
   return (
     <div className="w-full">
-      <DebugIncomingCallToggle
-        active={debugIncomingCall}
-        onToggle={onToggleDebugIncomingCall}
-      />
+      {showDebugCall && (
+        <DebugIncomingCallToggle
+          active={debugIncomingCall}
+          onToggle={onToggleDebugIncomingCall}
+        />
+      )}
 
       {/* 1-3-1 layout: LEFT (notifications), CENTER (call core / lead form),
           RIGHT (controls + status). Fixed, roomy side columns and a flexible center;

@@ -273,9 +273,16 @@ export function LeadForm({
     if (pendingDispositionAction !== "skip") return;
     setCompletingWithoutLead(true);
     setSaveError(null);
+    const finishWrapUp = async () => {
+      await onComplete?.();
+      setPendingDispositionAction(null);
+    };
     try {
+      // A missing/unresolvable call must not trap an agent in wrap-up. There is
+      // nowhere to persist a call-only disposition, so complete the UI flow.
       if (!callSid) {
-        throw new Error("This call is missing its call ID and cannot be dispositioned.");
+        await finishWrapUp();
+        return;
       }
       const res = await saveCallDisposition({
         campaign_id: campaignId,
@@ -283,13 +290,26 @@ export function LeadForm({
         caller_phone: callerPhone,
         disposition_id: dispositionKey!,
       });
+      if (res.statusCode === "SP105") {
+        await finishWrapUp();
+        return;
+      }
       if (res.statusCode !== "SP100") {
         throw new Error(res.statusMessage || "Could not save call disposition");
       }
-      await onComplete?.();
-      setPendingDispositionAction(null);
+      await finishWrapUp();
     } catch (err) {
-      setSaveError(readError(err, "Could not complete call wrap-up"));
+      const message = readError(err, "Could not complete call wrap-up");
+      const statusCode = (err as any)?.response?.data?.statusCode;
+      if (statusCode === "SP105" || message === "Call not found") {
+        try {
+          await finishWrapUp();
+        } catch (finishErr) {
+          setSaveError(readError(finishErr, "Could not complete call wrap-up"));
+        }
+      } else {
+        setSaveError(message);
+      }
     } finally {
       setCompletingWithoutLead(false);
     }
