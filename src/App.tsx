@@ -112,6 +112,7 @@ export default function App() {
 							<nav className="flex items-center gap-1" aria-label="Primary">
 								<NavTab to="/dial" label="Calls" />
 								<NavTab to="/crm" label="CRM" />
+								<NavTab to="/callbacks" label="Callbacks" />
 								<NavTab to="/leads" label="Activity" />
 							</nav>
 						</div>
@@ -145,7 +146,8 @@ function DialerPageRoutes() {
 		<>
 			<Routes>
 				<Route path="/dial" element={null} />
-				<Route path="/crm" element={<Crm />} />
+				<Route path="/crm" element={<Crm key="crm" />} />
+				<Route path="/callbacks" element={<Crm key="callbacks" callbacksOnly />} />
 				<Route path="/leads" element={<Leads />} />
 				<Route path="*" element={<Navigate to="/dial" replace />} />
 			</Routes>

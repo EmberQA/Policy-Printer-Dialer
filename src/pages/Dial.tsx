@@ -30,7 +30,6 @@ import {
   setCampaignReady,
   setOnCall,
   setPresence,
-  startOutboundCall,
   type DialerCampaign,
   type DialerPresence,
   type PresenceStatus,
@@ -39,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { useDialerSession } from "@/session/DialerSessionProvider";
 import { type ActiveCall } from "@/twilio/useDevice";
 import { ActiveCallBanner } from "@/twilio/ActiveCallBanner";
+import { OutboundCallBanner } from "@/twilio/OutboundCallBanner";
 import { AudioSetupDialog } from "@/twilio/AudioSetupDialog";
 import { MicLevelMeter, useMicLevelMeter } from "@/twilio/MicLevelMeter";
 import { LeadForm } from "@/leads/LeadForm";
@@ -108,10 +108,9 @@ export default function Dial() {
     null,
   );
   const [wrapUpReleasePending, setWrapUpReleasePending] = useState(false);
-  // Outbound dialpad: the digits the agent has typed + an in-flight guard so the
-  // Call button can't double-fire while startOutboundCall is resolving.
+  // Outbound dialpad digits. In-flight/pending state lives with the route-persistent
+  // Device so navigation cannot orphan ringback or cancellation.
   const [dialInput, setDialInput] = useState("");
-  const [dialPending, setDialPending] = useState(false);
 
   // device, heartbeat, profile, provisioned, campaigns, presence + bootstrap and the
   // presence-sync effect now live in DialerSessionProvider (destructured above), so
@@ -248,7 +247,7 @@ export default function Dial() {
 
   // On a call if the live Device says so, the backend flag is set, or a disconnected
   // call still needs disposition/lead wrap-up before this agent can receive another.
-  const liveOnCall = Boolean(device.activeCall) || Boolean(presence?.on_call);
+  const liveOnCall = session.onCall;
   const debugCallActive =
     debugIncomingCall && !device.activeCall && Boolean(debugCallSid);
   const debugCall: ActiveCall | null = debugCallActive
@@ -339,36 +338,24 @@ export default function Dial() {
     }
   };
 
-  // Place an outbound call from the dialpad. The backend originates the call and
-  // bridges the answered customer to this browser (it arrives via the same incoming
-  // path inbound uses), so we (1) arm audio from this click gesture — the bridged leg
-  // auto-answers, so there's no per-call click to satisfy the browser's autoplay
-  // policy — then (2) POST the number, then (3) arm the device so it tags that
-  // incoming leg as outbound with the dialed number.
+  // Place an outbound call through the persistent device/session layer. It primes
+  // audio synchronously, starts local ringback, owns the exact parent SID, and keeps
+  // cancellation available across route changes.
   const canDial =
     provisioned &&
     device.deviceStatus === "registered" &&
     !onCall &&
-    !dialPending &&
     normalizeDialInput(dialInput) !== null;
 
   const onDialOut = async () => {
     const to = normalizeDialInput(dialInput);
-    if (!to || dialPending) return;
-    setDialPending(true);
+    if (!to || device.outboundStarting) return;
     setError(null);
     try {
-      await device.armAudio();
-      const res = await startOutboundCall(to);
-      if (res.statusCode !== "SP100") {
-        throw new Error(res.statusMessage || "Could not place the call");
-      }
-      device.armOutbound(to);
+      await device.startOutbound(to);
       setDialInput("");
     } catch (err) {
       setError(readError(err, "Could not place the call"));
-    } finally {
-      setDialPending(false);
     }
   };
 
@@ -470,6 +457,17 @@ export default function Dial() {
                       : onToggleDebugIncomingCall
                   }
                 />
+              ) : device.pendingOutbound || device.outboundStarting ? (
+                <OutboundCallBanner
+                  toNumber={
+                    device.pendingOutbound?.toNumber ??
+                    device.outboundStarting?.toNumber ??
+                    ""
+                  }
+                  pending={device.pendingOutbound}
+                  starting={device.outboundStarting}
+                  onCancel={device.cancelPendingOutbound}
+                />
               ) : wrapUpCall ? (
                 <WrapUpCallPanel
                   call={wrapUpCall}
@@ -550,7 +548,7 @@ export default function Dial() {
           onDialInputChange={setDialInput}
           onDialOut={onDialOut}
           canDial={canDial}
-          dialPending={dialPending}
+          dialPending={Boolean(device.outboundStarting)}
         />
       </div>
     </div>
@@ -925,9 +923,8 @@ function CallSearchAnimation() {
  * Outbound dialpad — the agent types a US/CA number and places a call. The backend
  * originates it (presenting the agent's own DID) and bridges the answered customer
  * back to this browser as an incoming leg. Rendered in the idle state only; `canDial`
- * folds in the on-call / device-registered / valid-number gates. In V1 the dialpad is
- * the only way to populate the number (autofill/click-to-dial are future work that
- * will call the same startOutboundCall).
+ * folds in the on-call / device-registered / valid-number gates. Activity and CRM
+ * click-to-dial use the same shared device action.
  */
 function Dialpad({
   value,

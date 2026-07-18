@@ -10,20 +10,21 @@
  *   - signals on_call=true on accept (the page releases it after lead wrap-up),
  *   - exposes the live Call + mute/hangup so the active-call UI can drive it.
  *
- * No outbound dialing, no conference. Mic permission is requested up front (the
- * SDK needs it to answer). Because the dialer auto-answers, there's no per-call
- * click to satisfy the browser's autoplay policy — the UI calls armAudio() from
- * the "Go ready" gesture to grant the mic and resume the SDK's AudioContext so
- * the auto-answered call's audio actually plays. One Device per tab; cleaned up
- * on unmount.
+ * Outbound calls are REST-originated by the backend and arrive here as an exact
+ * parent-SID-correlated Client leg; this hook owns their pending state, local
+ * ringback, and cancellation. Mic permission is requested up front because the
+ * SDK needs it to answer. One Device per tab; cleaned up on unmount.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Call, Device, type RTCSample } from "@twilio/voice-sdk";
 import {
+  cancelOutboundCall,
+  getCurrentOutboundCall,
   getTwilioToken,
   setOnCall,
   setPresence,
+  startOutboundCall,
   type TwilioDeviceStatus,
 } from "@/lib/api";
 import {
@@ -31,11 +32,23 @@ import {
   clearActiveCallOwner,
   clearCallOwner,
 } from "./callOwnership";
+import {
+  matchesPendingOutbound,
+  matchesStartingOutbound,
+  readOutboundCallParameters,
+  shouldApplyOutboundReconciliation,
+  shouldIgnoreExplicitOutbound,
+  type PendingOutboundCall,
+  type StartingOutboundCall,
+} from "./outboundCallState";
+import { OutboundRingback } from "./outboundRingback";
+
+export type { PendingOutboundCall } from "./outboundCallState";
 
 export interface ActiveCall {
   /** E.164 / SIP caller number from Twilio params (best-effort). For an OUTBOUND
    *  call this is the number the agent dialed (the SDK's incoming `From` is the
-   *  agent DID, so we override it with the dialed number from armOutbound). */
+   *  agent DID, so we override it with the backend-supplied dialed number). */
   from: string;
   /** Parent Twilio CallSid — ties the lead (Subplan 04) back to dialer_calls. */
   callSid: string;
@@ -45,8 +58,7 @@ export interface ActiveCall {
   /** Epoch ms when the call connected — the UI derives the timer from this. */
   startedAt: number;
   /** 'inbound' (Retreaver-routed or a direct-dial callback) or 'outbound' (agent
-   *  originated via the dialpad). Both arrive at the Device as an incoming leg —
-   *  outbound is distinguished by armOutbound() flagging the next incoming call. */
+   *  originated via the dialpad). Both arrive at the Device as an incoming leg. */
   direction: "inbound" | "outbound";
 }
 
@@ -60,6 +72,10 @@ export interface UseDeviceState {
   apiPingMs: number | null;
   /** Last device/call error message, for surfacing in the UI. */
   error: string | null;
+  /** REST start is in flight; it becomes pending once the exact parent SID exists. */
+  outboundStarting: StartingOutboundCall | null;
+  /** Exact parent-leg state while the customer is being called. */
+  pendingOutbound: PendingOutboundCall | null;
   mute: (muted: boolean) => void;
   hangup: () => void;
   /**
@@ -69,16 +85,10 @@ export interface UseDeviceState {
    * (e.g. the "Go ready" toggle). Resolves true once audio is armed.
    */
   armAudio: () => Promise<boolean>;
-  /**
-   * Flag the next incoming leg as an OUTBOUND call the agent just placed. The
-   * backend REST-originates the call and bridges the answered customer to this
-   * agent's <Client>, so it arrives via the same `incoming` event as a normal
-   * inbound call — this is how we tell them apart. `toNumber` (the dialed number)
-   * overrides the SDK's `From` (which is the agent DID) so the UI + lead form show
-   * who we called. Cleared once consumed or after a short window if the call never
-   * connects. Call this right after startOutboundCall() resolves SP100.
-   */
-  armOutbound: (toNumber: string) => void;
+  /** Start a shared outbound attempt and local ringback from the click gesture. */
+  startOutbound: (toNumber: string) => Promise<void>;
+  /** Stop the exact pending parent leg. Safe against answer/callback races. */
+  cancelPendingOutbound: () => Promise<void>;
   setInputDevice: (deviceId: string) => Promise<void>;
   setOutputDevice: (deviceId: string) => Promise<void>;
 }
@@ -86,10 +96,14 @@ export interface UseDeviceState {
 export interface UseDeviceOptions {
   /** Gate device setup until a session + provisioning exist. */
   enabled?: boolean;
+  /** Backend capability gate. Inbound stays usable during a backend-first deploy,
+   * but outbound must not start against the legacy partial contract. */
+  outboundLifecycleEnabled?: boolean;
 }
 
 export function useDevice({
   enabled = true,
+  outboundLifecycleEnabled = false,
 }: UseDeviceOptions = {}): UseDeviceState {
   const [deviceStatus, setDeviceStatus] =
     useState<TwilioDeviceStatus>("offline");
@@ -97,21 +111,34 @@ export function useDevice({
   const [twilioRttMs, setTwilioRttMs] = useState<number | null>(null);
   const [apiPingMs, setApiPingMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [outboundStarting, setOutboundStarting] =
+    useState<StartingOutboundCall | null>(null);
+  const [pendingOutbound, setPendingOutbound] =
+    useState<PendingOutboundCall | null>(null);
 
   const deviceRef = useRef<Device | null>(null);
   const callRef = useRef<Call | null>(null);
-  // Set by armOutbound() when the agent places an outbound call; the next incoming
-  // leg (the bridged customer) is tagged direction:'outbound' with this dialed number
-  // as its `from`. Auto-expires so a call that never connects can't mislabel a later
-  // unrelated inbound call.
-  const pendingOutboundRef = useRef<{
-    toNumber: string;
-    armedAt: number;
-  } | null>(null);
+  const outboundStartingRef = useRef<StartingOutboundCall | null>(null);
+  const pendingOutboundRef = useRef<PendingOutboundCall | null>(null);
+  const outputDeviceIdRef = useRef("default");
+  const ringbackRef = useRef<OutboundRingback | null>(null);
+  const outboundReconcileSequenceRef = useRef(0);
 
-  const armOutbound = useCallback((toNumber: string) => {
-    pendingOutboundRef.current = { toNumber, armedAt: Date.now() };
-  }, []);
+  const updatePendingOutbound = useCallback(
+    (next: PendingOutboundCall | null) => {
+      pendingOutboundRef.current = next;
+      setPendingOutbound(next);
+    },
+    [],
+  );
+
+  const updateOutboundStarting = useCallback(
+    (next: StartingOutboundCall | null) => {
+      outboundStartingRef.current = next;
+      setOutboundStarting(next);
+    },
+    [],
+  );
 
   const mute = useCallback((muted: boolean) => {
     const call = callRef.current;
@@ -151,6 +178,8 @@ export function useDevice({
         audio.speakerDevices.set(deviceId),
         audio.ringtoneDevices.set(deviceId),
       ]);
+      outputDeviceIdRef.current = deviceId;
+      ringbackRef.current?.setOutputDevice(deviceId);
     },
     [],
   );
@@ -191,6 +220,395 @@ export function useDevice({
 
     return true;
   }, []);
+
+  const stopRingback = useCallback(() => {
+    ringbackRef.current?.stop();
+    ringbackRef.current = null;
+  }, []);
+
+  const ensureRingback = useCallback(() => {
+    if (ringbackRef.current) return;
+    const ringback = new OutboundRingback();
+    ringbackRef.current = ringback;
+    ringback.start(outputDeviceIdRef.current);
+  }, []);
+
+  const clearOutboundAttempt = useCallback(() => {
+    // Invalidate any status request that started before this clear. Its response
+    // must not recreate a canceled/answered attempt or overwrite the next call.
+    outboundReconcileSequenceRef.current += 1;
+    stopRingback();
+    updatePendingOutbound(null);
+    updateOutboundStarting(null);
+    clearStoredOutboundAttempt();
+  }, [stopRingback, updateOutboundStarting, updatePendingOutbound]);
+
+  const reconcileAuthoritativeOutbound = useCallback(
+    async (attemptId?: string | null): Promise<PendingOutboundCall | null> => {
+      const requestAttemptId =
+        attemptId ||
+        pendingOutboundRef.current?.attemptId ||
+        outboundStartingRef.current?.attemptId;
+      if (!requestAttemptId) return null;
+
+      const requestSequence = ++outboundReconcileSequenceRef.current;
+      const res = await getCurrentOutboundCall(requestAttemptId);
+      const currentStarting = outboundStartingRef.current;
+      const currentPending = pendingOutboundRef.current;
+      if (
+        !shouldApplyOutboundReconciliation(
+          requestAttemptId,
+          res.attempt_id,
+          requestSequence,
+          outboundReconcileSequenceRef.current,
+          currentPending,
+          currentStarting,
+        )
+      ) {
+        return null;
+      }
+      if (res.statusCode !== "SP100" || !res.state) {
+        throw new Error(res.statusMessage || "Could not confirm call status");
+      }
+
+      if (res.state === "starting" && res.owned) {
+        const recoveredAttemptId =
+          res.attempt_id || requestAttemptId;
+        if (!recoveredAttemptId) {
+          throw new Error("Backend returned a starting call without an attempt id");
+        }
+        updateOutboundStarting({
+          attemptId: recoveredAttemptId,
+          toNumber: currentStarting?.toNumber || "Unknown number",
+          startedAt: currentStarting?.startedAt ?? Date.now(),
+          canceling: currentStarting?.canceling ?? false,
+          reconciling: false,
+        });
+        return null;
+      }
+
+      if (
+        (res.state === "ringing" || res.state === "active") &&
+        res.owned &&
+        res.call_sid
+      ) {
+        const recoveredAttemptId =
+          res.attempt_id || requestAttemptId;
+        if (!recoveredAttemptId) {
+          throw new Error("Backend returned an outbound call without an attempt id");
+        }
+        const pending: PendingOutboundCall = {
+          attemptId: recoveredAttemptId,
+          callSid: res.call_sid,
+          toNumber:
+            res.to_number ||
+            currentPending?.toNumber ||
+            currentStarting?.toNumber ||
+            "Unknown number",
+          startedAt:
+            (res.started_at ? Date.parse(res.started_at) : Number.NaN) ||
+            currentPending?.startedAt ||
+            currentStarting?.startedAt ||
+            Date.now(),
+          canceling: currentPending?.canceling ?? false,
+          reconciling: false,
+        };
+        updateOutboundStarting(null);
+        updatePendingOutbound(pending);
+        if (res.state === "active" || pending.canceling) stopRingback();
+        else ensureRingback();
+        return pending;
+      }
+
+      clearOutboundAttempt();
+      return null;
+    },
+    [
+      clearOutboundAttempt,
+      ensureRingback,
+      stopRingback,
+      updateOutboundStarting,
+      updatePendingOutbound,
+    ],
+  );
+
+  const startOutbound = useCallback(
+    async (toNumber: string): Promise<void> => {
+      if (!outboundLifecycleEnabled) {
+        throw new Error(
+          "Outbound calling is waiting for the required backend update.",
+        );
+      }
+      if (
+        outboundStartingRef.current ||
+        pendingOutboundRef.current ||
+        callRef.current
+      ) {
+        throw new Error("Another call is already in progress.");
+      }
+
+      void armAudio();
+      ensureRingback();
+      const attemptId = newOutboundAttemptId();
+      const starting: StartingOutboundCall = {
+        attemptId,
+        toNumber,
+        startedAt: Date.now(),
+        canceling: false,
+        reconciling: false,
+      };
+      updateOutboundStarting(starting);
+      storeOutboundAttempt(starting);
+      setError(null);
+
+      try {
+        const res = await startOutboundCall(toNumber, attemptId);
+        const currentAttempt = outboundStartingRef.current as StartingOutboundCall | null;
+        if (!currentAttempt || currentAttempt.attemptId !== attemptId) return;
+        if (res.statusCode !== "SP100") {
+          clearOutboundAttempt();
+          throw new DefinitiveOutboundStartError(
+            res.statusMessage || "Could not place the call",
+          );
+        }
+        if (!res.call_sid) {
+          throw new AmbiguousOutboundStartError(
+            res.statusMessage || "The call started without returning its call id",
+          );
+        }
+        updatePendingOutbound({
+          attemptId: res.attempt_id || attemptId,
+          callSid: res.call_sid,
+          toNumber,
+          startedAt: Date.now(),
+          canceling: currentAttempt.canceling,
+          reconciling: false,
+        });
+        updateOutboundStarting(null);
+      } catch (err) {
+        const currentAttempt = outboundStartingRef.current as StartingOutboundCall | null;
+        const currentPending = pendingOutboundRef.current as PendingOutboundCall | null;
+        if (
+          currentAttempt?.attemptId !== attemptId &&
+          currentPending?.attemptId !== attemptId
+        ) {
+          return;
+        }
+        const backendResponded = Boolean(
+          (err as { response?: unknown } | null)?.response,
+        );
+        if (
+          (backendResponded || err instanceof DefinitiveOutboundStartError) &&
+          !(err instanceof AmbiguousOutboundStartError)
+        ) {
+          clearOutboundAttempt();
+          const message =
+            err instanceof Error ? err.message : "Could not place the call";
+          setError(message);
+          throw err;
+        }
+
+        stopRingback();
+        updateOutboundStarting({
+          ...starting,
+          reconciling: true,
+        });
+        setError("The start response was interrupted. Confirming call status…");
+        try {
+          await reconcileAuthoritativeOutbound(attemptId);
+        } catch {
+          setError(
+            "Call status is temporarily unknown. Use Cancel while the dialer keeps checking.",
+          );
+          return;
+        }
+        if (!outboundStartingRef.current && !pendingOutboundRef.current) {
+          const message =
+            err instanceof Error ? err.message : "Could not place the call";
+          setError(message);
+          throw err;
+        }
+        setError(null);
+      }
+    },
+    [
+      armAudio,
+      clearOutboundAttempt,
+      ensureRingback,
+      outboundLifecycleEnabled,
+      reconcileAuthoritativeOutbound,
+      stopRingback,
+      updateOutboundStarting,
+      updatePendingOutbound,
+    ],
+  );
+
+  const cancelPendingOutbound = useCallback(async (): Promise<void> => {
+    const pending = pendingOutboundRef.current;
+    const starting = outboundStartingRef.current;
+    if ((!pending && !starting) || pending?.canceling || starting?.canceling) return;
+
+    if (pending) {
+      updatePendingOutbound({
+        ...pending,
+        canceling: true,
+        reconciling: true,
+      });
+    } else if (starting) {
+      updateOutboundStarting({
+        ...starting,
+        canceling: true,
+        reconciling: true,
+      });
+    }
+    stopRingback();
+    setError(null);
+    const attemptId = pending?.attemptId ?? starting?.attemptId ?? null;
+    try {
+      const res = await cancelOutboundCall({
+        callSid: pending?.callSid,
+        attemptId,
+      });
+      if (res.statusCode !== "SP100") {
+        throw new Error(res.statusMessage || "Could not cancel the call");
+      }
+      clearOutboundAttempt();
+    } catch (err) {
+      // A failed/lost cancel response is ambiguous. Never manufacture fresh audio
+      // from the catch path; provider-backed status decides whether it is ringing.
+      if (pendingOutboundRef.current) {
+        updatePendingOutbound({
+          ...pendingOutboundRef.current,
+          canceling: false,
+          reconciling: true,
+        });
+      }
+      if (outboundStartingRef.current) {
+        updateOutboundStarting({
+          ...outboundStartingRef.current,
+          canceling: false,
+          reconciling: true,
+        });
+      }
+      if (!pendingOutboundRef.current && !outboundStartingRef.current) {
+        setError("The customer connected before cancellation completed.");
+        return;
+      }
+      try {
+        await reconcileAuthoritativeOutbound(attemptId);
+      } catch {
+        const message =
+          err instanceof Error ? err.message : "Could not cancel the call";
+        setError(`${message}. Call status is still being confirmed.`);
+        throw err;
+      }
+      if (pendingOutboundRef.current || outboundStartingRef.current) {
+        const message =
+          err instanceof Error ? err.message : "Could not cancel the call";
+        setError(`${message}. The call is still active.`);
+        throw err;
+      }
+    }
+  }, [
+    clearOutboundAttempt,
+    reconcileAuthoritativeOutbound,
+    stopRingback,
+    updateOutboundStarting,
+    updatePendingOutbound,
+  ]);
+  // Keep refs and React state aligned when provisioning/device enablement changes.
+  // The durable sessionStorage attempt is intentionally retained so re-enable can
+  // recover it from the backend instead of presenting a false idle state.
+  useEffect(() => {
+    if (enabled) return;
+    stopRingback();
+    outboundStartingRef.current = null;
+    pendingOutboundRef.current = null;
+    setOutboundStarting(null);
+    setPendingOutbound(null);
+    setActiveCall(null);
+    setTwilioRttMs(null);
+    setApiPingMs(null);
+    setDeviceStatus("offline");
+  }, [enabled, stopRingback]);
+
+  // Recover after reload and keep every starting/ringing attempt bounded by an
+  // authoritative provider-backed watchdog. sessionStorage is per-tab, so another
+  // tab registered under the same Twilio identity does not become an owner. The
+  // watchdog schedules its next pass only after the current pass finishes, so status
+  // requests cannot overlap and return out of order.
+  useEffect(() => {
+    if (!enabled || !outboundLifecycleEnabled) return;
+    let cancelled = false;
+    let timer: number | null = null;
+    const stored = readStoredOutboundAttempt();
+    if (
+      stored &&
+      !outboundStartingRef.current &&
+      !pendingOutboundRef.current &&
+      !callRef.current
+    ) {
+      updateOutboundStarting({...stored, reconciling: true});
+    }
+
+    const reconcile = async () => {
+      if (cancelled) return;
+      if (callRef.current) {
+        scheduleNext();
+        return;
+      }
+      const starting = outboundStartingRef.current;
+      const pending = pendingOutboundRef.current;
+      const attemptId = pending?.attemptId ?? starting?.attemptId;
+      if (!attemptId) {
+        scheduleNext();
+        return;
+      }
+      try {
+        await reconcileAuthoritativeOutbound(attemptId);
+      } catch {
+        if (cancelled) return;
+        const currentPending = pendingOutboundRef.current;
+        const currentStarting = outboundStartingRef.current;
+        if (currentPending) {
+          updatePendingOutbound({...currentPending, reconciling: true});
+        }
+        if (currentStarting) {
+          updateOutboundStarting({...currentStarting, reconciling: true});
+        }
+        const startedAt = currentPending?.startedAt ?? currentStarting?.startedAt;
+        if (startedAt && Date.now() - startedAt >= OUTBOUND_RINGBACK_MAX_MS) {
+          stopRingback();
+          setError(
+            "Call status cannot be confirmed. Ringback is muted; Cancel remains available.",
+          );
+        }
+      } finally {
+        scheduleNext();
+      }
+    };
+
+    function scheduleNext() {
+      if (cancelled) return;
+      timer = window.setTimeout(() => void reconcile(), OUTBOUND_WATCHDOG_MS);
+    }
+
+    void reconcile();
+    return () => {
+      cancelled = true;
+      // A response may still arrive after logout, capability disablement, or
+      // unmount. Make it stale before it can write outbound state back.
+      outboundReconcileSequenceRef.current += 1;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [
+    enabled,
+    outboundLifecycleEnabled,
+    reconcileAuthoritativeOutbound,
+    stopRingback,
+    updateOutboundStarting,
+    updatePendingOutbound,
+  ]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -243,22 +661,46 @@ export function useDevice({
 
     /** Wire the per-call listeners + auto-answer. */
     const onIncoming = (call: Call) => {
+      const outboundParams = readOutboundCallParameters(call.customParameters);
+      const isPendingOutbound = matchesPendingOutbound(
+        pendingOutboundRef.current,
+        outboundParams,
+      );
+      const mayMatchStartingOutbound =
+        matchesStartingOutbound(outboundStartingRef.current, outboundParams);
+
+      // An explicitly outbound child leg belongs only to the tab holding the exact
+      // parent SID/attempt. Ignore other-tab copies locally: reject() would send a
+      // provider hangup and terminate the real owner's call.
+      if (
+        shouldIgnoreExplicitOutbound(
+          pendingOutboundRef.current,
+          outboundStartingRef.current,
+          outboundParams,
+        )
+      ) {
+        try {
+          call.ignore();
+        } catch {
+          /* the parent may already be terminal */
+        }
+        return;
+      }
+
       const ownership = claimIncomingOwner(callRef.current, call);
       if (!ownership.accepted) {
         // Defense in depth: the server should already have rejected this parent
         // leg, but never let a second SDK event replace ownership of the live call.
         try {
-          call.reject();
+          if (outboundParams.isExplicitOutbound) call.ignore();
+          else call.reject();
         } catch {
           /* a canceled leg may already be terminal */
         }
         return;
       }
       callRef.current = ownership.owner;
-      const pendingOutbound = pendingOutboundRef.current;
-      const isArmedOutbound =
-        !!pendingOutbound &&
-        Date.now() - pendingOutbound.armedAt < OUTBOUND_ARM_WINDOW_MS;
+      const ownsOutboundInvite = isPendingOutbound || mayMatchStartingOutbound;
       let autoAnswerTimer: number | null = null;
       const cancelAutoAnswer = () => {
         if (autoAnswerTimer !== null) {
@@ -269,23 +711,36 @@ export function useDevice({
 
       call.on("accept", () => {
         if (cancelled) return;
-        // If the agent just placed an outbound call (armOutbound), this bridged
-        // leg is that call — tag it 'outbound' and show the dialed number (the
-        // SDK's `From` here is the agent DID, not the customer). The window guards
-        // against a stale flag mislabelling a later unrelated inbound call.
+        // Exact backend-supplied parent SID + direction identifies the outbound
+        // customer bridge without timing heuristics.
         const pending = pendingOutboundRef.current;
+        const starting = outboundStartingRef.current;
         const isOutbound =
-          !!pending && Date.now() - pending.armedAt < OUTBOUND_ARM_WINDOW_MS;
-        pendingOutboundRef.current = null;
+          ownsOutboundInvite || matchesPendingOutbound(pending, outboundParams);
+        if (isOutbound) {
+          clearOutboundAttempt();
+        } else if (pending || starting) {
+          // Backend ownership prevents a genuine inbound/outbound overlap. If a
+          // stale local attempt survived long enough to accept an inbound call,
+          // the accepted live call wins and all local ringback/busy state is reset.
+          clearOutboundAttempt();
+        }
         // `CallSid` is the browser Client leg. The TwiML bridge passes the
         // parent SID so a lead save associates with the durable dialer_calls
         // record created for this call instead of materializing a second row.
         const parentCallSid = call.customParameters.get("parent_call_sid");
         setActiveCall({
           from: isOutbound
-            ? (pending as { toNumber: string }).toNumber
+            ? outboundParams.dialedNumber ||
+              pending?.toNumber ||
+              starting?.toNumber ||
+              "Unknown"
             : call.parameters.From || "Unknown",
-          callSid: parentCallSid || call.parameters.CallSid || "",
+          callSid:
+            outboundParams.parentCallSid ||
+            parentCallSid ||
+            call.parameters.CallSid ||
+            "",
           clientCallSid: call.parameters.CallSid || "",
           muted: false,
           startedAt: Date.now(),
@@ -317,6 +772,13 @@ export function useDevice({
         if (!callRef.current) setTwilioRttMs(null);
         const callSid = call.parameters.CallSid || "";
         setActiveCall((current) => clearActiveCallOwner(current, callSid));
+        if (outboundParams.isExplicitOutbound && ownsOutboundInvite) {
+          const attemptId =
+            outboundParams.attemptId ||
+            pendingOutboundRef.current?.attemptId ||
+            outboundStartingRef.current?.attemptId;
+          void reconcileAuthoritativeOutbound(attemptId).catch(() => undefined);
+        }
       };
       call.on("disconnect", clearCall);
       call.on("cancel", clearCall);
@@ -336,7 +798,11 @@ export function useDevice({
         if (cancelled || callRef.current !== call) return;
         call.accept();
       };
-      if (isArmedOutbound) {
+      if (isPendingOutbound) {
+        accept();
+      } else if (mayMatchStartingOutbound) {
+        // The client-generated attempt id is already exact ownership proof, so a
+        // lost/slow HTTP response must not make the answered customer wait.
         accept();
       } else {
         autoAnswerTimer = window.setTimeout(
@@ -434,8 +900,15 @@ export function useDevice({
       }
       deviceRef.current = null;
       callRef.current = null;
+      ringbackRef.current?.stop();
+      ringbackRef.current = null;
     };
-  }, [enabled]);
+  }, [
+    clearOutboundAttempt,
+    enabled,
+    reconcileAuthoritativeOutbound,
+    updatePendingOutbound,
+  ]);
 
   return {
     deviceStatus,
@@ -443,25 +916,81 @@ export function useDevice({
     twilioRttMs,
     apiPingMs,
     error,
+    outboundStarting,
+    pendingOutbound,
     mute,
     hangup,
     armAudio,
-    armOutbound,
+    startOutbound,
+    cancelPendingOutbound,
     setInputDevice,
     setOutputDevice,
   };
 }
 
-/** How long after armOutbound() an incoming leg is treated as the placed outbound
- *  call. Generous enough to cover ring+answer, short enough that a stale flag can't
- *  mislabel a much-later inbound call. */
-const OUTBOUND_ARM_WINDOW_MS = 60_000;
+const OUTBOUND_WATCHDOG_MS = 5_000;
+const OUTBOUND_RINGBACK_MAX_MS = 60_000;
+const OUTBOUND_ATTEMPT_STORAGE_KEY = "pp_dialer_outbound_attempt";
 
 /** Keep Twilio's native inbound ringtone audible before automatic answer. */
 const INBOUND_AUTO_ANSWER_DELAY_MS = 1_500;
 
 const API_PING_INTERVAL_MS = 15_000;
 const API_PING_TIMEOUT_MS = 5_000;
+
+class AmbiguousOutboundStartError extends Error {}
+class DefinitiveOutboundStartError extends Error {}
+
+function newOutboundAttemptId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
+}
+
+function storeOutboundAttempt(attempt: StartingOutboundCall): void {
+  try {
+    sessionStorage.setItem(OUTBOUND_ATTEMPT_STORAGE_KEY, JSON.stringify(attempt));
+  } catch {
+    /* recovery remains available for the current mount */
+  }
+}
+
+function readStoredOutboundAttempt(): StartingOutboundCall | null {
+  try {
+    const raw = sessionStorage.getItem(OUTBOUND_ATTEMPT_STORAGE_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<StartingOutboundCall>;
+    if (
+      typeof value.attemptId !== "string" ||
+      typeof value.toNumber !== "string" ||
+      typeof value.startedAt !== "number"
+    ) {
+      clearStoredOutboundAttempt();
+      return null;
+    }
+    return {
+      attemptId: value.attemptId,
+      toNumber: value.toNumber,
+      startedAt: value.startedAt,
+      canceling: false,
+      reconciling: true,
+    };
+  } catch {
+    clearStoredOutboundAttempt();
+    return null;
+  }
+}
+
+function clearStoredOutboundAttempt(): void {
+  try {
+    sessionStorage.removeItem(OUTBOUND_ATTEMPT_STORAGE_KEY);
+  } catch {
+    /* no-op */
+  }
+}
 
 /** Turn a getUserMedia rejection into a user-facing message. */
 function micErrorMessage(e: unknown): string {

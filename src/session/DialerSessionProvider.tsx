@@ -6,7 +6,7 @@
  * Activity tab unmounted Dial and destroyed the Device — silently dropping inbound
  * calls while the agent browsed history. Hoisting them here (mounted once, above the
  * <Routes>) keeps the Device + heartbeat alive for the whole authenticated session and
- * lets any page (Dial's dialpad, Activity's click-to-dial) reach `armOutbound`.
+ * lets any page share exact outbound pending/ringback/cancel state.
  *
  * This owns ONLY what must be shared — the device, heartbeat, and the bootstrap
  * profile/campaigns/presence. Page-local UI state (wrap-up, dialpad input, ready
@@ -26,6 +26,7 @@ import {
   fetchDialerProfile,
   getPresence,
   listCampaigns,
+  OUTBOUND_LIFECYCLE_VERSION,
   type DialerCampaign,
   type DialerPresence,
 } from "@/lib/api";
@@ -74,10 +75,16 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
   const [bootError, setBootError] = useState<string | null>(null);
 
   const provisioned = Boolean(profile?.provisioned);
+  const outboundLifecycleEnabled =
+    Number(profile?.capabilities?.outbound_lifecycle_version ?? 0) >=
+    OUTBOUND_LIFECYCLE_VERSION;
 
   // The single Device + heartbeat for the whole session. `enabled` gates both on
   // provisioning (profile loads async → both start disabled, enable once known).
-  const device = useDevice({ enabled: provisioned });
+  const device = useDevice({
+    enabled: provisioned,
+    outboundLifecycleEnabled,
+  });
   const heartbeat = useHeartbeat({
     enabled: provisioned,
     deviceStatus: device.deviceStatus,
@@ -108,9 +115,16 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
     if (heartbeat.presence) setPresence(heartbeat.presence);
   }, [heartbeat.presence]);
 
-  const onCall = Boolean(device.activeCall) || Boolean(presence?.on_call);
+  const onCall =
+    Boolean(device.activeCall) ||
+    Boolean(device.outboundStarting) ||
+    Boolean(device.pendingOutbound) ||
+    Boolean(presence?.on_call);
   const canDialBase =
-    provisioned && device.deviceStatus === "registered" && !onCall;
+    provisioned &&
+    outboundLifecycleEnabled &&
+    device.deviceStatus === "registered" &&
+    !onCall;
 
   const value = useMemo<DialerSession>(
     () => ({

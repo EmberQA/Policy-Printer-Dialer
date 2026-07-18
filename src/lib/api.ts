@@ -12,7 +12,7 @@
  * with an empty-ish JSON body (the backend reads authPayload server-side).
  */
 
-import axios, {AxiosInstance} from 'axios';
+import axios, {AxiosInstance, type AxiosRequestConfig} from 'axios';
 import {
 	getAccessToken,
 	getRefreshToken,
@@ -75,9 +75,10 @@ api.interceptors.response.use(
  */
 export const qsPost = async <T = any>(
 	path: string,
-	body: Record<string, unknown> = {}
+	body: Record<string, unknown> = {},
+	config?: AxiosRequestConfig
 ): Promise<T> => {
-	const res = await api.post(`/qualityscore${path}`, body);
+	const res = await api.post(`/qualityscore${path}`, body, config);
 	const envelope = res.data ?? {};
 	return {
 		...(envelope.data ?? {}),
@@ -87,7 +88,24 @@ export const qsPost = async <T = any>(
 };
 
 /** The caller's dialer profile (lazily created server-side). */
-export const fetchDialerProfile = () =>
+export interface DialerProfileResponse {
+	statusCode: string;
+	statusMessage: string;
+	dialer_enabled?: boolean;
+	provisioned?: boolean;
+	capabilities?: {
+		outbound_lifecycle_version?: number;
+	};
+	agent?: {
+		id: string;
+		org_id: string;
+		user_id: string;
+		twilio_identity: string;
+		twilio_phone_number: string | null;
+	};
+}
+
+export const fetchDialerProfile = (): Promise<DialerProfileResponse> =>
 	qsPost('/policyPrinter/dialer/profile');
 
 /* -------------------------------------------------------------------------- */
@@ -219,8 +237,10 @@ export const getTwilioToken = (): Promise<TwilioTokenResponse> =>
 export interface StartOutboundCallResponse {
 	statusCode: string;
 	statusMessage: string;
+	attempt_id?: string;
 	/** Twilio CallSid of the placed call (present on success). */
 	call_sid?: string;
+	call_status?: string | null;
 }
 
 /**
@@ -228,13 +248,69 @@ export interface StartOutboundCallResponse {
  * the agent's own DID as caller ID, then bridges the answered customer to this
  * agent's browser (it arrives as an incoming leg) and blocks inbound routing for the
  * duration. `to` may be any format the agent typed — the backend normalizes +
- * validates it (US/CA only). Check statusCode === 'SP100'; on success call
- * device.armOutbound(to) so the bridged leg is tagged as outbound.
+ * validates it (US/CA only). The persistent device/session layer owns pending-call
+ * correlation and ringback around this request.
  */
 export const startOutboundCall = (
-	to: string
+	to: string,
+	attemptId: string
 ): Promise<StartOutboundCallResponse> =>
-	qsPost('/policyPrinter/dialer/call/start', {to});
+	qsPost(
+		'/policyPrinter/dialer/call/start',
+		{to, attempt_id: attemptId},
+		{timeout: OUTBOUND_START_REQUEST_TIMEOUT_MS}
+	);
+
+export type OutboundCallLifecycleState =
+	| 'idle'
+	| 'starting'
+	| 'ringing'
+	| 'active'
+	| 'terminal';
+
+export interface OutboundCallStatusResponse {
+	statusCode: string;
+	statusMessage: string;
+	state?: OutboundCallLifecycleState;
+	owned?: boolean;
+	attempt_id?: string | null;
+	call_sid?: string | null;
+	call_status?: string | null;
+	to_number?: string | null;
+	started_at?: string | null;
+	answered_at?: string | null;
+	ended_at?: string | null;
+}
+
+/** Recover/reconcile an exact per-tab attempt after reload/response loss. The
+ * backend also supports an omitted id for diagnostics, but the browser retains the
+ * id in sessionStorage so another tab cannot claim ownership. */
+export const getCurrentOutboundCall = (
+	attemptId?: string | null
+): Promise<OutboundCallStatusResponse> =>
+	qsPost('/policyPrinter/dialer/call/status', {
+		...(attemptId ? {attempt_id: attemptId} : {})
+	});
+
+export interface CancelOutboundCallResponse {
+	statusCode: string;
+	statusMessage: string;
+	attempt_id?: string | null;
+	call_sid?: string;
+	call_status?: string | null;
+}
+
+/** Stop an owned pending outbound parent call before the browser leg connects. */
+export const cancelOutboundCall = (
+	input: {callSid?: string | null; attemptId?: string | null}
+): Promise<CancelOutboundCallResponse> =>
+	qsPost('/policyPrinter/dialer/call/cancel', {
+		...(input.callSid ? {call_sid: input.callSid} : {}),
+		...(input.attemptId ? {attempt_id: input.attemptId} : {})
+	});
+
+export const OUTBOUND_LIFECYCLE_VERSION = 2;
+const OUTBOUND_START_REQUEST_TIMEOUT_MS = 15_000;
 
 /** Signal call accept (true) / disconnect (false) → flips the on_call flag so
  *  mid-call availability is 0. Returns the recomputed availability/presence. */
@@ -483,9 +559,15 @@ export const listActivity = (
 export const listCrmContacts = (
 	filters: ActivityFilters,
 	limit: number,
-	page: number
+	page: number,
+	callbacksOnly = false
 ): Promise<ActivityListResponse> =>
-	qsPost('/policyPrinter/dialer/crm/list', {filters, limit, page});
+	qsPost('/policyPrinter/dialer/crm/list', {
+		filters,
+		limit,
+		page,
+		callbacks_only: callbacksOnly
+	});
 
 /** Full detail for one of the caller's leads (owning-agent only). */
 export const getLeadDetail = (leadId: string): Promise<LeadDetailResponse> =>
