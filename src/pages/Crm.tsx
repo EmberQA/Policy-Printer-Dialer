@@ -13,6 +13,7 @@ import {
   Phone,
   RefreshCw,
   Search,
+  Upload,
   Users,
   X,
 } from "lucide-react";
@@ -44,7 +45,23 @@ import {
 import { normalizeDialInput } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 import { useDialerSession } from "@/session/DialerSessionProvider";
+import { getUser } from "@/auth/session";
 import { getSavedDispositionFallback } from "./crmDisposition";
+import {
+  TLD_FORM_SCHEMA,
+  contactFormData,
+  filterImportedContacts,
+  findMatchingAgentKey,
+  importTldRows,
+  importedContactToActivity,
+  listTldAgents,
+  loadTldContacts,
+  parseTldCsv,
+  rowsForAgent,
+  statusSummary,
+  type ImportedTldContact,
+  type TldCsvRow,
+} from "./tldImport";
 
 const PAGE_SIZE = 25;
 
@@ -64,9 +81,29 @@ export default function Crm({
   const [search, setSearch] = useState("");
   const [applied, setApplied] = useState<ActivityFilters>({});
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [selectedImportedId, setSelectedImportedId] = useState<string | null>(
+    null,
+  );
+  const [importOpen, setImportOpen] = useState(false);
   const [dialingId, setDialingId] = useState<string | null>(null);
+  const signedInUser = getUser();
+  const signedInUserId = signedInUser?.user_id ?? "";
+  const signedInName = [signedInUser?.first_name, signedInUser?.last_name]
+    .filter(Boolean)
+    .join(" ");
+  const [importedContacts, setImportedContacts] = useState<
+    ImportedTldContact[]
+  >(() => loadTldContacts(signedInUserId));
   const { device, canDialBase } = useDialerSession();
   const navigate = useNavigate();
+
+  const visibleImportedContacts = useMemo(
+    () => filterImportedContacts(importedContacts, applied, callbacksOnly),
+    [applied, callbacksOnly, importedContacts],
+  );
+  const selectedImportedContact =
+    importedContacts.find((contact) => contact.id === selectedImportedId) ??
+    null;
 
   useEffect(() => {
     listCampaigns()
@@ -101,6 +138,7 @@ export default function Crm({
   }, [applied, callbacksOnly, page]);
 
   const refreshContacts = () => {
+    setImportedContacts(loadTldContacts(signedInUserId));
     setApplied((current) => ({ ...current }));
   };
 
@@ -120,6 +158,7 @@ export default function Crm({
     setCampaignId("");
     setSearch("");
     setSelectedLeadId(null);
+    setSelectedImportedId(null);
     setPage(1);
     setApplied({});
   };
@@ -151,7 +190,19 @@ export default function Crm({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline">{total} contacts</Badge>
+          <Badge variant="outline">
+            {total + visibleImportedContacts.length} contacts
+          </Badge>
+          {!callbacksOnly && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload className="size-4" />
+              Import TLD
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -227,7 +278,7 @@ export default function Crm({
             Loading contacts…
           </CardContent>
         </Card>
-      ) : contacts.length === 0 ? (
+      ) : contacts.length === 0 && visibleImportedContacts.length === 0 ? (
         <Card className="shadow-xs">
           <CardContent className="flex h-40 flex-col items-center justify-center gap-2 text-center text-muted-foreground">
             <Users className="size-6" />
@@ -238,6 +289,24 @@ export default function Crm({
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {page === 1 &&
+            visibleImportedContacts.map((contact) => {
+              const activity = importedContactToActivity(contact);
+              return (
+                <ContactCard
+                  key={activity.id}
+                  contact={activity}
+                  importedFromTld
+                  onCall={() => onClickToDial(activity)}
+                  canDial={
+                    canDialBase &&
+                    normalizeDialInput(activity.caller_phone ?? "") !== null
+                  }
+                  dialing={dialingId === activity.id}
+                  onViewRecord={() => setSelectedImportedId(contact.id)}
+                />
+              );
+            })}
           {contacts.map((contact) => (
             <ContactCard
               key={contact.id}
@@ -290,6 +359,22 @@ export default function Crm({
           refreshContacts();
         }}
       />
+      <ImportedTldRecordDialog
+        contact={selectedImportedContact}
+        onOpenChange={(open) => !open && setSelectedImportedId(null)}
+      />
+      {!callbacksOnly && (
+        <TldImportDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          signedInUserId={signedInUserId}
+          signedInName={signedInName}
+          onImported={(contacts) => {
+            setImportedContacts(contacts);
+            setPage(1);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -300,12 +385,14 @@ function ContactCard({
   canDial,
   dialing,
   onViewRecord,
+  importedFromTld = false,
 }: {
   contact: ActivityListItem;
   onCall: () => void;
   canDial: boolean;
   dialing: boolean;
   onViewRecord: () => void;
+  importedFromTld?: boolean;
 }) {
   return (
     <Card className="overflow-hidden shadow-xs">
@@ -319,7 +406,9 @@ function ContactCard({
               {contact.caller_phone || "No phone number"}
             </p>
           </div>
-          <Badge variant="secondary">Lead</Badge>
+          <Badge variant="secondary">
+            {importedFromTld ? "TLD import" : "Lead"}
+          </Badge>
         </div>
         <div className="grid grid-cols-2 gap-3 text-xs">
           <CrmField label="Campaign" value={contact.campaign_name || "—"} />
@@ -348,6 +437,344 @@ function ContactCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function TldImportDialog({
+  open,
+  onOpenChange,
+  signedInUserId,
+  signedInName,
+  onImported,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  signedInUserId: string;
+  signedInName: string;
+  onImported: (contacts: ImportedTldContact[]) => void;
+}) {
+  const [rows, setRows] = useState<TldCsvRow[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [selectedAgentKey, setSelectedAgentKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+  const agents = useMemo(() => listTldAgents(rows), [rows]);
+  const selectedRows = useMemo(
+    () => rowsForAgent(rows, selectedAgentKey),
+    [rows, selectedAgentKey],
+  );
+  const statuses = useMemo(() => statusSummary(selectedRows), [selectedRows]);
+
+  const reset = () => {
+    setRows([]);
+    setFileName("");
+    setSelectedAgentKey("");
+    setError(null);
+    setImportMessage(null);
+  };
+
+  const handleOpenChange = (next: boolean) => {
+    onOpenChange(next);
+    if (!next) reset();
+  };
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    setImportMessage(null);
+    try {
+      const parsed = parseTldCsv(await file.text());
+      const parsedAgents = listTldAgents(parsed);
+      setRows(parsed);
+      setFileName(file.name);
+      setSelectedAgentKey(
+        findMatchingAgentKey(parsedAgents, signedInName) ||
+          (parsedAgents.length === 1 ? parsedAgents[0].key : ""),
+      );
+    } catch (err) {
+      setRows([]);
+      setFileName(file.name);
+      setSelectedAgentKey("");
+      setError(readError(err, "Could not read the TLD export"));
+    }
+  };
+
+  const runImport = () => {
+    if (!signedInUserId) {
+      setError("The signed-in Policy Printer user could not be identified.");
+      return;
+    }
+    if (selectedRows.length === 0) {
+      setError("Choose a TLD user with at least one row.");
+      return;
+    }
+    try {
+      const result = importTldRows(signedInUserId, selectedRows);
+      onImported(result.contacts);
+      setImportMessage(
+        `Imported ${selectedRows.length} rows: ${result.added} new, ${result.updated} updated.`,
+      );
+      setError(null);
+    } catch (err) {
+      setError(readError(err, "Could not save the front-end TLD import"));
+    }
+  };
+
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45" />
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border bg-popover text-popover-foreground shadow-lg">
+          <div className="flex items-start justify-between gap-4 border-b p-5">
+            <div className="space-y-1">
+              <DialogPrimitive.Title className="text-lg font-semibold">
+                Import TLD contacts
+              </DialogPrimitive.Title>
+              <DialogPrimitive.Description className="text-sm text-muted-foreground">
+                Upload a TLD CSV export, then choose the TLD user whose contacts
+                belong to this Policy Printer account.
+              </DialogPrimitive.Description>
+            </div>
+            <DialogPrimitive.Close asChild>
+              <Button size="icon" variant="ghost" aria-label="Close TLD import">
+                <X className="size-4" />
+              </Button>
+            </DialogPrimitive.Close>
+          </div>
+
+          <div className="space-y-5 overflow-y-auto p-5">
+            <div className="space-y-2">
+              <Label htmlFor="tld-import-file">TLD export file</Label>
+              <Input
+                id="tld-import-file"
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) => {
+                  void handleFile(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+              {fileName && (
+                <p className="text-xs text-muted-foreground">
+                  {fileName} {rows.length > 0 && `• ${rows.length} rows`}
+                </p>
+              )}
+            </div>
+
+            {rows.length > 0 && (
+              <>
+                <div className="space-y-2">
+                  <Label>TLD user to import</Label>
+                  <Select
+                    value={selectedAgentKey}
+                    onValueChange={setSelectedAgentKey}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Choose a user from this export" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {agents.map((agent) => (
+                        <SelectItem key={agent.key} value={agent.key}>
+                          {agent.name}
+                          {agent.userId ? ` (#${agent.userId})` : ""} • {agent.count}
+                          {agent.count === 1 ? " row" : " rows"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {signedInName && !selectedAgentKey && (
+                    <p className="text-xs text-muted-foreground">
+                      No exact match was found for signed-in user {signedInName}.
+                      Choose the correct TLD user manually.
+                    </p>
+                  )}
+                </div>
+
+                {selectedRows.length > 0 && (
+                  <div className="space-y-3 rounded-md border bg-muted/20 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">Disposition mapping</p>
+                        <p className="text-xs text-muted-foreground">
+                          Original TLD codes remain in Notes for review.
+                        </p>
+                      </div>
+                      <Badge variant="outline">{selectedRows.length} selected</Badge>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {statuses.map(({ status, count, mapping }) => (
+                        <div
+                          key={status}
+                          className="flex items-center justify-between gap-3 rounded border bg-background px-3 py-2 text-xs"
+                        >
+                          <span className="font-mono">
+                            {status} <span className="text-muted-foreground">×{count}</span>
+                          </span>
+                          <span className="text-right">{mapping.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {error && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+            {importMessage && (
+              <div className="rounded-md border border-success/30 bg-success/5 px-4 py-3 text-sm text-success">
+                {importMessage}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-3 border-t p-5">
+            <p className="text-xs text-muted-foreground">
+              Stored in this browser for the signed-in Policy Printer user.
+            </p>
+            <div className="flex gap-2">
+              <DialogPrimitive.Close asChild>
+                <Button variant="outline" size="sm">
+                  {importMessage ? "Done" : "Cancel"}
+                </Button>
+              </DialogPrimitive.Close>
+              <Button
+                size="sm"
+                onClick={runImport}
+                disabled={selectedRows.length === 0 || !!importMessage}
+              >
+                <Upload className="size-4" />
+                Import {selectedRows.length || ""} contacts
+              </Button>
+            </div>
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+function ImportedTldRecordDialog({
+  contact,
+  onOpenChange,
+}: {
+  contact: ImportedTldContact | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const formData = contact ? contactFormData(contact) : {};
+  const copyText = contact
+    ? [
+        `Name: ${contact.fullName || "—"}`,
+        `Phone: ${contact.phone || contact.alternatePhone || "—"}`,
+        `Campaign: ${contact.listName || "TLD import"}`,
+        `Disposition: ${contact.dispositionLabel}`,
+        ...TLD_FORM_SCHEMA.map(
+          (field) => `${field.label}: ${formatValue(formData[field.key])}`,
+        ),
+      ].join("\n")
+    : "";
+
+  const onCopy = () => {
+    if (!copyText || !navigator.clipboard) return;
+    void navigator.clipboard
+      .writeText(copyText)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => undefined);
+  };
+
+  return (
+    <DialogPrimitive.Root open={!!contact} onOpenChange={onOpenChange}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45" />
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border bg-popover text-popover-foreground shadow-lg">
+          <div className="flex items-start justify-between gap-4 border-b p-5">
+            <div className="min-w-0 space-y-1">
+              <div className="flex items-center gap-2">
+                <DialogPrimitive.Title className="truncate text-lg font-semibold">
+                  {contact?.fullName || "TLD contact"}
+                </DialogPrimitive.Title>
+                <Badge variant="secondary">TLD import</Badge>
+              </div>
+              <DialogPrimitive.Description className="text-sm text-muted-foreground">
+                Front-end contact imported from TLD.
+              </DialogPrimitive.Description>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onCopy}
+                disabled={!copyText}
+              >
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                {copied ? "Copied" : "Copy all"}
+              </Button>
+              <DialogPrimitive.Close asChild>
+                <Button size="icon" variant="ghost" aria-label="Close TLD record">
+                  <X className="size-4" />
+                </Button>
+              </DialogPrimitive.Close>
+            </div>
+          </div>
+
+          {contact && (
+            <div className="space-y-6 overflow-y-auto p-5">
+              <section className="space-y-3">
+                <h2 className="text-sm font-semibold">Lead details</h2>
+                <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                  <CopyableField label="Name" value={contact.fullName || "—"} />
+                  <CopyableField
+                    label="Phone"
+                    value={contact.phone || contact.alternatePhone || "—"}
+                  />
+                  <CopyableField
+                    label="Campaign"
+                    value={contact.listName || "TLD import"}
+                  />
+                  <CopyableField
+                    label="Saved disposition"
+                    value={contact.dispositionLabel}
+                  />
+                  <CopyableField label="TLD status" value={contact.tldStatus || "—"} />
+                  <CopyableField
+                    label="TLD lead ID"
+                    value={contact.sourceLeadId || "—"}
+                  />
+                  <CopyableField
+                    label="Created in TLD"
+                    value={fmtDateTime(contact.entryDate)}
+                  />
+                  <CopyableField
+                    label="Imported"
+                    value={fmtDateTime(contact.importedAt)}
+                  />
+                </div>
+              </section>
+
+              <section className="space-y-3 border-t pt-5">
+                <h2 className="text-sm font-semibold">Form responses</h2>
+                <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                  {TLD_FORM_SCHEMA.map((field) => (
+                    <CopyableField
+                      key={field.key}
+                      label={field.label}
+                      value={formatValue(formData[field.key])}
+                    />
+                  ))}
+                </div>
+              </section>
+            </div>
+          )}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }
 
