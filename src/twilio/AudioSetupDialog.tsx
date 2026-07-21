@@ -11,6 +11,7 @@ import {
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -34,13 +35,23 @@ interface EchoPlayback {
 interface AudioSetupDialogProps {
   onInputDeviceChange: (deviceId: string) => Promise<void>;
   onOutputDeviceChange: (deviceId: string) => Promise<void>;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  required?: boolean;
+  showTrigger?: boolean;
+  onRequiredComplete?: () => void;
 }
 
 export function AudioSetupDialog({
   onInputDeviceChange,
   onOutputDeviceChange,
+  open: controlledOpen,
+  onOpenChange,
+  required = false,
+  showTrigger = true,
+  onRequiredComplete,
 }: AudioSetupDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedInputId, setSelectedInputId] = useState(DEFAULT_DEVICE_ID);
   const [selectedOutputId, setSelectedOutputId] = useState(DEFAULT_DEVICE_ID);
@@ -51,7 +62,11 @@ export function AudioSetupDialog({
   const [echoActive, setEchoActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState<ApplyingState>(null);
+  const [echoStarted, setEchoStarted] = useState(false);
+  const [echoConfirmationReady, setEchoConfirmationReady] = useState(false);
   const echoPlaybackRef = useRef<EchoPlayback | null>(null);
+  const echoConfirmationTimerRef = useRef<number | null>(null);
+  const open = controlledOpen ?? internalOpen;
   const micMeter = useMicLevelMeter({
     enabled: open,
     deviceId: selectedInputId,
@@ -76,6 +91,9 @@ export function AudioSetupDialog({
       const playback = echoPlaybackRef.current;
       echoPlaybackRef.current = null;
       if (playback) void stopEchoPlayback(playback);
+      if (echoConfirmationTimerRef.current !== null) {
+        window.clearTimeout(echoConfirmationTimerRef.current);
+      }
     },
     [],
   );
@@ -175,6 +193,11 @@ export function AudioSetupDialog({
     const playback = echoPlaybackRef.current;
     echoPlaybackRef.current = null;
     if (playback) void stopEchoPlayback(playback);
+    if (echoConfirmationTimerRef.current !== null) {
+      window.clearTimeout(echoConfirmationTimerRef.current);
+      echoConfirmationTimerRef.current = null;
+      setEchoConfirmationReady(false);
+    }
     setEchoActive(false);
     setEchoStatus("Hear yourself with a short delay.");
   };
@@ -189,8 +212,14 @@ export function AudioSetupDialog({
         selectedOutputId,
       );
       echoPlaybackRef.current = playback;
+      setEchoStarted(true);
+      setEchoConfirmationReady(false);
       setEchoActive(true);
       setEchoStatus("Playing your voice with a short delay.");
+      echoConfirmationTimerRef.current = window.setTimeout(() => {
+        echoConfirmationTimerRef.current = null;
+        setEchoConfirmationReady(true);
+      }, 1_000);
     } catch (err) {
       setEchoStatus("Echo test unavailable.");
       setError(readMediaError(err, "Could not start the echo test."));
@@ -199,43 +228,96 @@ export function AudioSetupDialog({
     }
   };
 
+  const setOpen = (nextOpen: boolean) => {
+    if (!nextOpen && required) return;
+    if (!nextOpen) stopEchoTest();
+    if (controlledOpen === undefined) setInternalOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
+
+  const completeRequiredTest = () => {
+    stopEchoTest();
+    onRequiredComplete?.();
+    if (controlledOpen === undefined) setInternalOpen(false);
+    onOpenChange?.(false);
+  };
+
   return (
-    <DialogPrimitive.Root
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) stopEchoTest();
-        setOpen(nextOpen);
-      }}
-    >
-      <DialogPrimitive.Trigger asChild>
-        <Button variant="outline" className="w-full justify-start">
-          <Headphones className="size-4" />
-          Audio Setup
-        </Button>
-      </DialogPrimitive.Trigger>
+    <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
+      {showTrigger && (
+        <DialogPrimitive.Trigger asChild>
+          <Button variant="outline" className="w-full justify-start">
+            <Headphones className="size-4" />
+            Audio Setup
+          </Button>
+        </DialogPrimitive.Trigger>
+      )}
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 grid w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border bg-popover p-5 text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
+        <DialogPrimitive.Content
+          className={cn(
+            "fixed left-1/2 top-1/2 z-50 grid w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-popover text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+            required
+              ? "max-h-[calc(100vh-2rem)] max-w-2xl gap-6 overflow-y-auto p-7 sm:p-8"
+              : "max-w-lg gap-4 p-5",
+          )}
+          onEscapeKeyDown={
+            required ? (event) => event.preventDefault() : undefined
+          }
+          onPointerDownOutside={
+            required ? (event) => event.preventDefault() : undefined
+          }
+        >
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
-              <DialogPrimitive.Title className="text-lg font-semibold">
-                Audio Setup
+              <DialogPrimitive.Title
+                className={cn(
+                  "font-semibold",
+                  required ? "text-2xl" : "text-lg",
+                )}
+              >
+                {required ? "Audio check required" : "Audio Setup"}
               </DialogPrimitive.Title>
-              <DialogPrimitive.Description className="text-sm text-muted-foreground">
-                Test microphone and speaker devices.
+              <DialogPrimitive.Description
+                className={cn(
+                  "text-muted-foreground",
+                  required ? "text-base leading-7" : "text-sm",
+                )}
+              >
+                {required
+                  ? "Start the echo test, say a few words, then confirm you can hear yourself."
+                  : "Test microphone and speaker devices."}
               </DialogPrimitive.Description>
             </div>
-            <DialogPrimitive.Close asChild>
+            {required ? (
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
-                className="size-8 shrink-0"
-                aria-label="Close audio setup"
+                size="sm"
+                onClick={refreshDevices}
+                disabled={applying !== null || echoActive}
+                className="shrink-0"
               >
-                <X className="size-4" />
+                {applying === "refresh" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-4" />
+                )}
+                Refresh
               </Button>
-            </DialogPrimitive.Close>
+            ) : (
+              <DialogPrimitive.Close asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  aria-label="Close audio setup"
+                >
+                  <X className="size-4" />
+                </Button>
+              </DialogPrimitive.Close>
+            )}
           </div>
 
           {error && (
@@ -244,8 +326,13 @@ export function AudioSetupDialog({
             </div>
           )}
 
-          <div className="space-y-4">
-            <section className="min-w-0 space-y-3 rounded-md border p-3">
+          <div className={cn("space-y-4", required && "space-y-5")}>
+            <section
+              className={cn(
+                "min-w-0 space-y-3 rounded-md border p-3",
+                required && "space-y-4 p-4",
+              )}
+            >
               <div className="flex min-w-0 items-center gap-2">
                 <Mic className="size-4 text-muted-foreground" />
                 <Label htmlFor="audio-input-device">Microphone</Label>
@@ -276,7 +363,12 @@ export function AudioSetupDialog({
               />
             </section>
 
-            <section className="space-y-3 rounded-md border p-3">
+            <section
+              className={cn(
+                "space-y-3 rounded-md border p-3",
+                required && "space-y-4 p-4",
+              )}
+            >
               <div className="flex items-center gap-2">
                 <Headphones className="size-4 text-muted-foreground" />
                 <Label htmlFor="audio-output-device">Speaker</Label>
@@ -322,7 +414,12 @@ export function AudioSetupDialog({
               </div>
             </section>
 
-            <section className="space-y-3 rounded-md border p-3">
+            <section
+              className={cn(
+                "space-y-3 rounded-md border p-3",
+                required && "space-y-4 p-4",
+              )}
+            >
               <div className="flex min-w-0 items-center gap-2">
                 <AudioLines className="size-4 text-muted-foreground" />
                 <p className="text-sm font-medium">Echo Test</p>
@@ -353,24 +450,47 @@ export function AudioSetupDialog({
             </section>
           </div>
 
-          <div className="flex justify-between gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={refreshDevices}
-              disabled={applying !== null || echoActive}
-            >
-              {applying === "refresh" ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <RefreshCw className="size-4" />
-              )}
-              Refresh
-            </Button>
-            <DialogPrimitive.Close asChild>
-              <Button type="button">Done</Button>
-            </DialogPrimitive.Close>
-          </div>
+          {required ? (
+            <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
+              <p
+                className="text-center text-sm font-semibold leading-6"
+                aria-live="polite"
+              >
+                {echoStarted
+                  ? echoConfirmationReady
+                    ? "If you heard your voice, click below to enter the dialer."
+                    : "Keep the Echo Test running briefly. The button will unlock after one second."
+                  : "Start the Echo Test above. Once you hear yourself, click below to continue."}
+              </p>
+              <Button
+                type="button"
+                onClick={completeRequiredTest}
+                disabled={!echoConfirmationReady || applying !== null}
+                className="h-12 w-full text-base"
+              >
+                I can hear my voice
+              </Button>
+            </div>
+          ) : (
+            <div className="flex justify-between gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={refreshDevices}
+                disabled={applying !== null || echoActive}
+              >
+                {applying === "refresh" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-4" />
+                )}
+                Refresh
+              </Button>
+              <DialogPrimitive.Close asChild>
+                <Button type="button">Done</Button>
+              </DialogPrimitive.Close>
+            </div>
+          )}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

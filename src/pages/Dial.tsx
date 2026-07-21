@@ -32,6 +32,7 @@ import {
   setPresence,
   type DialerCampaign,
   type DialerPresence,
+  type CampaignRemainingCallsStatus,
   type PresenceStatus,
 } from "@/lib/api";
 import { Input } from "@/components/ui/input";
@@ -48,6 +49,7 @@ import { useReturningCaller } from "@/leads/useReturningCaller";
 import { cn } from "@/lib/utils";
 import { normalizeDialInput } from "@/lib/phone";
 import { getUser } from "@/auth/session";
+import { CampaignAllowanceDisplay } from "@/components/CampaignAllowanceDisplay";
 
 /**
  * Dial page (Subplan 02 + 03) — presence, heartbeat, per-campaign ready toggles, and
@@ -285,6 +287,14 @@ export default function Dial() {
   // Local `error` is for action failures (presence/campaign/dial/wrap-up); bootstrap
   // (load) failures come from the shared session. Show either in the banner.
   const displayError = error || session.bootError;
+
+  // Debug calls and local wrap-up do not exist in Twilio/backend state. Mirror that
+  // local busy state into the shared session so app-level UI (including credit
+  // notifications) stays out of the way until the call workflow is finished.
+  useEffect(() => {
+    session.setCallUiBusy(debugIncomingCall || Boolean(wrapUpCall));
+    return () => session.setCallUiBusy(false);
+  }, [debugIncomingCall, wrapUpCall, session.setCallUiBusy]);
 
   useEffect(() => {
     if (!activeCall) return;
@@ -681,6 +691,9 @@ function DialSidebar({
   dialPending: boolean;
 }) {
   const systemMicMeter = useMicLevelMeter({ enabled: provisioned });
+  const selectedCampaigns = campaigns.filter((campaign) => campaign.ready);
+  const showCampaignAllowancePopup =
+    selectedCampaigns.length > 0 && status !== "ready" && busy !== "status";
 
   return (
     <aside className="order-3 flex w-full flex-col gap-3 xl:order-none">
@@ -693,28 +706,46 @@ function DialSidebar({
             </p>
           </div> */}
           <div className="grid gap-2">
-            <Button
-              className="w-full"
-              variant={status === "ready" ? "outline" : "success"}
-              onClick={onToggleReady}
-              disabled={
-                busy !== null ||
-                onCall ||
-                !provisioned ||
-                (status !== "ready" && !canGoReady)
-              }
-            >
-              {busy === "status" ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Power className="size-4" />
+            <div className="group/ready relative">
+              <Button
+                className="w-full"
+                variant={status === "ready" ? "outline" : "success"}
+                onClick={onToggleReady}
+                aria-describedby={
+                  showCampaignAllowancePopup
+                    ? "campaign-allowance-popup"
+                    : undefined
+                }
+                disabled={
+                  busy !== null ||
+                  onCall ||
+                  !provisioned ||
+                  (status !== "ready" && !canGoReady)
+                }
+              >
+                {busy === "status" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Power className="size-4" />
+                )}
+                {busy === "status"
+                  ? "Saving…"
+                  : status === "ready"
+                    ? "Pause Calls"
+                    : "Go Ready"}
+              </Button>
+
+              {showCampaignAllowancePopup && (
+                <div
+                  id="campaign-allowance-popup"
+                  role="tooltip"
+                  className="pointer-events-none absolute right-full top-1/2 z-50 mr-2 w-72 max-w-[calc(100vw-2rem)] -translate-y-1/2 translate-x-1 rounded-lg border bg-popover p-3 text-popover-foreground opacity-0 shadow-lg transition duration-150 group-focus-within/ready:translate-x-0 group-focus-within/ready:opacity-100 group-hover/ready:translate-x-0 group-hover/ready:opacity-100"
+                >
+                  <CampaignAllowanceDisplay campaigns={selectedCampaigns} />
+                  <span className="absolute left-full top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-r border-t bg-popover" />
+                </div>
               )}
-              {busy === "status"
-                ? "Saving…"
-                : status === "ready"
-                  ? "Pause Calls"
-                  : "Go Ready"}
-            </Button>
+            </div>
             <CampaignMenu
               campaigns={campaigns}
               busy={busy}
@@ -783,7 +814,11 @@ function CampaignMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="w-full justify-between">
+        <Button
+          variant="outline"
+          className="w-full justify-between"
+          data-credit-animation-target="campaigns"
+        >
           <ListChecks className="size-4" />
           <span className="mr-auto">Campaigns</span>
           {readyCount > 0 && (
@@ -817,8 +852,17 @@ function CampaignMenu({
                   <p className="truncate text-sm font-medium">
                     {campaign.name}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    {campaign.ready ? "Routing enabled" : "Not routing"}
+                  <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+                    <span>
+                      {campaign.ready ? "Routing enabled" : "Not routing"}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span className="tabular-nums text-foreground/75">
+                      {formatCampaignRemainingCalls(
+                        campaign.calls_remaining,
+                        campaign.calls_remaining_status,
+                      )}
+                    </span>
                   </p>
                 </div>
                 {busy === campaign.id ? (
@@ -845,6 +889,23 @@ function CampaignMenu({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function formatCampaignRemainingCalls(
+  callsRemaining: number | null | undefined,
+  status: CampaignRemainingCallsStatus | undefined,
+): string {
+  if (callsRemaining === undefined) return "Loading calls remaining…";
+  if (callsRemaining !== null) {
+    return `${callsRemaining.toLocaleString()} call${callsRemaining === 1 ? "" : "s"} remaining`;
+  }
+  if (status === "buyer_id_not_configured") {
+    return "Buyer ID not configured";
+  }
+  if (status === "hard_cap_not_configured") return "No call limit configured";
+  if (status === "retreaver_not_configured") return "Retreaver not configured";
+  if (status === "invalid_hard_cap") return "Invalid call limit";
+  return "Calls remaining unavailable";
 }
 
 function IdleCallPanel({ available }: { available: 0 | 1 | null }) {

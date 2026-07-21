@@ -22,6 +22,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {
 	postHeartbeat,
+	type CreditNotification,
 	type DialerPresence,
 	type TwilioDeviceStatus
 } from '@/lib/api';
@@ -40,6 +41,7 @@ export interface HeartbeatState {
 	/** Numeric availability from the last heartbeat (what Retreaver would see). */
 	available: 0 | 1 | null;
 	presence: DialerPresence | null;
+	creditNotification: CreditNotification | null;
 	/** True once at least one heartbeat round-tripped (UI can show "connected"). */
 	connected: boolean;
 }
@@ -58,6 +60,7 @@ export function useHeartbeat({
 	const [state, setState] = useState<HeartbeatState>({
 		available: null,
 		presence: null,
+		creditNotification: null,
 		connected: false
 	});
 
@@ -86,6 +89,7 @@ export function useHeartbeat({
 				setState({
 					available: (res.available ?? 0) as 0 | 1,
 					presence: res.presence ?? null,
+					creditNotification: res.credit_notification ?? null,
 					connected: true
 				});
 			} catch {

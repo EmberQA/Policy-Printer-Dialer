@@ -9,3 +9,4 @@ dist-ssr
 *.log
 .vite
 .npm-cache
+*.zip

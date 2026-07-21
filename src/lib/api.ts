@@ -150,6 +150,16 @@ export interface DialerPresence {
 	updated_at: string;
 }
 
+export interface CreditNotification {
+	id: string;
+	call_id: string;
+	credit_outcome: string;
+	created_at: string;
+	caller_phone: string | null;
+	call_started_at: string | null;
+	campaign_name: string | null;
+}
+
 /** Presence endpoints return the row plus the recomputed numeric availability
  *  (exactly what Retreaver would see right now). */
 export interface PresenceResponse {
@@ -157,6 +167,7 @@ export interface PresenceResponse {
 	statusMessage: string;
 	available?: 0 | 1;
 	presence?: DialerPresence | null;
+	credit_notification?: CreditNotification | null;
 }
 
 /** A campaign the agent is linked to, plus this agent's per-campaign `ready` toggle. */
@@ -170,12 +181,41 @@ export interface DialerCampaign {
 	updated_at: string;
 	/** Whether the agent has armed this campaign's buyer (per-campaign ready toggle). */
 	ready: boolean;
+	/** Retreaver Hard-cap usage, loaded after the core dialer bootstrap. Undefined is
+	 * still loading; null means this campaign's target usage was unavailable. */
+	calls_used?: number | null;
+	calls_allotted?: number | null;
+	calls_remaining?: number | null;
+	calls_remaining_status?: CampaignRemainingCallsStatus;
 }
 
 export interface CampaignsResponse {
 	statusCode: string;
 	statusMessage: string;
 	campaigns?: DialerCampaign[];
+}
+
+export interface CampaignRemainingCalls {
+	campaign_id: string;
+	campaign_name: string | null;
+	calls_remaining_status: CampaignRemainingCallsStatus;
+	calls_used: number | null;
+	calls_allotted: number | null;
+	calls_remaining: number | null;
+}
+
+export type CampaignRemainingCallsStatus =
+	| 'available'
+	| 'buyer_id_not_configured'
+	| 'hard_cap_not_configured'
+	| 'retreaver_not_configured'
+	| 'invalid_hard_cap'
+	| 'retreaver_unavailable';
+
+export interface CampaignRemainingCallsResponse {
+	statusCode: string;
+	statusMessage: string;
+	campaigns?: CampaignRemainingCalls[];
 }
 
 /** Post one heartbeat. `sessionId` ties the beat to this browser tab; until the
@@ -187,6 +227,13 @@ export const postHeartbeat = (
 	qsPost('/policyPrinter/dialer/heartbeat', {
 		session_id: sessionId,
 		device_status: deviceStatus
+	});
+
+export const acknowledgeCreditNotification = (
+	notificationId: string
+): Promise<{statusCode: string; statusMessage: string}> =>
+	qsPost('/policyPrinter/dialer/creditNotification/acknowledge', {
+		notification_id: notificationId
 	});
 
 /** Read current presence + availability (UI bootstrap). */
@@ -218,6 +265,10 @@ export const setCampaignReady = (
 /** The agent's linked campaigns, each with its per-agent `ready` toggle. */
 export const listCampaigns = (): Promise<CampaignsResponse> =>
 	qsPost('/policyPrinter/dialer/campaigns/list');
+
+/** Current Retreaver Hard-cap usage for each campaign linked to this agent. */
+export const listCampaignRemainingCalls = (): Promise<CampaignRemainingCallsResponse> =>
+	qsPost('/policyPrinter/dialer/campaigns/remainingCalls');
 
 /* -------------------------------------------------------------------------- */
 /* Twilio softphone (Subplan 03)                                              */

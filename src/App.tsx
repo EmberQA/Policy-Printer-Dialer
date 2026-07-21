@@ -7,8 +7,9 @@ import {
 	useLocation,
 	useNavigate
 } from 'react-router-dom';
-import {Check, Copy, Phone} from 'lucide-react';
+import {Check, Copy, HelpCircle, Phone} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
 import {runHandoff, HandoffResult} from '@/auth/handoff';
 import {getUser, hasSession} from '@/auth/session';
 import {cn} from '@/lib/utils';
@@ -21,6 +22,14 @@ import Crm from '@/pages/Crm';
 import Leads from '@/pages/Leads';
 import {LeadNotesProvider} from '@/leads/LeadNotesContext';
 import policyPrinterLogo from '@/assets/policy-printer-logo.png';
+import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
+import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
+import {CreditNotificationDialog} from '@/components/CreditNotificationDialog';
+import {
+	CreditFlightAnimation,
+	type CreditFlight
+} from '@/components/CreditFlightAnimation';
+import {acknowledgeCreditNotification} from '@/lib/api';
 
 type BootState =
 	| {phase: 'booting'}
@@ -28,6 +37,7 @@ type BootState =
 	| {phase: 'unauthenticated'; message?: string};
 
 const THEME_KEY = 'pp_dialer_theme';
+const TRAINING_HIDDEN_KEY_PREFIX = 'pp_dialer_training_video_hidden:';
 
 /**
  * App boot: run the one-time handoff (or fall back to a stored session), then
@@ -100,33 +110,144 @@ export default function App() {
 	return (
 		<DialerSessionProvider>
 			<LeadNotesProvider>
-				<div className="min-h-screen bg-background">
-				<header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-					<div className="mx-auto flex min-h-24 max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-2 sm:px-6">
-						<div className="flex min-w-0 flex-wrap items-center gap-5">
-							<img
-								src={policyPrinterLogo}
-								alt="Policy Printer"
-								className="h-20 w-auto shrink-0 object-contain"
-							/>
-							<nav className="flex items-center gap-1" aria-label="Primary">
-								<NavTab to="/dial" label="Calls" />
-								<NavTab to="/crm" label="CRM" />
-								<NavTab to="/callbacks" label="Callbacks" />
-								<NavTab to="/leads" label="Activity" />
-							</nav>
-						</div>
-						<HeaderUserBlock userName={userName} />
-					</div>
-				</header>
-				<main className="px-4 py-6 sm:px-6">
-					<InboundCallAutoNav />
-					<DialerPageRoutes />
-				</main>
-			</div>
+				<AuthenticatedDialerApp
+					key={user?.user_id ?? 'unknown-user'}
+					userId={user?.user_id ?? 'unknown-user'}
+					userName={userName}
+				/>
 			</LeadNotesProvider>
 		</DialerSessionProvider>
 	);
+}
+
+function AuthenticatedDialerApp({
+	userId,
+	userName
+}: {
+	userId: string;
+	userName: string;
+}) {
+	const {
+		bootstrapped,
+		device,
+		heartbeat,
+		onCall,
+		audioCheckComplete,
+		completeAudioCheck
+	} = useDialerSession();
+	const trainingStorageKey = `${TRAINING_HIDDEN_KEY_PREFIX}${userId}`;
+	const [dontShowTraining, setDontShowTraining] = useState(() =>
+		readTrainingPreference(trainingStorageKey)
+	);
+	const [trainingOpen, setTrainingOpen] = useState(() => !dontShowTraining);
+	const [hiddenCreditId, setHiddenCreditId] = useState<string | null>(null);
+	const [creditFlight, setCreditFlight] = useState<CreditFlight | null>(null);
+	const creditFlightIdRef = useRef(0);
+	const audioCheckOpen = bootstrapped && !trainingOpen && !audioCheckComplete;
+	const pendingCredit = heartbeat.creditNotification;
+	const creditOpen = Boolean(
+		pendingCredit &&
+			hiddenCreditId !== pendingCredit.id &&
+			!trainingOpen &&
+			!audioCheckOpen &&
+			!onCall
+	);
+
+	const acknowledgePendingCredit = () => {
+		if (!pendingCredit) return;
+		const notificationId = pendingCredit.id;
+		setHiddenCreditId(notificationId);
+		const campaignTarget = document.querySelector<HTMLElement>(
+			'[data-credit-animation-target="campaigns"]'
+		);
+		if (campaignTarget) {
+			const targetRect = campaignTarget.getBoundingClientRect();
+			creditFlightIdRef.current += 1;
+			setCreditFlight({
+				id: creditFlightIdRef.current,
+				startX: window.innerWidth / 2,
+				startY: window.innerHeight / 2,
+				endX: targetRect.left + targetRect.width / 2,
+				endY: targetRect.top + targetRect.height / 2
+			});
+		}
+		void acknowledgeCreditNotification(notificationId).catch(() => {
+			setHiddenCreditId((current) =>
+				current === notificationId ? null : current
+			);
+		});
+	};
+
+	const updateTrainingPreference = (hidden: boolean) => {
+		setDontShowTraining(hidden);
+		try {
+			if (hidden) localStorage.setItem(trainingStorageKey, 'true');
+			else localStorage.removeItem(trainingStorageKey);
+		} catch {
+			/* The prompt can still work when browser storage is unavailable. */
+		}
+	};
+
+	return (
+		<div className="min-h-screen bg-background">
+			<header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+				<div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-1 sm:px-6">
+					<div className="flex min-w-0 flex-wrap items-center gap-4">
+						<img
+							src={policyPrinterLogo}
+							alt="Policy Printer"
+							className="h-14 w-auto shrink-0 object-contain"
+						/>
+						<nav className="flex items-center gap-1" aria-label="Primary">
+							<NavTab to="/dial" label="Calls" />
+							<NavTab to="/crm" label="CRM" />
+							<NavTab to="/callbacks" label="Callbacks" />
+							<NavTab to="/leads" label="Activity" />
+						</nav>
+					</div>
+					<HeaderUserBlock
+						userName={userName}
+						onShowTraining={() => setTrainingOpen(true)}
+					/>
+				</div>
+			</header>
+			<main className="px-4 py-6 sm:px-6">
+				<InboundCallAutoNav />
+				<DialerPageRoutes />
+			</main>
+			<TrainingVideoDialog
+				open={trainingOpen}
+				onOpenChange={setTrainingOpen}
+				dontShowAgain={dontShowTraining}
+				onDontShowAgainChange={updateTrainingPreference}
+			/>
+			<AudioSetupDialog
+				open={audioCheckOpen}
+				required
+				showTrigger={false}
+				onRequiredComplete={completeAudioCheck}
+				onInputDeviceChange={device.setInputDevice}
+				onOutputDeviceChange={device.setOutputDevice}
+			/>
+			<CreditNotificationDialog
+				open={creditOpen}
+				notification={pendingCredit}
+				onAcknowledge={acknowledgePendingCredit}
+			/>
+			<CreditFlightAnimation
+				flight={creditFlight}
+				onComplete={() => setCreditFlight(null)}
+			/>
+		</div>
+	);
+}
+
+function readTrainingPreference(storageKey: string): boolean {
+	try {
+		return localStorage.getItem(storageKey) === 'true';
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -137,10 +258,10 @@ export default function App() {
  * the inactive route unmounts normally and returns to the usual fresh-load flow.
  */
 function DialerPageRoutes() {
-	const {device} = useDialerSession();
+	const {onCall} = useDialerSession();
 	const location = useLocation();
 	const showingDial = location.pathname === '/dial';
-	const keepDialMounted = showingDial || Boolean(device.activeCall);
+	const keepDialMounted = showingDial || onCall;
 
 	return (
 		<>
@@ -160,22 +281,42 @@ function DialerPageRoutes() {
 	);
 }
 
-function HeaderUserBlock({userName}: {userName: string}) {
+function HeaderUserBlock({
+	userName,
+	onShowTraining
+}: {
+	userName: string;
+	onShowTraining: () => void;
+}) {
 	const {profile, provisioned, device} = useDialerSession();
 	const callbackNumber = profile?.agent?.twilio_phone_number;
 	const pingMs = device.activeCall ? device.twilioRttMs : device.apiPingMs;
 
 	return (
-		<div className="flex shrink-0 flex-col items-end gap-2">
-			<span className="font-mono text-xs text-muted-foreground">
-				Ping: {pingMs === null ? '—' : `${pingMs} ms`}
+		<div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+			<span
+				className="hidden max-w-40 truncate text-xs font-medium text-muted-foreground sm:block"
+				title={`Logged in as ${userName}`}
+			>
+				{userName}
 			</span>
-			<p className="hidden text-sm text-muted-foreground sm:block">
-				Logged in as: {userName}
-			</p>
 			{provisioned && callbackNumber && (
 				<CallbackNumber number={callbackNumber} />
 			)}
+			<span className="whitespace-nowrap font-mono text-[11px] text-muted-foreground">
+				{pingMs === null ? '— ms' : `${pingMs} ms`}
+			</span>
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon"
+				className="size-7"
+				onClick={onShowTraining}
+				title="Watch dialer training"
+				aria-label="Watch dialer training"
+			>
+				<HelpCircle className="size-3.5" />
+			</Button>
 		</div>
 	);
 }
@@ -230,20 +371,18 @@ function CallbackNumber({number}: {number: string}) {
 		<button
 			type="button"
 			onClick={onCopy}
-			title="Copy your phone number"
-			className="group flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-sm transition-colors hover:bg-muted"
+			title={`Your phone number: ${formatDid(number)}. Click to copy.`}
+			aria-label={`Copy your phone number ${formatDid(number)}`}
+			className="group flex h-7 items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs transition-colors hover:bg-muted"
 		>
-			<Phone className="size-4 text-muted-foreground" />
-			<span className="flex flex-col items-start leading-tight">
-				<span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-					Your phone number
-				</span>
-				<span className="font-mono font-medium">{formatDid(number)}</span>
+			<Phone className="size-3.5 text-muted-foreground" />
+			<span className="whitespace-nowrap font-mono font-medium">
+				{formatDid(number)}
 			</span>
 			{copied ? (
-				<Check className="size-4 text-success" />
+				<Check className="size-3.5 text-success" />
 			) : (
-				<Copy className="size-4 text-muted-foreground opacity-60 group-hover:opacity-100" />
+				<Copy className="size-3.5 text-muted-foreground opacity-50 group-hover:opacity-100" />
 			)}
 		</button>
 	);

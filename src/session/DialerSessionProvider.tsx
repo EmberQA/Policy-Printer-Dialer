@@ -16,15 +16,18 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import {
   fetchDialerProfile,
   getPresence,
+  listCampaignRemainingCalls,
   listCampaigns,
   OUTBOUND_LIFECYCLE_VERSION,
   type DialerCampaign,
@@ -55,11 +58,16 @@ export interface DialerSession {
   device: UseDeviceState;
   heartbeat: HeartbeatState;
 
+  // --- required per-tab audio check ---
+  /** Calls stay unavailable until this tab's required echo check is confirmed. */
+  audioCheckComplete: boolean;
+  completeAudioCheck: () => void;
+
   // --- derived flags both pages need ---
-  /** Live call OR backend on_call flag. on_call stays true through wrap-up (backend
-   *  clears it at release), so this blocks a second call during wrap-up too. Excludes
-   *  Dial-local debug/wrap-up UI state on purpose. */
+  /** Live call, backend on_call flag, or Calls-page debug/wrap-up state. */
   onCall: boolean;
+  /** Lets the Calls page include its local debug/wrap-up state in the shared gate. */
+  setCallUiBusy: React.Dispatch<React.SetStateAction<boolean>>;
   /** Base gate for placing a call, WITHOUT the per-number check: provisioned &&
    *  device registered && not on a call. Callers add normalizeDialInput + their own
    *  in-flight guard. */
@@ -73,6 +81,9 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
   const [campaigns, setCampaigns] = useState<DialerCampaign[]>([]);
   const [presence, setPresence] = useState<DialerPresence | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [audioCheckComplete, setAudioCheckComplete] = useState(false);
+  const [callUiBusy, setCallUiBusy] = useState(false);
+  const hadActiveCallRef = useRef(false);
 
   const provisioned = Boolean(profile?.provisioned);
   const outboundLifecycleEnabled =
@@ -87,8 +98,35 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
   });
   const heartbeat = useHeartbeat({
     enabled: provisioned,
-    deviceStatus: device.deviceStatus,
+    // Keep backend-computed availability at zero until the user confirms that
+    // this tab's microphone and speaker work. The Device still registers so the
+    // setup dialog can apply real input/output selections before confirmation.
+    deviceStatus: audioCheckComplete ? device.deviceStatus : "offline",
   });
+
+  const refreshCampaignRemainingCalls = useCallback(async (
+    shouldSkip?: () => boolean,
+  ) => {
+    const usage = await listCampaignRemainingCalls();
+    if (shouldSkip?.()) return;
+    const usageByCampaign = new Map(
+      (usage.campaigns ?? []).map((item) => [item.campaign_id, item]),
+    );
+    setCampaigns((current) =>
+      current.map((campaign) => {
+        const campaignUsage = usageByCampaign.get(campaign.id);
+        return campaignUsage
+          ? {
+              ...campaign,
+              calls_used: campaignUsage.calls_used,
+              calls_allotted: campaignUsage.calls_allotted,
+              calls_remaining: campaignUsage.calls_remaining,
+              calls_remaining_status: campaignUsage.calls_remaining_status,
+            }
+          : campaign;
+      }),
+    );
+  }, []);
 
   // Bootstrap: profile + campaigns + presence (moved from Dial).
   useEffect(() => {
@@ -99,6 +137,20 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
         setProfile(prof);
         setCampaigns(camps?.campaigns ?? []);
         setPresence(pres?.presence ?? null);
+
+        // Usage is deliberately best-effort and is not part of the bootstrap
+        // Promise.all. A slow/unavailable Retreaver read must not block the dialer.
+        void refreshCampaignRemainingCalls(() => cancelled)
+          .catch(() => {
+            if (cancelled) return;
+            setCampaigns((current) =>
+              current.map((campaign) => ({
+                ...campaign,
+                calls_remaining: null,
+                calls_remaining_status: "retreaver_unavailable",
+              })),
+            );
+          });
       })
       .catch((err) => {
         if (cancelled) return;
@@ -107,7 +159,19 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshCampaignRemainingCalls]);
+
+  // Retreaver updates its target cap as calls route. Re-read every campaign count
+  // on the active -> ended edge so the dropdown and Go Ready hover show the latest
+  // allowance without requiring a page refresh. A transient refresh failure keeps
+  // the last known counts rather than replacing useful values with "Unavailable".
+  useEffect(() => {
+    const hasActiveCall = Boolean(device.activeCall);
+    if (hadActiveCallRef.current && !hasActiveCall) {
+      void refreshCampaignRemainingCalls().catch(() => undefined);
+    }
+    hadActiveCallRef.current = hasActiveCall;
+  }, [device.activeCall, refreshCampaignRemainingCalls]);
 
   // Keep local presence in sync with what the heartbeat observes (on_call flipping,
   // another tab changing status, etc.) — moved from Dial.
@@ -119,8 +183,10 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
     Boolean(device.activeCall) ||
     Boolean(device.outboundStarting) ||
     Boolean(device.pendingOutbound) ||
-    Boolean(presence?.on_call);
+    Boolean(presence?.on_call) ||
+    callUiBusy;
   const canDialBase =
+    audioCheckComplete &&
     provisioned &&
     outboundLifecycleEnabled &&
     device.deviceStatus === "registered" &&
@@ -138,7 +204,10 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
       setPresence,
       device,
       heartbeat,
+      audioCheckComplete,
+      completeAudioCheck: () => setAudioCheckComplete(true),
       onCall,
+      setCallUiBusy,
       canDialBase,
     }),
     [
@@ -149,6 +218,7 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
       presence,
       device,
       heartbeat,
+      audioCheckComplete,
       onCall,
       canDialBase,
     ],
