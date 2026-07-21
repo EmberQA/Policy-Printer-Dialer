@@ -4,6 +4,7 @@ import {
 	NavLink,
 	Route,
 	Routes,
+	matchPath,
 	useLocation,
 	useNavigate
 } from 'react-router-dom';
@@ -272,7 +273,10 @@ function AuthenticatedDialerApp({
 function DialerPageRoutes() {
 	const {onCall} = useDialerSession();
 	const location = useLocation();
-	const showingDial = location.pathname === '/dial';
+	// Use the router's matcher so URL variants it accepts (notably `/dial/`)
+	// mount the Calls UI too. NavLink already treated those variants as active,
+	// which could otherwise leave an active Calls tab above an empty page.
+	const showingDial = Boolean(matchPath('/dial', location.pathname));
 	const keepDialMounted = showingDial || onCall;
 
 	return (
