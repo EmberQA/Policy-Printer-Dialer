@@ -167,7 +167,6 @@ export interface PresenceResponse {
 	statusMessage: string;
 	available?: 0 | 1;
 	presence?: DialerPresence | null;
-	credit_notification?: CreditNotification | null;
 }
 
 /** A campaign the agent is linked to, plus this agent's per-campaign `ready` toggle. */
@@ -228,6 +227,19 @@ export const postHeartbeat = (
 		session_id: sessionId,
 		device_status: deviceStatus
 	});
+
+export interface PendingCreditNotificationResponse {
+	statusCode: string;
+	statusMessage: string;
+	credit_notification?: CreditNotification | null;
+}
+
+/** Poll for the oldest unacknowledged credit popup. Runs on its own slower (~30s)
+ *  timer — moved OFF the 5s heartbeat so the pending-credit JSONB scan runs far less
+ *  often (DB load reduction). Hits the pre-RBAC dialer-liveness route. */
+export const postCreditNotificationPending =
+	(): Promise<PendingCreditNotificationResponse> =>
+		qsPost('/policyPrinter/dialer/creditNotification/pending');
 
 export const acknowledgeCreditNotification = (
 	notificationId: string

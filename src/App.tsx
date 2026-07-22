@@ -136,7 +136,7 @@ function AuthenticatedDialerApp({
 	const {
 		bootstrapped,
 		device,
-		heartbeat,
+		creditNotification,
 		onCall,
 		audioCheckComplete,
 		completeAudioCheck
@@ -155,7 +155,7 @@ function AuthenticatedDialerApp({
 	const audioCheckOpen = bootstrapped && !audioCheckComplete;
 	// Restore this guard when the training video is live:
 	// const audioCheckOpen = bootstrapped && !trainingOpen && !audioCheckComplete;
-	const pendingCredit = heartbeat.creditNotification;
+	const pendingCredit = creditNotification;
 	const creditOpen = Boolean(
 		pendingCredit &&
 			hiddenCreditId !== pendingCredit.id &&
