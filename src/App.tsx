@@ -8,12 +8,9 @@ import {
 	useLocation,
 	useNavigate
 } from 'react-router-dom';
-import {Check, Copy, Phone} from 'lucide-react';
-// Temporarily disabled until the training video is live.
-// import {HelpCircle} from 'lucide-react';
+import {Check, Copy, HelpCircle, Phone} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
-// Temporarily disabled until the training video is live.
-// import {Button} from '@/components/ui/button';
+import {Button} from '@/components/ui/button';
 import {runHandoff, HandoffResult} from '@/auth/handoff';
 import {getUser, hasSession} from '@/auth/session';
 import {cn} from '@/lib/utils';
@@ -27,8 +24,7 @@ import Leads from '@/pages/Leads';
 import {LeadNotesProvider} from '@/leads/LeadNotesContext';
 import policyPrinterLogo from '@/assets/policy-printer-logo.png';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
-// Temporarily disabled until the training video is live.
-// import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
+import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
 import {CreditNotificationDialog} from '@/components/CreditNotificationDialog';
 import {
 	CreditFlightAnimation,
@@ -42,8 +38,9 @@ type BootState =
 	| {phase: 'unauthenticated'; message?: string};
 
 const THEME_KEY = 'pp_dialer_theme';
-// Temporarily disabled until the training video is live.
-// const TRAINING_HIDDEN_KEY_PREFIX = 'pp_dialer_training_video_hidden:';
+const TRAINING_HIDDEN_KEY_PREFIX = 'pp_dialer_training_video_hidden:';
+const TRAINING_VIDEO_SRC =
+	'https://www.loom.com/embed/9b8f5ea326e84e838e37feccbba71630';
 
 /**
  * App boot: run the one-time handoff (or fall back to a stored session), then
@@ -141,26 +138,20 @@ function AuthenticatedDialerApp({
 		audioCheckComplete,
 		completeAudioCheck
 	} = useDialerSession();
-	// The user id is used by the temporarily disabled training preference code below.
-	void userId;
-	// Temporarily disabled until the training video is live.
-	// const trainingStorageKey = `${TRAINING_HIDDEN_KEY_PREFIX}${userId}`;
-	// const [dontShowTraining, setDontShowTraining] = useState(() =>
-	// 	readTrainingPreference(trainingStorageKey)
-	// );
-	// const [trainingOpen, setTrainingOpen] = useState(() => !dontShowTraining);
+	const trainingStorageKey = `${TRAINING_HIDDEN_KEY_PREFIX}${userId}`;
+	const [dontShowTraining, setDontShowTraining] = useState(() =>
+		readTrainingPreference(trainingStorageKey)
+	);
+	const [trainingOpen, setTrainingOpen] = useState(() => !dontShowTraining);
 	const [hiddenCreditId, setHiddenCreditId] = useState<string | null>(null);
 	const [creditFlight, setCreditFlight] = useState<CreditFlight | null>(null);
 	const creditFlightIdRef = useRef(0);
-	const audioCheckOpen = bootstrapped && !audioCheckComplete;
-	// Restore this guard when the training video is live:
-	// const audioCheckOpen = bootstrapped && !trainingOpen && !audioCheckComplete;
+	const audioCheckOpen = bootstrapped && !trainingOpen && !audioCheckComplete;
 	const pendingCredit = creditNotification;
 	const creditOpen = Boolean(
 		pendingCredit &&
 			hiddenCreditId !== pendingCredit.id &&
-			// Restore when the training video is live:
-			// !trainingOpen &&
+			!trainingOpen &&
 			!audioCheckOpen &&
 			!onCall
 	);
@@ -190,16 +181,15 @@ function AuthenticatedDialerApp({
 		});
 	};
 
-	// Temporarily disabled until the training video is live.
-	// const updateTrainingPreference = (hidden: boolean) => {
-	// 	setDontShowTraining(hidden);
-	// 	try {
-	// 		if (hidden) localStorage.setItem(trainingStorageKey, 'true');
-	// 		else localStorage.removeItem(trainingStorageKey);
-	// 	} catch {
-	// 		/* The prompt can still work when browser storage is unavailable. */
-	// 	}
-	// };
+	const updateTrainingPreference = (hidden: boolean) => {
+		setDontShowTraining(hidden);
+		try {
+			if (hidden) localStorage.setItem(trainingStorageKey, 'true');
+			else localStorage.removeItem(trainingStorageKey);
+		} catch {
+			/* The prompt can still work when browser storage is unavailable. */
+		}
+	};
 
 	return (
 		<div className="min-h-screen bg-background">
@@ -218,21 +208,23 @@ function AuthenticatedDialerApp({
 							<NavTab to="/leads" label="Activity" />
 						</nav>
 					</div>
-					<HeaderUserBlock userName={userName} />
+					<HeaderUserBlock
+						userName={userName}
+						onShowTraining={() => setTrainingOpen(true)}
+					/>
 				</div>
 			</header>
 			<main className="px-4 py-6 sm:px-6">
 				<InboundCallAutoNav />
 				<DialerPageRoutes />
 			</main>
-			{/* Temporarily disabled until the training video is live.
 			<TrainingVideoDialog
 				open={trainingOpen}
 				onOpenChange={setTrainingOpen}
 				dontShowAgain={dontShowTraining}
 				onDontShowAgainChange={updateTrainingPreference}
+				videoSrc={TRAINING_VIDEO_SRC}
 			/>
-			*/}
 			<AudioSetupDialog
 				open={audioCheckOpen}
 				required
@@ -254,14 +246,13 @@ function AuthenticatedDialerApp({
 	);
 }
 
-// Temporarily disabled until the training video is live.
-// function readTrainingPreference(storageKey: string): boolean {
-// 	try {
-// 		return localStorage.getItem(storageKey) === 'true';
-// 	} catch {
-// 		return false;
-// 	}
-// }
+function readTrainingPreference(storageKey: string): boolean {
+	try {
+		return localStorage.getItem(storageKey) === 'true';
+	} catch {
+		return false;
+	}
+}
 
 /**
  * Keep the Calls page mounted while a real call is active, even if the user
@@ -297,7 +288,13 @@ function DialerPageRoutes() {
 	);
 }
 
-function HeaderUserBlock({userName}: {userName: string}) {
+function HeaderUserBlock({
+	userName,
+	onShowTraining
+}: {
+	userName: string;
+	onShowTraining: () => void;
+}) {
 	const {profile, provisioned, device} = useDialerSession();
 	const callbackNumber = profile?.agent?.twilio_phone_number;
 	const pingMs = device.activeCall ? device.twilioRttMs : device.apiPingMs;
@@ -316,7 +313,6 @@ function HeaderUserBlock({userName}: {userName: string}) {
 			<span className="whitespace-nowrap font-mono text-[11px] text-muted-foreground">
 				{pingMs === null ? '— ms' : `${pingMs} ms`}
 			</span>
-			{/* Temporarily disabled until the training video is live.
 			<Button
 				type="button"
 				variant="ghost"
@@ -328,7 +324,6 @@ function HeaderUserBlock({userName}: {userName: string}) {
 			>
 				<HelpCircle className="size-3.5" />
 			</Button>
-			*/}
 		</div>
 	);
 }

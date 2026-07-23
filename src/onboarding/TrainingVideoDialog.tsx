@@ -1,4 +1,4 @@
-import { PlayCircle, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { Button } from "@/components/ui/button";
 
@@ -7,7 +7,7 @@ interface TrainingVideoDialogProps {
   onOpenChange: (open: boolean) => void;
   dontShowAgain: boolean;
   onDontShowAgainChange: (checked: boolean) => void;
-  videoSrc?: string;
+  videoSrc: string;
 }
 
 export function TrainingVideoDialog({
@@ -21,7 +21,7 @@ export function TrainingVideoDialog({
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 grid w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border bg-popover p-5 text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 grid h-[90vh] w-[90vw] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-hidden rounded-lg border bg-popover p-5 text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
               <DialogPrimitive.Title className="text-lg font-semibold">
@@ -44,20 +44,14 @@ export function TrainingVideoDialog({
             </DialogPrimitive.Close>
           </div>
 
-          <div className="flex aspect-video items-center justify-center rounded-lg border border-dashed bg-muted/40">
-            {videoSrc ? (
-              <video src={videoSrc} controls className="size-full rounded-lg" />
-            ) : (
-              <div className="flex flex-col items-center gap-3 px-6 text-center">
-                <PlayCircle className="size-12 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">Training video coming soon</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    The walkthrough will appear here once it is ready.
-                  </p>
-                </div>
-              </div>
-            )}
+          <div className="relative min-h-0 overflow-hidden rounded-lg border bg-black">
+            <iframe
+              src={videoSrc}
+              title="Policy Printer Dialer training video"
+              frameBorder="0"
+              allowFullScreen
+              className="absolute inset-0 size-full"
+            />
           </div>
 
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
