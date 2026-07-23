@@ -35,6 +35,8 @@ import {
 } from "@/lib/api";
 import { useDevice, type UseDeviceState } from "@/twilio/useDevice";
 import { useHeartbeat, type HeartbeatState } from "@/presence/useHeartbeat";
+import { useCreditNotification } from "@/presence/useCreditNotification";
+import type { CreditNotification } from "@/lib/api";
 import { readError } from "@/lib/errors";
 
 export interface DialerSession {
@@ -57,6 +59,9 @@ export interface DialerSession {
   // --- the single live Device + heartbeat, exposed verbatim ---
   device: UseDeviceState;
   heartbeat: HeartbeatState;
+  /** Oldest unacknowledged credit popup, from the dedicated slow poll (no longer on
+   *  the heartbeat). Null when there is nothing to show. */
+  creditNotification: CreditNotification | null;
 
   // --- required per-tab audio check ---
   /** Calls stay unavailable until this tab's required echo check is confirmed. */
@@ -103,6 +108,8 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
     // setup dialog can apply real input/output selections before confirmation.
     deviceStatus: audioCheckComplete ? device.deviceStatus : "offline",
   });
+  // Credit popups on their own slow poll (moved off the 5s heartbeat).
+  const { creditNotification } = useCreditNotification({ enabled: provisioned });
 
   const refreshCampaignRemainingCalls = useCallback(async (
     shouldSkip?: () => boolean,
@@ -204,6 +211,7 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
       setPresence,
       device,
       heartbeat,
+      creditNotification,
       audioCheckComplete,
       completeAudioCheck: () => setAudioCheckComplete(true),
       onCall,
@@ -218,6 +226,7 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
       presence,
       device,
       heartbeat,
+      creditNotification,
       audioCheckComplete,
       onCall,
       canDialBase,
