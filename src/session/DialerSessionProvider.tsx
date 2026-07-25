@@ -43,6 +43,8 @@ export interface DialerSession {
   // --- bootstrap / gating ---
   profile: any;
   provisioned: boolean;
+  /** True when an admin has reversibly blocked this agent's new dialer loads. */
+  accessPaused: boolean;
   /** True once the bootstrap Promise.all resolved (profile !== null). */
   bootstrapped: boolean;
   /** Bootstrap (load) failure, if any. Action errors stay local to each page. */
@@ -90,7 +92,8 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
   const [callUiBusy, setCallUiBusy] = useState(false);
   const hadActiveCallRef = useRef(false);
 
-  const provisioned = Boolean(profile?.provisioned);
+  const accessPaused = Boolean(profile?.access_paused);
+  const provisioned = Boolean(profile?.provisioned) && !accessPaused;
   const outboundLifecycleEnabled =
     Number(profile?.capabilities?.outbound_lifecycle_version ?? 0) >=
     OUTBOUND_LIFECYCLE_VERSION;
@@ -135,11 +138,22 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  // Bootstrap: profile + campaigns + presence (moved from Dial).
+  // Bootstrap: check access first on every tab load. A paused agent should not
+  // continue into campaign/presence startup or initialize Twilio/heartbeat.
   useEffect(() => {
     let cancelled = false;
-    Promise.all([fetchDialerProfile(), listCampaigns(), getPresence()])
-      .then(([prof, camps, pres]: any[]) => {
+    fetchDialerProfile()
+      .then(async (prof) => {
+        if (cancelled) return;
+
+        if (prof.access_paused) {
+          setProfile(prof);
+          setCampaigns([]);
+          setPresence(null);
+          return;
+        }
+
+        const [camps, pres] = await Promise.all([listCampaigns(), getPresence()]);
         if (cancelled) return;
         setProfile(prof);
         setCampaigns(camps?.campaigns ?? []);
@@ -203,6 +217,7 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
     () => ({
       profile,
       provisioned,
+      accessPaused,
       bootstrapped: profile !== null,
       bootError,
       campaigns,
@@ -221,6 +236,7 @@ export function DialerSessionProvider({ children }: { children: ReactNode }) {
     [
       profile,
       provisioned,
+      accessPaused,
       bootError,
       campaigns,
       presence,

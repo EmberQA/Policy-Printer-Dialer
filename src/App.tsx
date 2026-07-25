@@ -132,6 +132,7 @@ function AuthenticatedDialerApp({
 }) {
 	const {
 		bootstrapped,
+		accessPaused,
 		device,
 		creditNotification,
 		onCall,
@@ -146,7 +147,8 @@ function AuthenticatedDialerApp({
 	const [hiddenCreditId, setHiddenCreditId] = useState<string | null>(null);
 	const [creditFlight, setCreditFlight] = useState<CreditFlight | null>(null);
 	const creditFlightIdRef = useRef(0);
-	const audioCheckOpen = bootstrapped && !trainingOpen && !audioCheckComplete;
+	const audioCheckOpen =
+		bootstrapped && !accessPaused && !trainingOpen && !audioCheckComplete;
 	const pendingCredit = creditNotification;
 	const creditOpen = Boolean(
 		pendingCredit &&
@@ -190,6 +192,25 @@ function AuthenticatedDialerApp({
 			/* The prompt can still work when browser storage is unavailable. */
 		}
 	};
+
+	if (accessPaused) {
+		return (
+			<div className="flex min-h-screen items-center justify-center bg-background px-6">
+				<div className="w-full max-w-md rounded-lg border bg-card p-6 text-center shadow-lg">
+					<Badge variant="destructive" className="mb-4">
+						Access paused
+					</Badge>
+					<h1 className="text-xl font-semibold tracking-tight">
+						Dialer access is paused
+					</h1>
+					<p className="mt-2 text-sm leading-6 text-muted-foreground">
+						An administrator has paused your dialer access. You can still use
+						the rest of the Policy Printer app.
+					</p>
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className="min-h-screen bg-background">
