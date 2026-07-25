@@ -92,6 +92,7 @@ export interface DialerProfileResponse {
 	statusCode: string;
 	statusMessage: string;
 	dialer_enabled?: boolean;
+	access_paused?: boolean;
 	provisioned?: boolean;
 	capabilities?: {
 		outbound_lifecycle_version?: number;
