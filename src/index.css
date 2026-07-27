@@ -104,7 +104,9 @@
 
 	body {
 		@apply bg-background text-foreground antialiased;
-		font-feature-settings: 'rlig' 1, 'calt' 1;
+		font-feature-settings:
+			'rlig' 1,
+			'calt' 1;
 		min-width: 320px;
 	}
 
@@ -129,8 +131,7 @@
 
 .campaign-allowance-row {
 	opacity: 0;
-	animation: campaign-allowance-rise 280ms ease-out
-		forwards;
+	animation: campaign-allowance-rise 280ms ease-out forwards;
 	animation-delay: var(--campaign-allowance-delay, 0ms);
 }
 

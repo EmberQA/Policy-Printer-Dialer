@@ -13,7 +13,8 @@ export function getSavedDispositionFallback(
 	current: DialerDisposition[]
 ): SavedDispositionFallback | null {
 	if (!dispositionId) return null;
-	if (current.some((item) => item.disposition_key === dispositionId)) return null;
+	if (current.some((item) => item.disposition_key === dispositionId))
+		return null;
 	return {
 		key: dispositionId,
 		label: dispositionLabel || dispositionId

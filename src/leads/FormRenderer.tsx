@@ -96,7 +96,13 @@ function Field({
 					{field.required && <span className="text-destructive"> *</span>}
 				</Label>
 			)}
-			<Control field={field} id={id} value={value} onChange={onChange} disabled={disabled} />
+			<Control
+				field={field}
+				id={id}
+				value={value}
+				onChange={onChange}
+				disabled={disabled}
+			/>
 			{field.help && (
 				<p className="text-xs text-muted-foreground">{field.help}</p>
 			)}

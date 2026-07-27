@@ -119,10 +119,7 @@ export type PresenceStatus = 'ready' | 'paused';
 /** Twilio Device registration state the FE reports each heartbeat (Subplan 03
  *  wires the real value; until then the dialer reports 'offline'). */
 export type TwilioDeviceStatus =
-	| 'registered'
-	| 'offline'
-	| 'connecting'
-	| 'error';
+	'registered' | 'offline' | 'connecting' | 'error';
 
 /** Live presence row mirrored from the backend. */
 export interface DialerPresence {
@@ -280,8 +277,9 @@ export const listCampaigns = (): Promise<CampaignsResponse> =>
 	qsPost('/policyPrinter/dialer/campaigns/list');
 
 /** Current Retreaver Hard-cap usage for each campaign linked to this agent. */
-export const listCampaignRemainingCalls = (): Promise<CampaignRemainingCallsResponse> =>
-	qsPost('/policyPrinter/dialer/campaigns/remainingCalls');
+export const listCampaignRemainingCalls =
+	(): Promise<CampaignRemainingCallsResponse> =>
+		qsPost('/policyPrinter/dialer/campaigns/remainingCalls');
 
 /* -------------------------------------------------------------------------- */
 /* Twilio softphone (Subplan 03)                                              */
@@ -326,11 +324,7 @@ export const startOutboundCall = (
 	);
 
 export type OutboundCallLifecycleState =
-	| 'idle'
-	| 'starting'
-	| 'ringing'
-	| 'active'
-	| 'terminal';
+	'idle' | 'starting' | 'ringing' | 'active' | 'terminal';
 
 export interface OutboundCallStatusResponse {
 	statusCode: string;
@@ -365,9 +359,10 @@ export interface CancelOutboundCallResponse {
 }
 
 /** Stop an owned pending outbound parent call before the browser leg connects. */
-export const cancelOutboundCall = (
-	input: {callSid?: string | null; attemptId?: string | null}
-): Promise<CancelOutboundCallResponse> =>
+export const cancelOutboundCall = (input: {
+	callSid?: string | null;
+	attemptId?: string | null;
+}): Promise<CancelOutboundCallResponse> =>
 	qsPost('/policyPrinter/dialer/call/cancel', {
 		...(input.callSid ? {call_sid: input.callSid} : {}),
 		...(input.attemptId ? {attempt_id: input.attemptId} : {})

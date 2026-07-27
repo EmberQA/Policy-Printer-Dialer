@@ -12,7 +12,10 @@
  */
 
 import {useEffect, useState} from 'react';
-import {postCreditNotificationPending, type CreditNotification} from '@/lib/api';
+import {
+	postCreditNotificationPending,
+	type CreditNotification
+} from '@/lib/api';
 
 /** Deliberately slow — a credit popup is not time-critical to the second. */
 const CREDIT_POLL_INTERVAL_MS = 30_000;

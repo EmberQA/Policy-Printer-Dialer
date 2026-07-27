@@ -8,8 +8,10 @@ export const claimIncomingOwner = <T>(
 		? {accepted: false, owner: current}
 		: {accepted: true, owner: incoming};
 
-export const clearCallOwner = <T>(current: T | null, terminating: T): T | null =>
-	current === terminating ? null : current;
+export const clearCallOwner = <T>(
+	current: T | null,
+	terminating: T
+): T | null => (current === terminating ? null : current);
 
 export const clearActiveCallOwner = <
 	T extends {callSid: string; clientCallSid?: string}

@@ -8,7 +8,10 @@ import {
 describe('Twilio call ownership', () => {
 	it('accepts the first incoming leg and makes it the owner', () => {
 		const incoming = {sid: 'CA1'};
-		expect(claimIncomingOwner(null, incoming)).toEqual({accepted: true, owner: incoming});
+		expect(claimIncomingOwner(null, incoming)).toEqual({
+			accepted: true,
+			owner: incoming
+		});
 	});
 
 	it('does not accept or replace the owner with a second leg', () => {

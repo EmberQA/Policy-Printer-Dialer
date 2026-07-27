@@ -74,16 +74,18 @@ describe('outbound Client-leg correlation', () => {
 				['outbound_attempt_id', pending.attemptId]
 			])
 		);
-		const otherTab = {...owned, parentCallSid: `${pending.callSid.slice(0, -1)}2`};
+		const otherTab = {
+			...owned,
+			parentCallSid: `${pending.callSid.slice(0, -1)}2`
+		};
 		expect(shouldIgnoreExplicitOutbound(pending, null, owned)).toBe(false);
 		expect(shouldIgnoreExplicitOutbound(pending, null, otherTab)).toBe(true);
 		expect(shouldIgnoreExplicitOutbound(null, null, owned)).toBe(true);
 		expect(
-			shouldIgnoreExplicitOutbound(
-				pending,
-				null,
-				{...owned, isExplicitOutbound: false}
-			)
+			shouldIgnoreExplicitOutbound(pending, null, {
+				...owned,
+				isExplicitOutbound: false
+			})
 		).toBe(false);
 	});
 

@@ -99,12 +99,18 @@ export class OutboundRingback {
 			this.cadenceOn = !this.cadenceOn;
 			const now = this.context.currentTime;
 			this.gain.gain.cancelScheduledValues(now);
-			this.gain.gain.setValueAtTime(Math.max(this.gain.gain.value, 0.0001), now);
+			this.gain.gain.setValueAtTime(
+				Math.max(this.gain.gain.value, 0.0001),
+				now
+			);
 			this.gain.gain.exponentialRampToValueAtTime(
 				this.cadenceOn ? 0.055 : 0.0001,
 				now + 0.04
 			);
-			this.cadenceTimer = window.setTimeout(toggle, this.cadenceOn ? 2_000 : 4_000);
+			this.cadenceTimer = window.setTimeout(
+				toggle,
+				this.cadenceOn ? 2_000 : 4_000
+			);
 		};
 		toggle();
 	}

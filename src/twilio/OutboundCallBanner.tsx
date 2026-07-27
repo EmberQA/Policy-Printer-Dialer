@@ -48,7 +48,11 @@ export function OutboundCallBanner({
 				onClick={() => void onCancel().catch(() => undefined)}
 				className="self-end sm:self-auto"
 			>
-				{canceling ? <Loader2 className="size-4 animate-spin" /> : <PhoneOff className="size-4" />}
+				{canceling ? (
+					<Loader2 className="size-4 animate-spin" />
+				) : (
+					<PhoneOff className="size-4" />
+				)}
 				Cancel call
 			</Button>
 		</div>

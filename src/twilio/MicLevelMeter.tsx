@@ -79,9 +79,7 @@ export function useMicLevelMeter({
 				setError(null);
 				stream = await navigator.mediaDevices.getUserMedia({
 					audio: {
-						...(deviceId === 'default'
-							? {}
-							: {deviceId: {exact: deviceId}}),
+						...(deviceId === 'default' ? {} : {deviceId: {exact: deviceId}}),
 						autoGainControl: false,
 						echoCancellation: false,
 						noiseSuppression: false
@@ -94,9 +92,11 @@ export function useMicLevelMeter({
 
 				const AudioContextCtor =
 					window.AudioContext ||
-					(window as typeof window & {
-						webkitAudioContext?: typeof AudioContext;
-					}).webkitAudioContext;
+					(
+						window as typeof window & {
+							webkitAudioContext?: typeof AudioContext;
+						}
+					).webkitAudioContext;
 				if (!AudioContextCtor) throw new Error('Audio input is not supported.');
 
 				audioContext = new AudioContextCtor();

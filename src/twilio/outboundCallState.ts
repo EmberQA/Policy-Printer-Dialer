@@ -32,7 +32,8 @@ export function readOutboundCallParameters(
 		attemptId: customParameters.get('outbound_attempt_id')?.trim() || null,
 		dialedNumber: customParameters.get('dialed_number')?.trim() || null,
 		isExplicitOutbound:
-			customParameters.get('call_direction')?.trim().toLowerCase() === 'outbound'
+			customParameters.get('call_direction')?.trim().toLowerCase() ===
+			'outbound'
 	};
 }
 
@@ -58,8 +59,8 @@ export function shouldIgnoreExplicitOutbound(
 ): boolean {
 	return Boolean(
 		params.isExplicitOutbound &&
-			!matchesPendingOutbound(pending, params) &&
-			!matchesStartingOutbound(starting, params)
+		!matchesPendingOutbound(pending, params) &&
+		!matchesStartingOutbound(starting, params)
 	);
 }
 
@@ -94,7 +95,7 @@ export function shouldApplyOutboundReconciliation(
 		starting?.attemptId === requestAttemptId;
 	return Boolean(
 		requestSequence === latestSequence &&
-			stillCurrent &&
-			(!responseAttemptId || responseAttemptId === requestAttemptId)
+		stillCurrent &&
+		(!responseAttemptId || responseAttemptId === requestAttemptId)
 	);
 }

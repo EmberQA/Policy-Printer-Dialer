@@ -13,10 +13,7 @@
  */
 
 import {useEffect, useState} from 'react';
-import {
-	lookupReturningCaller,
-	type ReturningCallerResponse
-} from '@/lib/api';
+import {lookupReturningCaller, type ReturningCallerResponse} from '@/lib/api';
 
 export interface UseReturningCallerResult {
 	data: ReturningCallerResponse | null;

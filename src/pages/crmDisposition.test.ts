@@ -22,7 +22,9 @@ describe('CRM saved disposition fallback', () => {
 	});
 
 	it('does not duplicate a saved key that is still in the current bundle', () => {
-		expect(getSavedDispositionFallback('sold', 'Old Sold Label', current)).toBeNull();
+		expect(
+			getSavedDispositionFallback('sold', 'Old Sold Label', current)
+		).toBeNull();
 	});
 
 	it('falls back to the stable key when the saved label is absent', () => {
