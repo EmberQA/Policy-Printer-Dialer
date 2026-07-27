@@ -18,6 +18,7 @@ import {
 	DialerSessionProvider,
 	useDialerSession
 } from '@/session/DialerSessionProvider';
+import {useTabLock} from '@/session/useTabLock';
 import Dial from '@/pages/Dial';
 import Crm from '@/pages/Crm';
 import Leads from '@/pages/Leads';
@@ -52,7 +53,12 @@ export default function App() {
 	const [boot, setBoot] = useState<BootState>({phase: 'booting'});
 	const user = getUser();
 	const userName =
-		[user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'Unknown user';
+		[user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
+		'Unknown user';
+	// Only one dialer tab per browser profile may run. A duplicate tab is held here,
+	// BEFORE <DialerSessionProvider>, so it never registers a Twilio Device and can
+	// never be handed the inbound invite the agent is waiting on in the other tab.
+	const tabLock = useTabLock(user?.user_id ?? 'unknown-user');
 
 	useEffect(() => {
 		let cancelled = false;
@@ -110,6 +116,24 @@ export default function App() {
 		);
 	}
 
+	// Hold the shell until ownership is known. An uncontended lock is granted almost
+	// immediately, so this is normally a single frame — but mounting the provider
+	// first and unmounting it on 'blocked' would briefly register a second Device,
+	// which is exactly what this guard exists to prevent.
+	if (tabLock === 'acquiring') {
+		return (
+			<div className="flex min-h-screen items-center justify-center bg-background px-6 text-muted-foreground">
+				<div className="rounded-lg border bg-card px-4 py-3 text-sm shadow-xs">
+					Starting the dialer…
+				</div>
+			</div>
+		);
+	}
+
+	if (tabLock === 'blocked') {
+		return <DuplicateTabScreen />;
+	}
+
 	return (
 		<DialerSessionProvider>
 			<LeadNotesProvider>
@@ -120,6 +144,45 @@ export default function App() {
 				/>
 			</LeadNotesProvider>
 		</DialerSessionProvider>
+	);
+}
+
+/**
+ * Shown in a second dialer tab. It stays queued on the tab lock, so closing the
+ * other tab promotes this one automatically — no refresh, no button required.
+ *
+ * "Close this tab" works when the dialer was opened by the main app's Open Dialer
+ * button (window.close() is only permitted for script-opened tabs); when the
+ * browser refuses, the instructions above it still apply.
+ */
+function DuplicateTabScreen() {
+	return (
+		<div className="flex min-h-screen items-center justify-center bg-background px-6">
+			<div className="w-full max-w-md rounded-lg border bg-card p-6 text-center shadow-xs">
+				<Badge variant="secondary" className="mb-4">
+					Dialer already open
+				</Badge>
+				<h1 className="text-xl font-semibold tracking-tight">
+					The dialer is already open in another tab
+				</h1>
+				<p className="mt-2 text-sm leading-6 text-muted-foreground">
+					Calls can only ring in one tab at a time, so this one is paused.
+					Switch back to your original dialer tab to keep taking calls.
+				</p>
+				<p className="mt-3 text-sm leading-6 text-muted-foreground">
+					If you would rather use this tab, close the other one — this page
+					takes over on its own, no refresh needed.
+				</p>
+				<Button
+					variant="outline"
+					size="sm"
+					className="mt-5"
+					onClick={() => window.close()}
+				>
+					Close this tab
+				</Button>
+			</div>
+		</div>
 	);
 }
 
@@ -152,10 +215,10 @@ function AuthenticatedDialerApp({
 	const pendingCredit = creditNotification;
 	const creditOpen = Boolean(
 		pendingCredit &&
-			hiddenCreditId !== pendingCredit.id &&
-			!trainingOpen &&
-			!audioCheckOpen &&
-			!onCall
+		hiddenCreditId !== pendingCredit.id &&
+		!trainingOpen &&
+		!audioCheckOpen &&
+		!onCall
 	);
 
 	const acknowledgePendingCredit = () => {
@@ -296,12 +359,18 @@ function DialerPageRoutes() {
 			<Routes>
 				<Route path="/dial" element={null} />
 				<Route path="/crm" element={<Crm key="crm" />} />
-				<Route path="/callbacks" element={<Crm key="callbacks" callbacksOnly />} />
+				<Route
+					path="/callbacks"
+					element={<Crm key="callbacks" callbacksOnly />}
+				/>
 				<Route path="/leads" element={<Leads />} />
 				<Route path="*" element={<Navigate to="/dial" replace />} />
 			</Routes>
 			{keepDialMounted && (
-				<div className={showingDial ? undefined : 'hidden'} aria-hidden={!showingDial}>
+				<div
+					className={showingDial ? undefined : 'hidden'}
+					aria-hidden={!showingDial}
+				>
 					<Dial />
 				</div>
 			)}
