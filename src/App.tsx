@@ -169,10 +169,6 @@ function DuplicateTabScreen() {
 					Calls can only ring in one tab at a time, so this one is paused.
 					Switch back to your original dialer tab to keep taking calls.
 				</p>
-				<p className="mt-3 text-sm leading-6 text-muted-foreground">
-					If you would rather use this tab, close the other one — this page
-					takes over on its own, no refresh needed.
-				</p>
 				<Button
 					variant="outline"
 					size="sm"
