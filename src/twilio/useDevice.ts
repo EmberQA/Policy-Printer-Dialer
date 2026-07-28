@@ -33,6 +33,10 @@ import {
 	clearCallOwner
 } from './callOwnership';
 import {
+	callerHangupMessage,
+	type CallTerminalEvent
+} from './callTermination';
+import {
 	matchesPendingOutbound,
 	matchesStartingOutbound,
 	readOutboundCallParameters,
@@ -42,6 +46,7 @@ import {
 	type StartingOutboundCall
 } from './outboundCallState';
 import {HoldAudioController} from './holdAudio';
+import {InboundAnswerTone} from './inboundAnswerTone';
 import {OutboundRingback} from './outboundRingback';
 
 export type {PendingOutboundCall} from './outboundCallState';
@@ -77,6 +82,9 @@ export interface UseDeviceState {
 	apiPingMs: number | null;
 	/** Last device/call error message, for surfacing in the UI. */
 	error: string | null;
+	/** Short-lived notice when a remote inbound caller ends the call. */
+	callerHangupNotice: {id: number; message: string} | null;
+	dismissCallerHangupNotice: () => void;
 	/** REST start is in flight; it becomes pending once the exact parent SID exists. */
 	outboundStarting: StartingOutboundCall | null;
 	/** Exact parent-leg state while the customer is being called. */
@@ -117,6 +125,10 @@ export function useDevice({
 	const [twilioRttMs, setTwilioRttMs] = useState<number | null>(null);
 	const [apiPingMs, setApiPingMs] = useState<number | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [callerHangupNotice, setCallerHangupNotice] = useState<{
+		id: number;
+		message: string;
+	} | null>(null);
 	const [outboundStarting, setOutboundStarting] =
 		useState<StartingOutboundCall | null>(null);
 	const [pendingOutbound, setPendingOutbound] =
@@ -124,14 +136,39 @@ export function useDevice({
 
 	const deviceRef = useRef<Device | null>(null);
 	const callRef = useRef<Call | null>(null);
+	const locallyEndedCallRef = useRef<Call | null>(null);
+	const callerHangupNoticeIdRef = useRef(0);
+	const callerHangupNoticeTimerRef = useRef<number | null>(null);
 	const outboundStartingRef = useRef<StartingOutboundCall | null>(null);
 	const pendingOutboundRef = useRef<PendingOutboundCall | null>(null);
 	const outputDeviceIdRef = useRef('default');
 	const ringbackRef = useRef<OutboundRingback | null>(null);
+	const answerToneRef = useRef<InboundAnswerTone | null>(null);
 	const outboundReconcileSequenceRef = useRef(0);
 	const holdControllerRef = useRef<HoldAudioController | null>(null);
 	const holdTransitionRef = useRef(false);
 	const preHoldMutedRef = useRef<boolean | null>(null);
+
+	const dismissCallerHangupNotice = useCallback(() => {
+		if (callerHangupNoticeTimerRef.current !== null) {
+			window.clearTimeout(callerHangupNoticeTimerRef.current);
+			callerHangupNoticeTimerRef.current = null;
+		}
+		setCallerHangupNotice(null);
+	}, []);
+
+	const showCallerHangupNotice = useCallback((message: string) => {
+		if (callerHangupNoticeTimerRef.current !== null) {
+			window.clearTimeout(callerHangupNoticeTimerRef.current);
+		}
+		callerHangupNoticeIdRef.current += 1;
+		const id = callerHangupNoticeIdRef.current;
+		setCallerHangupNotice({id, message});
+		callerHangupNoticeTimerRef.current = window.setTimeout(() => {
+			callerHangupNoticeTimerRef.current = null;
+			setCallerHangupNotice((current) => (current?.id === id ? null : current));
+		}, CALLER_HANGUP_NOTICE_MS);
+	}, []);
 
 	const updatePendingOutbound = useCallback(
 		(next: PendingOutboundCall | null) => {
@@ -273,7 +310,10 @@ export function useDevice({
 	}, []);
 
 	const hangup = useCallback(() => {
-		callRef.current?.disconnect();
+		const call = callRef.current;
+		if (!call) return;
+		locallyEndedCallRef.current = call;
+		call.disconnect();
 	}, []);
 
 	const setInputDevice = useCallback(
@@ -305,20 +345,33 @@ export function useDevice({
 			]);
 			outputDeviceIdRef.current = deviceId;
 			ringbackRef.current?.setOutputDevice(deviceId);
+			answerToneRef.current?.setOutputDevice(deviceId);
 		},
 		[]
 	);
 
+	const armAnswerTone = useCallback(() => {
+		const tone = answerToneRef.current ?? new InboundAnswerTone();
+		answerToneRef.current = tone;
+		tone.arm(outputDeviceIdRef.current);
+	}, []);
+
 	// Prime audio from a user gesture. The dialer auto-answers, so there's no
 	// per-call click to satisfy the browser's autoplay policy — we pre-arm here
-	// on the "Go ready" toggle. Two things must happen inside the gesture:
-	//   1) getUserMedia({audio}) — grants mic + primes the input device,
-	//   2) AudioContext.resume() — the SDK plays call audio through a shared
+	// on the "Go ready" toggle. Three things must happen inside the gesture:
+	//   1) keep the local post-answer tone silently active,
+	//   2) getUserMedia({audio}) — grants mic + primes the input device,
+	//   3) AudioContext.resume() — the SDK plays call audio through a shared
 	//      AudioContext that starts 'suspended'; browsers only let a gesture
 	//      resume it, and until it's running the auto-answered call has no sound.
 	const armAudio = useCallback(async (): Promise<boolean> => {
+		// This must happen before the first await so audio.play() is called directly
+		// inside the Ready-button gesture. It is a separate local graph and never
+		// replaces or delays Twilio's microphone or speaker streams.
+		armAnswerTone();
+
 		try {
-			// (1) Mic permission + input priming. Release the tracks immediately;
+			// (2) Mic permission + input priming. Release the tracks immediately;
 			// the Twilio SDK opens its own stream on accept(). We only needed the
 			// permission grant + the user-gesture context.
 			const stream = await navigator.mediaDevices.getUserMedia({audio: true});
@@ -328,7 +381,7 @@ export function useDevice({
 			return false;
 		}
 
-		// (2) Resume the SDK's AudioContext so playback isn't blocked. The Voice
+		// (3) Resume the SDK's AudioContext so playback isn't blocked. The Voice
 		// SDK exposes its AudioContext on device.audio; resuming it here (still
 		// within the gesture) unblocks the auto-answered call's audio.
 		try {
@@ -343,7 +396,7 @@ export function useDevice({
 		}
 
 		return true;
-	}, []);
+	}, [armAnswerTone]);
 
 	const stopRingback = useCallback(() => {
 		ringbackRef.current?.stop();
@@ -835,13 +888,8 @@ export function useDevice({
 			}
 			callRef.current = ownership.owner;
 			const ownsOutboundInvite = isPendingOutbound || mayMatchStartingOutbound;
-			let autoAnswerTimer: number | null = null;
-			const cancelAutoAnswer = () => {
-				if (autoAnswerTimer !== null) {
-					window.clearTimeout(autoAnswerTimer);
-					autoAnswerTimer = null;
-				}
-			};
+			let acceptedDirection: ActiveCall['direction'] | null = null;
+			let terminalHandled = false;
 
 			call.on('accept', () => {
 				if (cancelled) return;
@@ -851,6 +899,7 @@ export function useDevice({
 				const starting = outboundStartingRef.current;
 				const isOutbound =
 					ownsOutboundInvite || matchesPendingOutbound(pending, outboundParams);
+				acceptedDirection = isOutbound ? 'outbound' : 'inbound';
 				if (isOutbound) {
 					clearOutboundAttempt();
 				} else if (pending || starting) {
@@ -887,6 +936,11 @@ export function useDevice({
 				// after wrap-up until they explicitly go ready again.
 				void setOnCall(true).catch(() => undefined);
 				void setPresence({status: 'paused'}).catch(() => undefined);
+				if (!isOutbound) {
+					// Twilio is already accepted and streaming both ways. This only
+					// overlays a local tone on the agent's selected output device.
+					answerToneRef.current?.play();
+				}
 			});
 
 			// Twilio publishes a WebRTC quality sample every second during a call.
@@ -902,10 +956,13 @@ export function useDevice({
 
 			const clearCall = () => {
 				if (cancelled) return;
-				cancelAutoAnswer();
+				answerToneRef.current?.stopTone();
 				void clearHoldAudio();
 				// Late terminal events from an older leg must not erase the newer call.
 				callRef.current = clearCallOwner(callRef.current, call);
+				if (locallyEndedCallRef.current === call) {
+					locallyEndedCallRef.current = null;
+				}
 				if (!callRef.current) setTwilioRttMs(null);
 				const callSid = call.parameters.CallSid || '';
 				setActiveCall((current) => clearActiveCallOwner(current, callSid));
@@ -917,36 +974,38 @@ export function useDevice({
 					void reconcileAuthoritativeOutbound(attemptId).catch(() => undefined);
 				}
 			};
-			call.on('disconnect', clearCall);
-			call.on('cancel', clearCall);
-			call.on('reject', clearCall);
+
+			const finishCall = (event: CallTerminalEvent) => {
+				if (terminalHandled) return;
+				terminalHandled = true;
+				const locallyEnded = locallyEndedCallRef.current === call;
+				const direction =
+					acceptedDirection ??
+					(ownsOutboundInvite || outboundParams.isExplicitOutbound
+						? 'outbound'
+						: 'inbound');
+				const message = callerHangupMessage({
+					event,
+					direction,
+					locallyEnded
+				});
+				if (message) showCallerHangupNotice(message);
+				clearCall();
+			};
+			call.on('disconnect', () => finishCall('disconnect'));
+			call.on('cancel', () => finishCall('cancel'));
+			call.on('reject', () => finishCall('reject'));
 			call.on('error', (e: {message?: string}) => {
 				if (cancelled) return;
+				terminalHandled = true;
 				setError(e?.message || 'Call error');
 				clearCall();
 			});
 
-			// Let inbound calls ring briefly before auto-answering. Twilio's native
-			// ringtone ends on accept(), so accepting synchronously made the alert easy
-			// to miss. An outbound customer bridge still accepts immediately because the
-			// agent deliberately initiated that call.
-			const accept = () => {
-				autoAnswerTimer = null;
-				if (cancelled || callRef.current !== call) return;
-				call.accept();
-			};
-			if (isPendingOutbound) {
-				accept();
-			} else if (mayMatchStartingOutbound) {
-				// The client-generated attempt id is already exact ownership proof, so a
-				// lost/slow HTTP response must not make the answered customer wait.
-				accept();
-			} else {
-				autoAnswerTimer = window.setTimeout(
-					accept,
-					INBOUND_AUTO_ANSWER_DELAY_MS
-				);
-			}
+			// Accept every owned leg immediately. Inbound notification is a separate,
+			// one-second local tone started by the accept event, so neither direction
+			// of Twilio audio waits for the notification to finish.
+			call.accept();
 		};
 
 		const setup = async () => {
@@ -975,12 +1034,15 @@ export function useDevice({
 					codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
 					allowIncomingWhileBusy: false
 				});
+				// We accept inbound calls immediately and provide our own post-answer
+				// agent-only chime. Prevent Twilio's pre-answer ringtone from racing it.
+				device.audio?.incoming(false);
 				deviceRef.current = device;
 
-				device.on(
-					'registered',
-					() => !cancelled && setDeviceStatus('registered')
-				);
+				device.on('registered', () => {
+					device?.audio?.incoming(false);
+					if (!cancelled) setDeviceStatus('registered');
+				});
 				device.on(
 					'unregistered',
 					() => !cancelled && setDeviceStatus('offline')
@@ -1040,12 +1102,17 @@ export function useDevice({
 			callRef.current = null;
 			ringbackRef.current?.stop();
 			ringbackRef.current = null;
+			answerToneRef.current?.dispose();
+			answerToneRef.current = null;
+			dismissCallerHangupNotice();
 		};
 	}, [
 		clearOutboundAttempt,
 		clearHoldAudio,
+		dismissCallerHangupNotice,
 		enabled,
 		reconcileAuthoritativeOutbound,
+		showCallerHangupNotice,
 		updatePendingOutbound
 	]);
 
@@ -1055,6 +1122,8 @@ export function useDevice({
 		twilioRttMs,
 		apiPingMs,
 		error,
+		callerHangupNotice,
+		dismissCallerHangupNotice,
 		outboundStarting,
 		pendingOutbound,
 		mute,
@@ -1072,11 +1141,9 @@ const OUTBOUND_WATCHDOG_MS = 5_000;
 const OUTBOUND_RINGBACK_MAX_MS = 60_000;
 const OUTBOUND_ATTEMPT_STORAGE_KEY = 'pp_dialer_outbound_attempt';
 
-/** Keep Twilio's native inbound ringtone audible before automatic answer. */
-const INBOUND_AUTO_ANSWER_DELAY_MS = 1_500;
-
 const API_PING_INTERVAL_MS = 15_000;
 const API_PING_TIMEOUT_MS = 5_000;
+const CALLER_HANGUP_NOTICE_MS = 6_000;
 
 class AmbiguousOutboundStartError extends Error {}
 class DefinitiveOutboundStartError extends Error {}

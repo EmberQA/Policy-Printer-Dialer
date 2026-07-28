@@ -8,7 +8,7 @@ import {
 	useLocation,
 	useNavigate
 } from 'react-router-dom';
-import {Check, Copy, HelpCircle, Phone} from 'lucide-react';
+import {Check, Copy, HelpCircle, Phone, PhoneOff, X} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {runHandoff, HandoffResult} from '@/auth/handoff';
@@ -309,7 +309,12 @@ function AuthenticatedDialerApp({
 				open={audioCheckOpen}
 				required
 				showTrigger={false}
-				onRequiredComplete={completeAudioCheck}
+				onRequiredComplete={() => {
+					// The completion button is a browser gesture. Arm the post-answer
+					// tone here too, because a restored Ready state may never be toggled.
+					void device.armAudio();
+					completeAudioCheck();
+				}}
 				onInputDeviceChange={device.setInputDevice}
 				onOutputDeviceChange={device.setOutputDevice}
 			/>
@@ -322,6 +327,31 @@ function AuthenticatedDialerApp({
 				flight={creditFlight}
 				onComplete={() => setCreditFlight(null)}
 			/>
+			{device.callerHangupNotice && (
+				<div
+					role="status"
+					aria-live="assertive"
+					className="fixed top-20 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 items-start gap-3 rounded-lg border border-destructive/60 bg-destructive px-4 py-3 text-destructive-foreground shadow-xl"
+				>
+					<div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-white">
+						<PhoneOff className="size-4" />
+					</div>
+					<div className="min-w-0 flex-1">
+						<p className="text-sm font-semibold">Caller hung up</p>
+						<p className="mt-0.5 text-sm text-destructive-foreground/85">
+							{device.callerHangupNotice.message}
+						</p>
+					</div>
+					<button
+						type="button"
+						aria-label="Dismiss caller hangup notification"
+						onClick={device.dismissCallerHangupNotice}
+						className="rounded-sm p-1 text-destructive-foreground/80 transition-colors hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+					>
+						<X className="size-4" />
+					</button>
+				</div>
+			)}
 		</div>
 	);
 }
