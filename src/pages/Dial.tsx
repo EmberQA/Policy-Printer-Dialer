@@ -90,6 +90,7 @@ export default function Dial() {
 	const [error, setError] = useState<string | null>(null);
 	const [debugIncomingCall, setDebugIncomingCall] = useState(false);
 	const [debugCallMuted, setDebugCallMuted] = useState(false);
+	const [debugCallHeld, setDebugCallHeld] = useState(false);
 	const [debugCallSid, setDebugCallSid] = useState<string | null>(null);
 	const [debugCallStartedAt, setDebugCallStartedAt] = useState<number | null>(
 		null
@@ -231,12 +232,14 @@ export default function Dial() {
 			if (current) {
 				setDebugCallStartedAt(null);
 				setDebugCallMuted(false);
+				setDebugCallHeld(false);
 				setDebugCallSid(null);
 				return false;
 			}
 			const startedAt = Date.now();
 			setDebugCallStartedAt(startedAt);
 			setDebugCallMuted(false);
+			setDebugCallHeld(false);
 			// Use a fresh SID per simulated call so the real persistence path can
 			// materialize an agent-owned call row without colliding with an older
 			// debug session from another user/org.
@@ -257,6 +260,8 @@ export default function Dial() {
 				from: '+15555550100',
 				callSid: debugCallSid!,
 				muted: debugCallMuted,
+				held: debugCallHeld,
+				holdPending: false,
 				startedAt: debugCallStartedAt ?? Date.now(),
 				direction: 'inbound'
 			}
@@ -461,6 +466,11 @@ export default function Dial() {
 								<ActiveCallBanner
 									call={activeCall}
 									onMute={device.activeCall ? device.mute : setDebugCallMuted}
+									onHold={
+										device.activeCall
+											? device.setHold
+											: async (held) => setDebugCallHeld(held)
+									}
 									onHangup={
 										device.activeCall
 											? device.hangup

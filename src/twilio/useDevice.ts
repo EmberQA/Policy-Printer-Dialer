@@ -8,7 +8,7 @@
  *     backend's computeReady only routes when the Device is actually 'registered'),
  *   - refreshes the token on `tokenWillExpire`,
  *   - signals on_call=true on accept (the page releases it after lead wrap-up),
- *   - exposes the live Call + mute/hangup so the active-call UI can drive it.
+ *   - exposes the live Call + mute/hold/hangup so the active-call UI can drive it.
  *
  * Outbound calls are REST-originated by the backend and arrive here as an exact
  * parent-SID-correlated Client leg; this hook owns their pending state, local
@@ -41,6 +41,7 @@ import {
 	type PendingOutboundCall,
 	type StartingOutboundCall
 } from './outboundCallState';
+import {HoldAudioController} from './holdAudio';
 import {OutboundRingback} from './outboundRingback';
 
 export type {PendingOutboundCall} from './outboundCallState';
@@ -55,6 +56,10 @@ export interface ActiveCall {
 	/** Browser Client-leg CallSid, retained to ignore terminal events from stale legs. */
 	clientCallSid?: string;
 	muted: boolean;
+	/** Browser-side hold keeps the call connected while replacing the microphone
+	 * with music and silencing caller playback for the agent. */
+	held: boolean;
+	holdPending: boolean;
 	/** Epoch ms when the call connected — the UI derives the timer from this. */
 	startedAt: number;
 	/** 'inbound' (Retreaver-routed or a direct-dial callback) or 'outbound' (agent
@@ -77,6 +82,7 @@ export interface UseDeviceState {
 	/** Exact parent-leg state while the customer is being called. */
 	pendingOutbound: PendingOutboundCall | null;
 	mute: (muted: boolean) => void;
+	setHold: (held: boolean) => Promise<void>;
 	hangup: () => void;
 	/**
 	 * Prime audio from a user gesture. Requests mic permission and resumes the
@@ -123,6 +129,9 @@ export function useDevice({
 	const outputDeviceIdRef = useRef('default');
 	const ringbackRef = useRef<OutboundRingback | null>(null);
 	const outboundReconcileSequenceRef = useRef(0);
+	const holdControllerRef = useRef<HoldAudioController | null>(null);
+	const holdTransitionRef = useRef(false);
+	const preHoldMutedRef = useRef<boolean | null>(null);
 
 	const updatePendingOutbound = useCallback(
 		(next: PendingOutboundCall | null) => {
@@ -140,11 +149,127 @@ export function useDevice({
 		[]
 	);
 
+	const clearHoldAudio = useCallback(async (): Promise<void> => {
+		const controller = holdControllerRef.current;
+		holdControllerRef.current = null;
+		holdTransitionRef.current = false;
+		preHoldMutedRef.current = null;
+		if (!controller) return;
+		try {
+			await controller.stop();
+		} catch {
+			// The call is already ending; device.destroy() is the final cleanup boundary.
+		}
+	}, []);
+
 	const mute = useCallback((muted: boolean) => {
 		const call = callRef.current;
-		if (!call) return;
+		if (!call || holdControllerRef.current || holdTransitionRef.current) return;
 		call.mute(muted);
 		setActiveCall((prev) => (prev ? {...prev, muted} : prev));
+	}, []);
+
+	const setHold = useCallback(async (held: boolean): Promise<void> => {
+		const call = callRef.current;
+		const device = deviceRef.current;
+		const audio = device?.audio;
+		if (!call || !audio) {
+			throw new Error('There is no active call to place on hold.');
+		}
+		if (holdTransitionRef.current) return;
+
+		const updateOwnedCall = (patch: Partial<ActiveCall>) => {
+			setActiveCall((current) =>
+				callRef.current === call && current ? {...current, ...patch} : current
+			);
+		};
+
+		if (held) {
+			if (holdControllerRef.current) return;
+			holdTransitionRef.current = true;
+			setError(null);
+			updateOwnedCall({holdPending: true});
+
+			const wasMuted = call.isMuted();
+			preHoldMutedRef.current = wasMuted;
+			// Mute applies after processing, so it must be off for the generated music
+			// stream to reach Twilio. The prior state is restored on Resume.
+			call.mute(false);
+			updateOwnedCall({muted: false});
+
+			let controller: HoldAudioController | null = null;
+			try {
+				controller = new HoldAudioController(audio);
+				holdControllerRef.current = controller;
+				await controller.start();
+				if (
+					callRef.current !== call ||
+					holdControllerRef.current !== controller
+				) {
+					await controller.stop().catch(() => undefined);
+					return;
+				}
+				updateOwnedCall({held: true, holdPending: false});
+			} catch (holdError) {
+				if (controller && holdControllerRef.current === controller) {
+					holdControllerRef.current = null;
+				}
+				await controller?.stop().catch(() => undefined);
+				if (callRef.current === call) {
+					call.mute(wasMuted);
+					updateOwnedCall({
+						held: false,
+						holdPending: false,
+						muted: wasMuted
+					});
+					setError(
+						holdError instanceof Error
+							? holdError.message
+							: 'Could not start hold music'
+					);
+				}
+				throw holdError;
+			} finally {
+				holdTransitionRef.current = false;
+			}
+			return;
+		}
+
+		const controller = holdControllerRef.current;
+		if (!controller) return;
+		holdTransitionRef.current = true;
+		setError(null);
+		updateOwnedCall({holdPending: true});
+		try {
+			await controller.stop();
+			if (
+				callRef.current !== call ||
+				holdControllerRef.current !== controller
+			) {
+				return;
+			}
+			holdControllerRef.current = null;
+			const restoreMuted = preHoldMutedRef.current ?? false;
+			preHoldMutedRef.current = null;
+			call.mute(restoreMuted);
+			updateOwnedCall({
+				held: false,
+				holdPending: false,
+				muted: restoreMuted
+			});
+		} catch (resumeError) {
+			if (callRef.current === call) {
+				updateOwnedCall({held: true, holdPending: false});
+				setError(
+					resumeError instanceof Error
+						? resumeError.message
+						: 'Could not resume call audio'
+				);
+			}
+			throw resumeError;
+		} finally {
+			holdTransitionRef.current = false;
+		}
 	}, []);
 
 	const hangup = useCallback(() => {
@@ -752,6 +877,8 @@ export function useDevice({
 						'',
 					clientCallSid: call.parameters.CallSid || '',
 					muted: false,
+					held: false,
+					holdPending: false,
 					startedAt: Date.now(),
 					direction: isOutbound ? 'outbound' : 'inbound'
 				});
@@ -776,6 +903,7 @@ export function useDevice({
 			const clearCall = () => {
 				if (cancelled) return;
 				cancelAutoAnswer();
+				void clearHoldAudio();
 				// Late terminal events from an older leg must not erase the newer call.
 				callRef.current = clearCallOwner(callRef.current, call);
 				if (!callRef.current) setTwilioRttMs(null);
@@ -902,6 +1030,7 @@ export function useDevice({
 			} catch {
 				/* ignore */
 			}
+			void clearHoldAudio();
 			try {
 				device?.destroy();
 			} catch {
@@ -914,6 +1043,7 @@ export function useDevice({
 		};
 	}, [
 		clearOutboundAttempt,
+		clearHoldAudio,
 		enabled,
 		reconcileAuthoritativeOutbound,
 		updatePendingOutbound
@@ -928,6 +1058,7 @@ export function useDevice({
 		outboundStarting,
 		pendingOutbound,
 		mute,
+		setHold,
 		hangup,
 		armAudio,
 		startOutbound,
