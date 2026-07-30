@@ -20,17 +20,15 @@ import {
 	SelectValue
 } from '@/components/ui/select';
 import {MicLevelMeter, useMicLevelMeter} from './MicLevelMeter';
+import {
+	RecordedEcho,
+	type RecordedEchoPhase,
+	type RecordedEchoProgress
+} from './recordedEcho';
 
 const DEFAULT_DEVICE_ID = 'default';
 
 type ApplyingState = 'input' | 'output' | 'speaker' | 'echo' | 'refresh' | null;
-
-interface EchoPlayback {
-	stream: MediaStream;
-	destinationStream?: MediaStream;
-	audio?: HTMLAudioElement;
-	audioContext: AudioContext;
-}
 
 interface AudioSetupDialogProps {
 	onInputDeviceChange: (deviceId: string) => Promise<void>;
@@ -57,14 +55,16 @@ export function AudioSetupDialog({
 	const [selectedOutputId, setSelectedOutputId] = useState(DEFAULT_DEVICE_ID);
 	const [speakerStatus, setSpeakerStatus] = useState('Speaker idle');
 	const [echoStatus, setEchoStatus] = useState(
-		'Hear yourself with a short delay to test your microphone.'
+		'Record a few words, then hear them played back.'
 	);
 	const [echoActive, setEchoActive] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [applying, setApplying] = useState<ApplyingState>(null);
 	const [echoStarted, setEchoStarted] = useState(false);
 	const [echoConfirmationReady, setEchoConfirmationReady] = useState(false);
-	const echoPlaybackRef = useRef<EchoPlayback | null>(null);
+	const [echoProgress, setEchoProgress] =
+		useState<RecordedEchoProgress | null>(null);
+	const echoPlaybackRef = useRef<RecordedEcho | null>(null);
 	const echoConfirmationTimerRef = useRef<number | null>(null);
 	const open = controlledOpen ?? internalOpen;
 	const micMeter = useMicLevelMeter({
@@ -90,7 +90,7 @@ export function AudioSetupDialog({
 		() => () => {
 			const playback = echoPlaybackRef.current;
 			echoPlaybackRef.current = null;
-			if (playback) void stopEchoPlayback(playback);
+			playback?.stop();
 			if (echoConfirmationTimerRef.current !== null) {
 				window.clearTimeout(echoConfirmationTimerRef.current);
 			}
@@ -192,39 +192,75 @@ export function AudioSetupDialog({
 	const stopEchoTest = () => {
 		const playback = echoPlaybackRef.current;
 		echoPlaybackRef.current = null;
-		if (playback) void stopEchoPlayback(playback);
+		playback?.stop();
 		if (echoConfirmationTimerRef.current !== null) {
 			window.clearTimeout(echoConfirmationTimerRef.current);
 			echoConfirmationTimerRef.current = null;
 			setEchoConfirmationReady(false);
 		}
 		setEchoActive(false);
-		setEchoStatus('Hear yourself with a short delay.');
+		setApplying((current) => (current === 'echo' ? null : current));
+		setEchoProgress(null);
+		setEchoStatus('Record a few words, then hear them played back.');
 	};
 
 	const startEchoTest = async () => {
+		stopEchoTest();
 		setApplying('echo');
 		setError(null);
-		setEchoStatus('Starting delayed playback…');
+		setEchoStarted(false);
+		setEchoConfirmationReady(false);
+		setEchoProgress(null);
+		setEchoActive(true);
+		setEchoStatus('Opening your microphone…');
+
+		let playback: RecordedEcho;
+		const handlePhaseChange = (phase: RecordedEchoPhase) => {
+			if (echoPlaybackRef.current !== playback) return;
+
+			if (phase === 'recording') {
+				setApplying(null);
+				setEchoStatus('Recording now — say a few words.');
+				return;
+			}
+			if (phase === 'playing') {
+				setEchoStarted(true);
+				setEchoStatus('Playing your recording.');
+				echoConfirmationTimerRef.current = window.setTimeout(() => {
+					echoConfirmationTimerRef.current = null;
+					setEchoConfirmationReady(true);
+				}, 1_000);
+				return;
+			}
+
+			echoPlaybackRef.current = null;
+			setEchoActive(false);
+			setEchoProgress(null);
+			setEchoStatus('Playback complete. Test again if needed.');
+		};
+
+		playback = new RecordedEcho(
+			selectedInputId,
+			selectedOutputId,
+			handlePhaseChange,
+			(progress) => {
+				if (echoPlaybackRef.current === playback) setEchoProgress(progress);
+			}
+		);
+		echoPlaybackRef.current = playback;
+
 		try {
-			const playback = await startEchoPlayback(
-				selectedInputId,
-				selectedOutputId
-			);
-			echoPlaybackRef.current = playback;
-			setEchoStarted(true);
-			setEchoConfirmationReady(false);
-			setEchoActive(true);
-			setEchoStatus('Playing your voice with a short delay.');
-			echoConfirmationTimerRef.current = window.setTimeout(() => {
-				echoConfirmationTimerRef.current = null;
-				setEchoConfirmationReady(true);
-			}, 1_000);
+			await playback.start();
 		} catch (err) {
+			if (echoPlaybackRef.current !== playback) return;
+			echoPlaybackRef.current = null;
+			setEchoActive(false);
+			setApplying(null);
+			setEchoProgress(null);
 			setEchoStatus('Echo test unavailable.');
 			setError(readMediaError(err, 'Could not start the echo test.'));
 		} finally {
-			setApplying(null);
+			if (echoPlaybackRef.current === playback) setApplying(null);
 		}
 	};
 
@@ -255,11 +291,11 @@ export function AudioSetupDialog({
 			<DialogPrimitive.Portal>
 				<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
 				<DialogPrimitive.Content
-					className={cn(
-						'fixed left-1/2 top-1/2 z-50 grid w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-popover text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
-						required
-							? 'max-h-[calc(100vh-2rem)] max-w-2xl gap-6 overflow-y-auto p-7 sm:p-8'
-							: 'max-w-lg gap-4 p-5'
+						className={cn(
+							'fixed left-1/2 top-1/2 z-50 grid w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-popover text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+							required
+								? 'max-h-[calc(100vh-2rem)] max-w-3xl gap-6 overflow-y-auto p-7 sm:p-8'
+								: 'max-w-2xl gap-4 p-5'
 					)}
 					onEscapeKeyDown={
 						required ? (event) => event.preventDefault() : undefined
@@ -341,13 +377,16 @@ export function AudioSetupDialog({
 									loading={applying === 'input'}
 								/>
 							</div>
-							<Select value={selectedInputId} onValueChange={changeInputDevice}>
-								<SelectTrigger
-									id="audio-input-device"
-									className="w-full"
-									disabled={applying !== null || echoActive}
-								>
-									<SelectValue placeholder="Select microphone" />
+								<Select value={selectedInputId} onValueChange={changeInputDevice}>
+									<SelectTrigger
+										id="audio-input-device"
+										className="w-full min-w-0"
+										disabled={applying !== null || echoActive}
+									>
+										<SelectValue
+											placeholder="Select microphone"
+											className="min-w-0 flex-1 truncate text-left"
+										/>
 								</SelectTrigger>
 								<SelectContent>
 									{inputOptions.map((device) => (
@@ -382,12 +421,15 @@ export function AudioSetupDialog({
 									value={selectedOutputId}
 									onValueChange={changeOutputDevice}
 								>
-									<SelectTrigger
-										id="audio-output-device"
-										className="w-full"
-										disabled={applying !== null || echoActive}
-									>
-										<SelectValue placeholder="Select speaker" />
+										<SelectTrigger
+											id="audio-output-device"
+											className="min-w-0 flex-1"
+											disabled={applying !== null || echoActive}
+										>
+											<SelectValue
+												placeholder="Select speaker"
+												className="min-w-0 flex-1 truncate text-left"
+											/>
 									</SelectTrigger>
 									<SelectContent>
 										{outputOptions.map((device) => (
@@ -400,9 +442,9 @@ export function AudioSetupDialog({
 								<Button
 									type="button"
 									variant="secondary"
-									onClick={testSpeaker}
-									disabled={applying !== null || echoActive}
-									className="sm:w-32"
+										onClick={testSpeaker}
+										disabled={applying !== null || echoActive}
+										className="shrink-0 sm:w-32"
 								>
 									{applying === 'speaker' ? (
 										<Loader2 className="size-4 animate-spin" />
@@ -424,7 +466,7 @@ export function AudioSetupDialog({
 								<AudioLines className="size-4 text-muted-foreground" />
 								<p className="text-sm font-medium">Echo Test</p>
 								<DeviceStatus
-									status={echoActive ? 'Active' : 'Idle'}
+									status={echoActive ? 'Active' : echoStarted ? 'Complete' : 'Idle'}
 									loading={applying === 'echo'}
 								/>
 							</div>
@@ -444,9 +486,12 @@ export function AudioSetupDialog({
 									) : (
 										<Mic className="size-4" />
 									)}
-									{echoActive ? 'Stop' : 'Start'}
+									{echoActive ? 'Stop' : echoStarted ? 'Test again' : 'Start'}
 								</Button>
 							</div>
+							{echoProgress && (
+								<EchoProgressBar progress={echoProgress} />
+							)}
 						</section>
 					</div>
 
@@ -459,8 +504,10 @@ export function AudioSetupDialog({
 								{echoStarted
 									? echoConfirmationReady
 										? 'If you heard your voice, click below to enter the dialer.'
-										: 'Keep the Echo Test running briefly. The button will unlock after one second.'
-									: 'Start the Echo Test above. Once you hear yourself, click below to continue.'}
+										: 'Listen to your recording. The button will unlock after one second of playback.'
+									: echoActive
+										? 'Speak now. Your recording will play back automatically.'
+										: 'Start the Echo Test above. Once you hear yourself, click below to continue.'}
 							</p>
 							<Button
 								type="button"
@@ -503,6 +550,41 @@ function DeviceStatus({status, loading}: {status: string; loading: boolean}) {
 			{loading && <Loader2 className="size-3 animate-spin" />}
 			<span className="truncate">{status}</span>
 		</span>
+	);
+}
+
+function EchoProgressBar({progress}: {progress: RecordedEchoProgress}) {
+	const percent = Math.round(
+		Math.min(1, progress.elapsedMs / progress.durationMs) * 100
+	);
+	const remainingSeconds = Math.max(
+		0,
+		Math.ceil((progress.durationMs - progress.elapsedMs) / 1_000)
+	);
+	const label = progress.phase === 'recording' ? 'Recording' : 'Playing';
+
+	return (
+		<div className="space-y-1.5" aria-live="polite">
+			<div className="flex items-center justify-between text-xs font-medium">
+				<span>{label}</span>
+				<span className="tabular-nums text-muted-foreground">
+					{remainingSeconds}s remaining
+				</span>
+			</div>
+			<div
+				className="h-2 overflow-hidden rounded-full bg-muted"
+				role="progressbar"
+				aria-label={`${label} progress`}
+				aria-valuemin={0}
+				aria-valuemax={100}
+				aria-valuenow={percent}
+			>
+				<div
+					className="h-full rounded-full bg-primary transition-[width] duration-100 ease-linear"
+					style={{width: `${percent}%`}}
+				/>
+			</div>
+		</div>
 	);
 }
 
@@ -617,91 +699,6 @@ async function playTestTone(outputDeviceId: string) {
 	audio.pause();
 	destination.stream.getTracks().forEach((track) => track.stop());
 	await audioContext.close();
-}
-
-async function startEchoPlayback(
-	inputDeviceId: string,
-	outputDeviceId: string
-): Promise<EchoPlayback> {
-	const AudioContextCtor =
-		window.AudioContext ||
-		(
-			window as typeof window & {
-				webkitAudioContext?: typeof AudioContext;
-			}
-		).webkitAudioContext;
-	if (!AudioContextCtor) {
-		throw new Error('Echo testing is not supported in this browser.');
-	}
-
-	const stream = await navigator.mediaDevices.getUserMedia({
-		audio: {
-			...(inputDeviceId === DEFAULT_DEVICE_ID
-				? {}
-				: {deviceId: {exact: inputDeviceId}}),
-			autoGainControl: false,
-			echoCancellation: false,
-			noiseSuppression: false
-		}
-	});
-	const audioContext = new AudioContextCtor();
-	const source = audioContext.createMediaStreamSource(stream);
-	const delay = audioContext.createDelay(2);
-	let destinationStream: MediaStream | undefined;
-	delay.delayTime.value = 0.5;
-
-	try {
-		const sinkContext = audioContext as AudioContext & {
-			setSinkId?: (sinkId: string) => Promise<void>;
-		};
-		if (
-			outputDeviceId === DEFAULT_DEVICE_ID ||
-			typeof sinkContext.setSinkId === 'function'
-		) {
-			if (outputDeviceId !== DEFAULT_DEVICE_ID) {
-				await sinkContext.setSinkId?.(outputDeviceId);
-			}
-			source.connect(delay).connect(audioContext.destination);
-			await audioContext.resume();
-			return {stream, audioContext};
-		}
-
-		// Older browsers need an audio element to target a selected speaker.
-		const destination = audioContext.createMediaStreamDestination();
-		destinationStream = destination.stream;
-		const audio = new Audio() as HTMLAudioElement & {
-			setSinkId?: (sinkId: string) => Promise<void>;
-		};
-		if (!audio.setSinkId) {
-			throw new Error('This browser cannot test a selected speaker.');
-		}
-
-		source.connect(delay).connect(destination);
-		audio.srcObject = destination.stream;
-		await audio.setSinkId(outputDeviceId);
-		await audio.play();
-		return {
-			stream,
-			destinationStream: destination.stream,
-			audio,
-			audioContext
-		};
-	} catch (err) {
-		stream.getTracks().forEach((track) => track.stop());
-		destinationStream?.getTracks().forEach((track) => track.stop());
-		void audioContext.close().catch(() => undefined);
-		throw err;
-	}
-}
-
-async function stopEchoPlayback(playback: EchoPlayback) {
-	playback.audio?.pause();
-	if (playback.audio) playback.audio.srcObject = null;
-	playback.stream.getTracks().forEach((track) => track.stop());
-	playback.destinationStream
-		?.getTracks()
-		.forEach((track) => track.stop());
-	await playback.audioContext.close().catch(() => undefined);
 }
 
 function readMediaError(err: unknown, fallback: string) {

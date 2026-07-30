@@ -10,8 +10,10 @@ import {
 	Check,
 	Copy,
 	Loader2,
+	Pencil,
 	Phone,
 	RefreshCw,
+	Save,
 	Search,
 	Upload,
 	Users,
@@ -40,13 +42,20 @@ import {
 	type ActivityListItem,
 	type DialerCampaign,
 	type DialerDisposition,
+	type DialerForm,
 	type LeadDetailResponse
 } from '@/lib/api';
 import {normalizeDialInput} from '@/lib/phone';
 import {cn} from '@/lib/utils';
 import {useDialerSession} from '@/session/DialerSessionProvider';
 import {getUser} from '@/auth/session';
+import {FormRenderer, type LeadFormData} from '@/leads/FormRenderer';
 import {getSavedDispositionFallback} from './crmDisposition';
+import {
+	buildLeadEditFormData,
+	deriveLeadName,
+	formHasNameFields
+} from './crmLeadEdit';
 import {
 	TLD_FORM_SCHEMA,
 	contactFormData,
@@ -810,10 +819,16 @@ function LeadRecordDialog({
 	const [error, setError] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
 	const [dispositions, setDispositions] = useState<DialerDisposition[]>([]);
+	const [currentForm, setCurrentForm] = useState<DialerForm | null>(null);
 	const [dispositionKey, setDispositionKey] = useState('');
 	const [loadingDispositions, setLoadingDispositions] = useState(false);
 	const [savingDisposition, setSavingDisposition] = useState(false);
 	const [dispositionError, setDispositionError] = useState<string | null>(null);
+	const [editing, setEditing] = useState(false);
+	const [editName, setEditName] = useState('');
+	const [editFormData, setEditFormData] = useState<LeadFormData>({});
+	const [savingLead, setSavingLead] = useState(false);
+	const [editError, setEditError] = useState<string | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -821,19 +836,31 @@ function LeadRecordDialog({
 			setDetail(null);
 			setError(null);
 			setDispositions([]);
+			setCurrentForm(null);
 			setDispositionKey('');
 			setDispositionError(null);
 			setLoadingDispositions(false);
 			setSavingDisposition(false);
+			setEditing(false);
+			setEditName('');
+			setEditFormData({});
+			setSavingLead(false);
+			setEditError(null);
 			return;
 		}
 		setDetail(null);
 		setError(null);
 		setDispositions([]);
+		setCurrentForm(null);
 		setDispositionKey('');
 		setDispositionError(null);
 		setLoadingDispositions(false);
 		setSavingDisposition(false);
+		setEditing(false);
+		setEditName('');
+		setEditFormData({});
+		setSavingLead(false);
+		setEditError(null);
 		getLeadDetail(leadId)
 			.then((res) => {
 				if (cancelled) return;
@@ -843,6 +870,7 @@ function LeadRecordDialog({
 				}
 				setDetail(res);
 				setDispositionKey(res.lead?.disposition_id ?? '');
+				setEditName(res.lead?.name ?? '');
 			})
 			.catch(
 				(err) => !cancelled && setError(readError(err, 'Failed to load record'))
@@ -857,11 +885,13 @@ function LeadRecordDialog({
 		const campaignId = detail?.lead?.campaign_id;
 		if (!campaignId) {
 			setDispositions([]);
+			setCurrentForm(null);
 			setLoadingDispositions(false);
 			setDispositionError(null);
 			return;
 		}
 		setDispositions([]);
+		setCurrentForm(null);
 		setLoadingDispositions(true);
 		setDispositionError(null);
 		getLeadFormBundle(campaignId)
@@ -874,6 +904,16 @@ function LeadRecordDialog({
 					return;
 				}
 				setDispositions(res.dispositions ?? []);
+				setCurrentForm(res.form ?? null);
+				if (res.form && detail?.lead) {
+					setEditFormData(
+						buildLeadEditFormData(
+							res.form.schema,
+							detail.lead.form_schema_snapshot,
+							detail.lead.form_data
+						)
+					);
+				}
 			})
 			.catch((err) => {
 				if (!cancelled) {
@@ -887,6 +927,61 @@ function LeadRecordDialog({
 			cancelled = true;
 		};
 	}, [detail?.lead?.campaign_id]);
+
+	const beginEditing = () => {
+		if (!detail?.lead) return;
+		setEditName(detail.lead.name ?? '');
+		setDispositionKey(detail.lead.disposition_id ?? '');
+		setEditFormData(
+			currentForm
+				? buildLeadEditFormData(
+						currentForm.schema,
+						detail.lead.form_schema_snapshot,
+						detail.lead.form_data
+					)
+				: {}
+		);
+		setEditError(null);
+		setEditing(true);
+	};
+
+	const cancelEditing = () => {
+		if (detail?.lead) {
+			setDispositionKey(detail.lead.disposition_id ?? '');
+		}
+		setEditError(null);
+		setEditing(false);
+	};
+
+	const saveLeadEdits = async () => {
+		const lead = detail?.lead;
+		if (!lead) return;
+		setSavingLead(true);
+		setEditError(null);
+		try {
+			const dispositionChanged = dispositionKey !== lead.disposition_id;
+			const res = await updateLead({
+				lead_id: lead.id,
+				name: deriveLeadName(
+					currentForm?.schema ?? [],
+					editFormData,
+					editName
+				),
+				...(dispositionChanged
+					? {disposition_id: dispositionKey || null}
+					: {}),
+				...(currentForm ? {form_data: editFormData} : {})
+			});
+			if (res.statusCode !== 'SP100') {
+				throw new Error(res.statusMessage || 'Failed to update lead');
+			}
+			onUpdated();
+		} catch (err) {
+			setEditError(readError(err, 'Failed to update lead'));
+		} finally {
+			setSavingLead(false);
+		}
+	};
 
 	const saveDisposition = async () => {
 		const lead = detail?.lead;
@@ -933,23 +1028,47 @@ function LeadRecordDialog({
 								{detail?.lead?.name || 'Lead record'}
 							</DialogPrimitive.Title>
 							<DialogPrimitive.Description className="text-sm text-muted-foreground">
-								Select any value to copy it, or copy the whole record.
+								{editing
+									? 'Update the contact details, disposition, or form responses.'
+									: 'Select any value to copy it, or copy the whole record.'}
 							</DialogPrimitive.Description>
 						</div>
 						<div className="flex shrink-0 gap-2">
-							<Button
-								size="sm"
-								variant="outline"
-								onClick={onCopy}
-								disabled={!copyText}
-							>
-								{copied ? (
-									<Check className="size-4" />
-								) : (
-									<Copy className="size-4" />
-								)}
-								{copied ? 'Copied' : 'Copy all'}
-							</Button>
+							{editing ? (
+								<Button
+									size="sm"
+									variant="outline"
+									onClick={cancelEditing}
+									disabled={savingLead}
+								>
+									Cancel
+								</Button>
+							) : (
+								<>
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={beginEditing}
+										disabled={!detail?.lead || loadingDispositions}
+									>
+										<Pencil className="size-4" />
+										Edit lead
+									</Button>
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={onCopy}
+										disabled={!copyText}
+									>
+										{copied ? (
+											<Check className="size-4" />
+										) : (
+											<Copy className="size-4" />
+										)}
+										{copied ? 'Copied' : 'Copy all'}
+									</Button>
+								</>
+							)}
 							<DialogPrimitive.Close asChild>
 								<Button
 									size="icon"
@@ -969,6 +1088,25 @@ function LeadRecordDialog({
 								<Loader2 className="size-4 animate-spin" />
 								Loading record…
 							</p>
+						) : editing ? (
+							<LeadEditContent
+								detail={detail}
+								form={currentForm}
+								formData={editFormData}
+								onFormFieldChange={(key, value) =>
+									setEditFormData((current) => ({...current, [key]: value}))
+								}
+								name={editName}
+								onNameChange={setEditName}
+								dispositions={dispositions}
+								dispositionKey={dispositionKey}
+								onDispositionChange={setDispositionKey}
+								bundleError={dispositionError}
+								saving={savingLead}
+								error={editError}
+								onCancel={cancelEditing}
+								onSave={saveLeadEdits}
+							/>
 						) : (
 							<LeadRecordContent
 								detail={detail}
@@ -985,6 +1123,151 @@ function LeadRecordDialog({
 				</DialogPrimitive.Content>
 			</DialogPrimitive.Portal>
 		</DialogPrimitive.Root>
+	);
+}
+
+function LeadEditContent({
+	detail,
+	form,
+	formData,
+	onFormFieldChange,
+	name,
+	onNameChange,
+	dispositions,
+	dispositionKey,
+	onDispositionChange,
+	bundleError,
+	saving,
+	error,
+	onCancel,
+	onSave
+}: {
+	detail: LeadDetailResponse;
+	form: DialerForm | null;
+	formData: LeadFormData;
+	onFormFieldChange: (key: string, value: unknown) => void;
+	name: string;
+	onNameChange: (value: string) => void;
+	dispositions: DialerDisposition[];
+	dispositionKey: string;
+	onDispositionChange: (value: string) => void;
+	bundleError: string | null;
+	saving: boolean;
+	error: string | null;
+	onCancel: () => void;
+	onSave: () => void;
+}) {
+	const lead = detail.lead!;
+	const savedDispositionFallback = getSavedDispositionFallback(
+		lead.disposition_id,
+		lead.disposition_label,
+		dispositions
+	);
+	const hasNameFields = formHasNameFields(form?.schema ?? []);
+
+	return (
+		<div className="space-y-6">
+			<section className="space-y-4">
+				<h2 className="text-sm font-semibold">Lead details</h2>
+				<div className="grid gap-4 sm:grid-cols-2">
+					{!hasNameFields && (
+						<div className="space-y-2">
+							<Label htmlFor="crm_lead_name">Contact name</Label>
+							<Input
+								id="crm_lead_name"
+								value={name}
+								onChange={(event) => onNameChange(event.target.value)}
+								disabled={saving}
+							/>
+						</div>
+					)}
+					<div className="space-y-2">
+						<Label>Disposition</Label>
+						<Select
+							value={dispositionKey}
+							onValueChange={onDispositionChange}
+							disabled={saving || dispositions.length === 0}
+						>
+							<SelectTrigger className="w-full">
+								<SelectValue placeholder="Select disposition" />
+							</SelectTrigger>
+							<SelectContent>
+								{savedDispositionFallback && (
+									<SelectItem value={savedDispositionFallback.key} disabled>
+										{savedDispositionFallback.label} (saved; no longer active)
+									</SelectItem>
+								)}
+								{dispositions.map((disposition) => (
+									<SelectItem
+										key={disposition.disposition_key}
+										value={disposition.disposition_key}
+									>
+										{disposition.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+					<CopyableField label="Phone" value={lead.caller_phone || '—'} />
+					<CopyableField
+						label="Campaign"
+						value={detail.campaign_name || '—'}
+					/>
+				</div>
+				<p className="text-xs text-muted-foreground">
+					Phone and campaign come from the original call and cannot be changed
+					here.
+				</p>
+			</section>
+
+			<section className="space-y-4 border-t pt-5">
+				<div className="space-y-1">
+					<h2 className="text-sm font-semibold">Form responses</h2>
+					{form && (
+						<p className="text-xs text-muted-foreground">
+							Editing with the campaign’s current published form.
+						</p>
+					)}
+				</div>
+				{form ? (
+					<FormRenderer
+						schema={form.schema}
+						value={formData}
+						onChange={onFormFieldChange}
+						disabled={saving}
+					/>
+				) : (
+					<p className="text-sm text-muted-foreground">
+						No published form is currently available. You can still update the
+						lead name or disposition.
+					</p>
+				)}
+				{bundleError && (
+					<p className="text-sm text-destructive">{bundleError}</p>
+				)}
+			</section>
+
+			{error && <p className="text-sm text-destructive">{error}</p>}
+
+			<div className="flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row sm:justify-end">
+				<Button
+					type="button"
+					variant="outline"
+					onClick={onCancel}
+					disabled={saving}
+				>
+					Cancel
+				</Button>
+				<Button type="button" onClick={onSave} disabled={saving}>
+					{saving ? (
+						<Loader2 className="size-4 animate-spin" />
+					) : (
+						<Save className="size-4" />
+					)}
+					{saving ? 'Saving…' : 'Save changes'}
+				</Button>
+			</div>
+		</div>
 	);
 }
 

@@ -60,6 +60,9 @@ export interface ActiveCall {
 	callSid: string;
 	/** Browser Client-leg CallSid, retained to ignore terminal events from stale legs. */
 	clientCallSid?: string;
+	/** Internal EmberQA campaign UUID carried on the inbound Client invite. Null for
+	 * direct-DID and outbound calls that have no routed campaign attribution. */
+	campaignId: string | null;
 	muted: boolean;
 	/** Browser-side hold keeps the call connected while replacing the microphone
 	 * with music and silencing caller playback for the agent. */
@@ -925,6 +928,9 @@ export function useDevice({
 						call.parameters.CallSid ||
 						'',
 					clientCallSid: call.parameters.CallSid || '',
+					campaignId: isOutbound
+						? null
+						: call.customParameters.get('campaign_id')?.trim() || null,
 					muted: false,
 					held: false,
 					holdPending: false,

@@ -259,6 +259,7 @@ export default function Dial() {
 		? {
 				from: '+15555550100',
 				callSid: debugCallSid!,
+				campaignId: null,
 				muted: debugCallMuted,
 				held: debugCallHeld,
 				holdPending: false,
@@ -269,21 +270,30 @@ export default function Dial() {
 	const activeCall = device.activeCall ?? debugCall;
 	const workCall = activeCall ?? wrapUpCall;
 	const wrapUpCallKey = workCall ? callKey(workCall) : null;
+	const attributedCampaign = workCall?.campaignId
+		? campaigns.find((campaign) => campaign.id === workCall.campaignId)
+		: undefined;
+	// A campaign attached to the Twilio invite is call-specific and authoritative.
+	// Fall back to the existing presence/manual selection only for unattributed calls.
+	const effectiveLeadCampaignId =
+		workCall?.direction === 'inbound' && attributedCampaign
+			? attributedCampaign.id
+			: leadCampaignId;
 
-	// Direct-dial callback pull-up: the backend classifies the call (direct-dial vs
-	// Retreaver-routed) and only returns prior history for a direct dial. Fire-and-forget
-	// — it never blocks the blank New-Lead form. Keyed to the call's SID so it re-runs
-	// per call. `editLead` (below) is the caller's most-recent prior lead, if any.
-	const returningCaller = useReturningCaller(
-		workCall?.from ?? null,
-		workCall?.callSid ?? null
+	// Keep prior-history pull-up for agent-originated outbound calls only. Inbound
+	// calls always start a new lead: they do not run the returning-caller classifier,
+	// render its notice, or update an older lead in place.
+	const outboundHistory = useReturningCaller(
+		workCall?.direction === 'outbound' ? workCall.from : null,
+		workCall?.direction === 'outbound' ? workCall.callSid : null
 	);
-	const editLead = returningCaller.data?.is_direct_dial
-		? (returningCaller.data.most_recent_lead?.lead ?? null)
+	const editLead =
+		workCall?.direction === 'outbound' && outboundHistory.data?.is_direct_dial
+			? (outboundHistory.data.most_recent_lead?.lead ?? null)
 		: null;
 	const wrapUpCompleted =
 		Boolean(wrapUpCallKey) && completedWrapUpCallKey === wrapUpCallKey;
-	const returningCallerDismissed =
+	const priorHistoryDismissed =
 		Boolean(wrapUpCallKey) && dismissedCallerKey === wrapUpCallKey;
 	const onCall = liveOnCall || debugIncomingCall || Boolean(wrapUpCall);
 	const displayAvailable = onCall ? 0 : available;
@@ -418,13 +428,14 @@ export default function Dial() {
 
 					{profile && provisioned && (
 						<>
-							{/* Returning-caller callback notification + prior-history strip (direct
-                  dials only; renders nothing otherwise). On an OUTBOUND call it re-labels
-                  to a neutral "Prior history". Dismissable per call via the X. */}
-							{workCall && !wrapUpCompleted && !returningCallerDismissed && (
+							{/* Outbound-only prior-history strip. Inbound calls deliberately skip
+                  the lookup and always use a fresh lead form. */}
+							{workCall?.direction === 'outbound' &&
+								!wrapUpCompleted &&
+								!priorHistoryDismissed && (
 								<ReturningCallerCard
-									result={returningCaller.data}
-									direction={workCall.direction}
+									result={outboundHistory.data}
+									direction="outbound"
 									onDismiss={() => setDismissedCallerKey(wrapUpCallKey)}
 								/>
 							)}
@@ -465,6 +476,13 @@ export default function Dial() {
 							{activeCall ? (
 								<ActiveCallBanner
 									call={activeCall}
+									campaignName={
+										activeCall.campaignId
+											? campaigns.find(
+													(campaign) => campaign.id === activeCall.campaignId
+											  )?.name ?? null
+											: null
+									}
 									onMute={device.activeCall ? device.mute : setDebugCallMuted}
 									onHold={
 										device.activeCall
@@ -500,11 +518,11 @@ export default function Dial() {
 							)}
 
 							{/* Lead capture — held open after hangup until the call is dispositioned.
-                  On a direct-dial callback, editLead switches this to update-in-place. */}
-							{workCall && leadCampaignId && !wrapUpCompleted && (
+                  Inbound always creates a new lead; outbound may update prior history. */}
+							{workCall && effectiveLeadCampaignId && !wrapUpCompleted && (
 								<LeadForm
 									key={`${workCall.callSid || 'active-call'}:${editLead?.id ?? 'new'}`}
-									campaignId={leadCampaignId}
+									campaignId={effectiveLeadCampaignId}
 									callSid={workCall.callSid || null}
 									callerPhone={workCall.from}
 									onComplete={onWrapUpComplete}
@@ -512,7 +530,7 @@ export default function Dial() {
 									editLead={editLead}
 								/>
 							)}
-							{workCall && !leadCampaignId && !wrapUpCompleted && (
+							{workCall && !effectiveLeadCampaignId && !wrapUpCompleted && (
 								<Card className="shadow-xs">
 									<CardHeader>
 										<CardTitle>Choose a campaign</CardTitle>

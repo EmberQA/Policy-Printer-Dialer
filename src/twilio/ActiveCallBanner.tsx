@@ -27,11 +27,13 @@ import type {ActiveCall} from '@/twilio/useDevice';
  */
 export function ActiveCallBanner({
 	call,
+	campaignName,
 	onMute,
 	onHold,
 	onHangup
 }: {
 	call: ActiveCall;
+	campaignName: string | null;
 	onMute: (muted: boolean) => void;
 	onHold: (held: boolean) => Promise<void>;
 	onHangup: () => void;
@@ -54,6 +56,13 @@ export function ActiveCallBanner({
 						<Badge className="bg-success text-success-foreground">
 							{isOutbound ? 'Outbound call' : 'Active call'}
 						</Badge>
+						{!isOutbound && (
+							<Badge variant="outline">
+								{call.campaignId
+									? `Campaign: ${campaignName ?? 'Unavailable'}`
+									: 'Direct call'}
+							</Badge>
+						)}
 						<span className="font-mono text-sm tabular-nums text-muted-foreground">
 							{formatDuration(elapsed)}
 						</span>
