@@ -27,8 +27,8 @@ type ApplyingState = 'input' | 'output' | 'speaker' | 'echo' | 'refresh' | null;
 
 interface EchoPlayback {
 	stream: MediaStream;
-	destinationStream: MediaStream;
-	audio: HTMLAudioElement;
+	destinationStream?: MediaStream;
+	audio?: HTMLAudioElement;
 	audioContext: AudioContext;
 }
 
@@ -647,22 +647,38 @@ async function startEchoPlayback(
 	const audioContext = new AudioContextCtor();
 	const source = audioContext.createMediaStreamSource(stream);
 	const delay = audioContext.createDelay(2);
-	const destination = audioContext.createMediaStreamDestination();
-	const audio = new Audio() as HTMLAudioElement & {
-		setSinkId?: (sinkId: string) => Promise<void>;
-	};
-
+	let destinationStream: MediaStream | undefined;
 	delay.delayTime.value = 0.5;
-	source.connect(delay).connect(destination);
-	audio.srcObject = destination.stream;
 
 	try {
-		if (outputDeviceId !== DEFAULT_DEVICE_ID) {
-			if (!audio.setSinkId) {
-				throw new Error('This browser cannot test a selected speaker.');
+		const sinkContext = audioContext as AudioContext & {
+			setSinkId?: (sinkId: string) => Promise<void>;
+		};
+		if (
+			outputDeviceId === DEFAULT_DEVICE_ID ||
+			typeof sinkContext.setSinkId === 'function'
+		) {
+			if (outputDeviceId !== DEFAULT_DEVICE_ID) {
+				await sinkContext.setSinkId?.(outputDeviceId);
 			}
-			await audio.setSinkId(outputDeviceId);
+			source.connect(delay).connect(audioContext.destination);
+			await audioContext.resume();
+			return {stream, audioContext};
 		}
+
+		// Older browsers need an audio element to target a selected speaker.
+		const destination = audioContext.createMediaStreamDestination();
+		destinationStream = destination.stream;
+		const audio = new Audio() as HTMLAudioElement & {
+			setSinkId?: (sinkId: string) => Promise<void>;
+		};
+		if (!audio.setSinkId) {
+			throw new Error('This browser cannot test a selected speaker.');
+		}
+
+		source.connect(delay).connect(destination);
+		audio.srcObject = destination.stream;
+		await audio.setSinkId(outputDeviceId);
 		await audio.play();
 		return {
 			stream,
@@ -672,17 +688,19 @@ async function startEchoPlayback(
 		};
 	} catch (err) {
 		stream.getTracks().forEach((track) => track.stop());
-		destination.stream.getTracks().forEach((track) => track.stop());
+		destinationStream?.getTracks().forEach((track) => track.stop());
 		void audioContext.close().catch(() => undefined);
 		throw err;
 	}
 }
 
 async function stopEchoPlayback(playback: EchoPlayback) {
-	playback.audio.pause();
-	playback.audio.srcObject = null;
+	playback.audio?.pause();
+	if (playback.audio) playback.audio.srcObject = null;
 	playback.stream.getTracks().forEach((track) => track.stop());
-	playback.destinationStream.getTracks().forEach((track) => track.stop());
+	playback.destinationStream
+		?.getTracks()
+		.forEach((track) => track.stop());
 	await playback.audioContext.close().catch(() => undefined);
 }
 

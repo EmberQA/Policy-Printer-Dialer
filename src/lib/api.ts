@@ -549,6 +549,18 @@ export interface ActivityListResponse {
 	limit?: number;
 }
 
+export interface ActivitySummary {
+	ready_seconds: number;
+	talk_seconds: number;
+	active_seconds: number;
+}
+
+export interface ActivitySummaryResponse {
+	statusCode: string;
+	statusMessage: string;
+	summary?: ActivitySummary;
+}
+
 /** One entry in a lead's audit timeline. */
 export interface LeadEvent {
 	id: string;
@@ -613,6 +625,15 @@ export const listActivity = (
 	page: number
 ): Promise<ActivityListResponse> =>
 	qsPost('/policyPrinter/dialer/leads/list', {filters, limit, page});
+
+export const getActivitySummary = (
+	startedAt: string,
+	endedAt: string
+): Promise<ActivitySummaryResponse> =>
+	qsPost('/policyPrinter/dialer/activity/summary', {
+		started_at: startedAt,
+		ended_at: endedAt
+	});
 
 /** One latest activity record per caller, for the contact-oriented CRM view. */
 export const listCrmContacts = (

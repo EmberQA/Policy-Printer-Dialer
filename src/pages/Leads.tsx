@@ -41,6 +41,7 @@ import {
 import {
 	listCampaigns,
 	listActivity,
+	getActivitySummary,
 	getLeadDetail,
 	getLeadRecording,
 	getCallRecording,
@@ -48,14 +49,34 @@ import {
 	type LeadDetailResponse,
 	type ActivityFilters,
 	type ActivityListItem,
-	type ActivityKind
+	type ActivityKind,
+	type ActivitySummary
 } from '@/lib/api';
 import {LeadForm} from '@/leads/LeadForm';
 import {cn} from '@/lib/utils';
 import {normalizeDialInput} from '@/lib/phone';
 import {useDialerSession} from '@/session/DialerSessionProvider';
+import {
+	getActivityPeriodBounds,
+	type ActivitySummaryPeriod
+} from './activityPeriod';
 
 const PAGE_SIZE = 25;
+const EMPTY_SUMMARY: ActivitySummary = {
+	ready_seconds: 0,
+	talk_seconds: 0,
+	active_seconds: 0
+};
+
+function formatSummaryDuration(totalSeconds: number): string {
+	const safe = Math.max(0, Math.floor(totalSeconds || 0));
+	const hours = Math.floor(safe / 3600);
+	const minutes = Math.floor((safe % 3600) / 60);
+	const seconds = safe % 60;
+	if (hours > 0) return `${hours}h ${minutes}m`;
+	if (minutes > 0) return `${minutes}m ${seconds}s`;
+	return `${seconds}s`;
+}
 
 export default function Leads() {
 	const [campaigns, setCampaigns] = useState<DialerCampaign[]>([]);
@@ -66,6 +87,12 @@ export default function Leads() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [expandedId, setExpandedId] = useState<string | null>(null);
+	const [summaryPeriod, setSummaryPeriod] =
+		useState<ActivitySummaryPeriod>('day');
+	const [summary, setSummary] = useState<ActivitySummary>(EMPTY_SUMMARY);
+	const [summaryLoading, setSummaryLoading] = useState(true);
+	const [summaryError, setSummaryError] = useState<string | null>(null);
+	const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
 
 	const [campaignId, setCampaignId] = useState('');
 	const [search, setSearch] = useState('');
@@ -103,6 +130,37 @@ export default function Leads() {
 			.then((res) => setCampaigns(res.campaigns ?? []))
 			.catch(() => undefined);
 	}, []);
+
+	const summaryBounds = useMemo(
+		() => getActivityPeriodBounds(summaryPeriod),
+		[summaryPeriod, summaryRefreshKey]
+	);
+
+	useEffect(() => {
+		let cancelled = false;
+		setSummaryLoading(true);
+		setSummaryError(null);
+		setSummary(EMPTY_SUMMARY);
+		getActivitySummary(summaryBounds.startedAt, summaryBounds.endedAt)
+			.then((res) => {
+				if (cancelled) return;
+				if (res.statusCode !== 'SP100') {
+					setSummaryError(res.statusMessage || 'Failed to load time summary');
+					return;
+				}
+				setSummary(res.summary ?? EMPTY_SUMMARY);
+			})
+			.catch((err) => {
+				if (!cancelled)
+					setSummaryError(readError(err, 'Failed to load time summary'));
+			})
+			.finally(() => {
+				if (!cancelled) setSummaryLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [summaryBounds]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -168,14 +226,79 @@ export default function Leads() {
 					<Button
 						variant="outline"
 						size="sm"
-						onClick={() => setApplied((cur) => ({...cur}))}
-						disabled={loading}
+						onClick={() => {
+							setApplied((cur) => ({...cur}));
+							setSummaryRefreshKey((key) => key + 1);
+						}}
+						disabled={loading || summaryLoading}
 					>
-						<RefreshCw className={cn('size-4', loading && 'animate-spin')} />
+						<RefreshCw
+							className={cn(
+								'size-4',
+								(loading || summaryLoading) && 'animate-spin'
+							)}
+						/>
 						Refresh
 					</Button>
 				</div>
 			</div>
+
+			<Card className="shadow-xs">
+				<CardContent className="space-y-4 p-4">
+					<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+						<div>
+							<p className="text-sm font-medium">Active time</p>
+							<p className="text-xs text-muted-foreground">
+								{summaryBounds.label}
+							</p>
+						</div>
+						<div className="inline-flex w-fit rounded-md border bg-muted/30 p-1">
+							{(['day', 'week', 'month'] as const).map((period) => (
+								<Button
+									key={period}
+									type="button"
+									size="sm"
+									variant={summaryPeriod === period ? 'default' : 'ghost'}
+									className="h-7 px-3 capitalize"
+									onClick={() => setSummaryPeriod(period)}
+								>
+									{period}
+								</Button>
+							))}
+						</div>
+					</div>
+
+					{summaryError && (
+						<div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+							{summaryError}
+						</div>
+					)}
+
+					<div className="grid gap-3 sm:grid-cols-3">
+						{[
+							{label: 'Ready time', seconds: summary.ready_seconds},
+							{label: 'Talk time', seconds: summary.talk_seconds},
+							{label: 'Total active time', seconds: summary.active_seconds}
+						].map(({label, seconds}) => (
+							<div
+								key={label}
+								className="rounded-lg border bg-muted/20 px-4 py-3"
+							>
+								<p className="text-xs font-medium text-muted-foreground">
+									{label}
+								</p>
+								{summaryLoading ? (
+									<div className="mt-2 h-7 w-20 animate-pulse rounded bg-muted" />
+								) : (
+									<p className="mt-1 text-xl font-semibold tabular-nums">
+										{formatSummaryDuration(seconds)}
+									</p>
+								)}
+							</div>
+						))}
+					</div>
+				</CardContent>
+			</Card>
 
 			<Card className="shadow-xs">
 				<CardContent className="p-4">
