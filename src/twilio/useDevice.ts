@@ -63,6 +63,9 @@ export interface ActiveCall {
 	/** Internal EmberQA campaign UUID carried on the inbound Client invite. Null for
 	 * direct-DID and outbound calls that have no routed campaign attribution. */
 	campaignId: string | null;
+	/** True when the backend saw a fresh reservation for a different caller and
+	 * deliberately refused to guess this inbound call's campaign. */
+	campaignUnavailable: boolean;
 	muted: boolean;
 	/** Browser-side hold keeps the call connected while replacing the microphone
 	 * with music and silencing caller playback for the agent. */
@@ -931,6 +934,9 @@ export function useDevice({
 					campaignId: isOutbound
 						? null
 						: call.customParameters.get('campaign_id')?.trim() || null,
+					campaignUnavailable:
+						!isOutbound &&
+						call.customParameters.get('campaign_unavailable') === '1',
 					muted: false,
 					held: false,
 					holdPending: false,

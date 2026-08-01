@@ -98,6 +98,10 @@ export default function Dial() {
 	// Which campaign the active call's lead form is for. Defaults to the sole armed
 	// campaign; when several are armed the agent picks (the call can be from any buyer).
 	const [leadCampaignId, setLeadCampaignId] = useState<string>('');
+	const [unavailableCampaignChoice, setUnavailableCampaignChoice] = useState<{
+		callKey: string;
+		campaignId: string;
+	} | null>(null);
 	const [wrapUpCall, setWrapUpCall] = useState<ActiveCall | null>(null);
 	const [completedWrapUpCallKey, setCompletedWrapUpCallKey] = useState<
 		string | null
@@ -260,6 +264,7 @@ export default function Dial() {
 				from: '+15555550100',
 				callSid: debugCallSid!,
 				campaignId: null,
+				campaignUnavailable: false,
 				muted: debugCallMuted,
 				held: debugCallHeld,
 				holdPending: false,
@@ -274,11 +279,19 @@ export default function Dial() {
 		? campaigns.find((campaign) => campaign.id === workCall.campaignId)
 		: undefined;
 	// A campaign attached to the Twilio invite is call-specific and authoritative.
-	// Fall back to the existing presence/manual selection only for unattributed calls.
-	const effectiveLeadCampaignId =
-		workCall?.direction === 'inbound' && attributedCampaign
-			? attributedCampaign.id
-			: leadCampaignId;
+	// A known mismatch must stay blank; ordinary unattributed/direct calls retain the
+	// existing presence/manual fallback.
+	let effectiveLeadCampaignId = leadCampaignId;
+	if (workCall?.direction === 'inbound') {
+		if (workCall.campaignUnavailable) {
+			effectiveLeadCampaignId =
+				unavailableCampaignChoice?.callKey === wrapUpCallKey
+					? unavailableCampaignChoice.campaignId
+					: '';
+		} else if (attributedCampaign) {
+			effectiveLeadCampaignId = attributedCampaign.id;
+		}
+	}
 
 	// Keep prior-history pull-up for agent-originated outbound calls only. Inbound
 	// calls always start a new lead: they do not run the returning-caller classifier,
@@ -542,13 +555,25 @@ export default function Dial() {
 										<div className="grid gap-2">
 											{(armedCampaigns.length ? armedCampaigns : campaigns).map(
 												(c) => (
-													<Button
-														key={c.id}
-														type="button"
-														variant="outline"
-														className="justify-start"
-														onClick={() => setLeadCampaignId(c.id)}
-													>
+												<Button
+													key={c.id}
+													type="button"
+													variant="outline"
+													className="justify-start"
+													onClick={() => {
+														if (
+															workCall.campaignUnavailable &&
+															wrapUpCallKey
+														) {
+															setUnavailableCampaignChoice({
+																callKey: wrapUpCallKey,
+																campaignId: c.id
+															});
+														} else {
+															setLeadCampaignId(c.id);
+														}
+													}}
+												>
 														{c.name}
 													</Button>
 												)
