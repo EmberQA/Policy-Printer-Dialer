@@ -60,9 +60,7 @@ export function ActiveCallBanner({
 							<Badge variant="outline">
 								{call.campaignId
 									? `Campaign: ${campaignName ?? 'Unavailable'}`
-									: call.campaignUnavailable
-										? 'Campaign unavailable'
-										: 'Direct call'}
+									: 'Direct call'}
 							</Badge>
 						)}
 						<span className="font-mono text-sm tabular-nums text-muted-foreground">

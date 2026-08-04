@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {
 	AudioLines,
 	Headphones,
@@ -25,6 +25,13 @@ import {
 	type RecordedEchoPhase,
 	type RecordedEchoProgress
 } from './recordedEcho';
+import {
+	canUseTabletAudioFallback,
+	hasSpeechLevelMicActivity,
+	INITIAL_TABLET_AUDIO_EVIDENCE,
+	isTabletBrowser,
+	tabletAudioEvidenceReducer
+} from './tabletAudioFallback';
 
 const DEFAULT_DEVICE_ID = 'default';
 
@@ -61,12 +68,21 @@ export function AudioSetupDialog({
 	const [error, setError] = useState<string | null>(null);
 	const [applying, setApplying] = useState<ApplyingState>(null);
 	const [echoStarted, setEchoStarted] = useState(false);
+	const [echoFailed, setEchoFailed] = useState(false);
 	const [echoConfirmationReady, setEchoConfirmationReady] = useState(false);
 	const [echoProgress, setEchoProgress] =
 		useState<RecordedEchoProgress | null>(null);
 	const echoPlaybackRef = useRef<RecordedEcho | null>(null);
 	const echoConfirmationTimerRef = useRef<number | null>(null);
 	const open = controlledOpen ?? internalOpen;
+	const [tabletAudioEvidence, dispatchTabletAudioEvidence] = useReducer(
+		tabletAudioEvidenceReducer,
+		INITIAL_TABLET_AUDIO_EVIDENCE
+	);
+	const tabletBrowser = useMemo(
+		() => isTabletBrowser(navigator.userAgent, navigator.maxTouchPoints ?? 0),
+		[]
+	);
 	const micMeter = useMicLevelMeter({
 		enabled: open,
 		deviceId: selectedInputId
@@ -85,6 +101,16 @@ export function AudioSetupDialog({
 		() => deviceOptions(devices, 'audiooutput', 'speaker'),
 		[devices]
 	);
+	const tabletFallbackVisible = required && tabletBrowser && echoFailed;
+	const silentPlaybackEscapeVisible =
+		required && tabletBrowser && echoStarted && !echoFailed;
+	const tabletFallbackComplete = canUseTabletAudioFallback({
+		isTablet: tabletBrowser,
+		echoFailed,
+		evidence: tabletAudioEvidence
+	});
+	const requiredConfirmationReady =
+		echoConfirmationReady || tabletFallbackComplete;
 
 	useEffect(
 		() => () => {
@@ -101,6 +127,11 @@ export function AudioSetupDialog({
 	useEffect(() => {
 		if (micMeter.error) setError(micMeter.error);
 	}, [micMeter.error]);
+
+	useEffect(() => {
+		if (!hasSpeechLevelMicActivity(micMeter.segments)) return;
+		dispatchTabletAudioEvidence({type: 'microphoneActivityDetected'});
+	}, [micMeter.segments]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -148,6 +179,7 @@ export function AudioSetupDialog({
 	};
 
 	const changeInputDevice = async (deviceId: string) => {
+		dispatchTabletAudioEvidence({type: 'inputDeviceChanged'});
 		setSelectedInputId(deviceId);
 		setApplying('input');
 		setError(null);
@@ -161,6 +193,7 @@ export function AudioSetupDialog({
 	};
 
 	const changeOutputDevice = async (deviceId: string) => {
+		dispatchTabletAudioEvidence({type: 'outputDeviceChanged'});
 		setSelectedOutputId(deviceId);
 		setApplying('output');
 		setError(null);
@@ -175,12 +208,14 @@ export function AudioSetupDialog({
 	};
 
 	const testSpeaker = async () => {
+		dispatchTabletAudioEvidence({type: 'speakerTestStarted'});
 		setApplying('speaker');
 		setError(null);
 		setSpeakerStatus('Playing');
 		try {
 			await playTestTone(selectedOutputId);
 			setSpeakerStatus('Test complete');
+			dispatchTabletAudioEvidence({type: 'speakerTestCompleted'});
 		} catch (err) {
 			setSpeakerStatus('Speaker unavailable');
 			setError(readMediaError(err, 'Could not play speaker test.'));
@@ -204,11 +239,22 @@ export function AudioSetupDialog({
 		setEchoStatus('Record a few words, then hear them played back.');
 	};
 
+	useEffect(() => {
+		stopEchoTest();
+		if (!open) return;
+		dispatchTabletAudioEvidence({type: 'sessionReset'});
+		setSpeakerStatus('Speaker idle');
+		setEchoStarted(false);
+		setEchoFailed(false);
+		setEchoConfirmationReady(false);
+	}, [open]);
+
 	const startEchoTest = async () => {
 		stopEchoTest();
 		setApplying('echo');
 		setError(null);
 		setEchoStarted(false);
+		setEchoFailed(false);
 		setEchoConfirmationReady(false);
 		setEchoProgress(null);
 		setEchoActive(true);
@@ -258,10 +304,20 @@ export function AudioSetupDialog({
 			setApplying(null);
 			setEchoProgress(null);
 			setEchoStatus('Echo test unavailable.');
+			setEchoFailed(true);
 			setError(readMediaError(err, 'Could not start the echo test.'));
 		} finally {
 			if (echoPlaybackRef.current === playback) setApplying(null);
 		}
+	};
+
+	const reportSilentEchoPlayback = () => {
+		stopEchoTest();
+		setError(null);
+		setEchoStarted(false);
+		setEchoFailed(true);
+		setEchoConfirmationReady(false);
+		setEchoStatus('Use the tablet microphone and speaker checks below.');
 	};
 
 	const setOpen = (nextOpen: boolean) => {
@@ -486,13 +542,45 @@ export function AudioSetupDialog({
 									) : (
 										<Mic className="size-4" />
 									)}
-									{echoActive ? 'Stop' : echoStarted ? 'Test again' : 'Start'}
+									{echoActive ? 'Stop' : echoStarted || echoFailed ? 'Test again' : 'Start'}
 								</Button>
 							</div>
 							{echoProgress && (
 								<EchoProgressBar progress={echoProgress} />
 							)}
+							{silentPlaybackEscapeVisible && (
+								<Button
+									type="button"
+									variant="ghost"
+									onClick={reportSilentEchoPlayback}
+									className="w-full"
+								>
+									I couldn&apos;t hear the playback
+								</Button>
+							)}
 						</section>
+
+						{tabletFallbackVisible && (
+							<section className="space-y-3 rounded-md border border-primary/30 bg-primary/5 p-4">
+								<div className="space-y-1">
+									<p className="text-sm font-semibold">Tablet audio check</p>
+									<p className="text-sm leading-6 text-muted-foreground">
+										Speak until at least three microphone meter segments light
+										up, then run the Speaker Test above.
+									</p>
+								</div>
+								<div className="grid gap-2 text-sm sm:grid-cols-2">
+									<FallbackCheckStatus
+										label="Microphone activity"
+										complete={tabletAudioEvidence.microphoneActivityDetected}
+									/>
+									<FallbackCheckStatus
+										label="Speaker test"
+										complete={tabletAudioEvidence.speakerTestCompleted}
+									/>
+								</div>
+							</section>
+						)}
 					</div>
 
 					{required ? (
@@ -501,21 +589,27 @@ export function AudioSetupDialog({
 								className="text-center text-sm font-semibold leading-6"
 								aria-live="polite"
 							>
-								{echoStarted
-									? echoConfirmationReady
-										? 'If you heard your voice, click below to enter the dialer.'
-										: 'Listen to your recording. The button will unlock after one second of playback.'
-									: echoActive
-										? 'Speak now. Your recording will play back automatically.'
-										: 'Start the Echo Test above. Once you hear yourself, click below to continue.'}
+								{tabletFallbackVisible
+									? tabletFallbackComplete
+										? 'Microphone input registered and the speaker test completed. Click below to enter the dialer.'
+										: 'Complete the microphone and speaker checks above to continue.'
+									: echoStarted
+										? echoConfirmationReady
+											? 'If you heard your voice, click below to enter the dialer.'
+											: 'Listen to your recording. The button will unlock after one second of playback.'
+										: echoActive
+											? 'Speak now. Your recording will play back automatically.'
+											: 'Start the Echo Test above. Once you hear yourself, click below to continue.'}
 							</p>
 							<Button
 								type="button"
 								onClick={completeRequiredTest}
-								disabled={!echoConfirmationReady || applying !== null}
+								disabled={!requiredConfirmationReady || applying !== null}
 								className="h-12 w-full text-base"
 							>
-								I can hear my voice
+								{tabletFallbackVisible
+									? 'Continue with audio checks complete'
+									: 'I can hear my voice'}
 							</Button>
 						</div>
 					) : (
@@ -541,6 +635,28 @@ export function AudioSetupDialog({
 				</DialogPrimitive.Content>
 			</DialogPrimitive.Portal>
 		</DialogPrimitive.Root>
+	);
+}
+
+function FallbackCheckStatus({
+	label,
+	complete
+}: {
+	label: string;
+	complete: boolean;
+}) {
+	return (
+		<div className="flex items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
+			<span>{label}</span>
+			<span
+				className={cn(
+					'text-xs font-medium',
+					complete ? 'text-success' : 'text-muted-foreground'
+				)}
+			>
+				{complete ? 'Detected' : 'Waiting'}
+			</span>
+		</div>
 	);
 }
 
