@@ -38,6 +38,7 @@ const DEFAULT_DEVICE_ID = 'default';
 type ApplyingState = 'input' | 'output' | 'speaker' | 'echo' | 'refresh' | null;
 
 interface AudioSetupDialogProps {
+	inputDeviceId: string;
 	onInputDeviceChange: (deviceId: string) => Promise<void>;
 	onOutputDeviceChange: (deviceId: string) => Promise<void>;
 	open?: boolean;
@@ -48,6 +49,7 @@ interface AudioSetupDialogProps {
 }
 
 export function AudioSetupDialog({
+	inputDeviceId,
 	onInputDeviceChange,
 	onOutputDeviceChange,
 	open: controlledOpen,
@@ -58,7 +60,6 @@ export function AudioSetupDialog({
 }: AudioSetupDialogProps) {
 	const [internalOpen, setInternalOpen] = useState(false);
 	const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-	const [selectedInputId, setSelectedInputId] = useState(DEFAULT_DEVICE_ID);
 	const [selectedOutputId, setSelectedOutputId] = useState(DEFAULT_DEVICE_ID);
 	const [speakerStatus, setSpeakerStatus] = useState('Speaker idle');
 	const [echoStatus, setEchoStatus] = useState(
@@ -85,7 +86,7 @@ export function AudioSetupDialog({
 	);
 	const micMeter = useMicLevelMeter({
 		enabled: open,
-		deviceId: selectedInputId
+		deviceId: inputDeviceId
 	});
 	const micStatus = !open
 		? 'Microphone idle'
@@ -138,14 +139,9 @@ export function AudioSetupDialog({
 
 		let cancelled = false;
 		const refresh = async () => {
-			const nextDevices = await enumerateAudioDevices();
+			const nextDevices = await enumerateAudioDevices(inputDeviceId);
 			if (cancelled) return;
 			setDevices(nextDevices);
-			setSelectedInputId((current) =>
-				containsDevice(nextDevices, 'audioinput', current)
-					? current
-					: DEFAULT_DEVICE_ID
-			);
 			setSelectedOutputId((current) =>
 				containsDevice(nextDevices, 'audiooutput', current)
 					? current
@@ -159,18 +155,13 @@ export function AudioSetupDialog({
 			cancelled = true;
 			navigator.mediaDevices?.removeEventListener?.('devicechange', refresh);
 		};
-	}, [open]);
+	}, [inputDeviceId, open]);
 
 	const refreshDevices = async () => {
 		setApplying('refresh');
 		setError(null);
 		try {
-			await navigator.mediaDevices
-				.getUserMedia({audio: true})
-				.then((stream) => {
-					stream.getTracks().forEach((track) => track.stop());
-				});
-			setDevices(await enumerateAudioDevices());
+			setDevices(await enumerateAudioDevices(inputDeviceId));
 		} catch (err) {
 			setError(readMediaError(err, 'Could not refresh audio devices.'));
 		} finally {
@@ -180,7 +171,6 @@ export function AudioSetupDialog({
 
 	const changeInputDevice = async (deviceId: string) => {
 		dispatchTabletAudioEvidence({type: 'inputDeviceChanged'});
-		setSelectedInputId(deviceId);
 		setApplying('input');
 		setError(null);
 		try {
@@ -286,7 +276,7 @@ export function AudioSetupDialog({
 		};
 
 		playback = new RecordedEcho(
-			selectedInputId,
+			inputDeviceId,
 			selectedOutputId,
 			handlePhaseChange,
 			(progress) => {
@@ -433,7 +423,7 @@ export function AudioSetupDialog({
 									loading={applying === 'input'}
 								/>
 							</div>
-								<Select value={selectedInputId} onValueChange={changeInputDevice}>
+								<Select value={inputDeviceId} onValueChange={changeInputDevice}>
 									<SelectTrigger
 										id="audio-input-device"
 										className="w-full min-w-0"
@@ -756,12 +746,19 @@ function containsDevice(
 	);
 }
 
-async function enumerateAudioDevices() {
+async function enumerateAudioDevices(inputDeviceId: string) {
 	if (!navigator.mediaDevices?.enumerateDevices) return [];
 	try {
-		await navigator.mediaDevices.getUserMedia({audio: true}).then((stream) => {
-			stream.getTracks().forEach((track) => track.stop());
-		});
+		await navigator.mediaDevices
+			.getUserMedia({
+				audio:
+					inputDeviceId === DEFAULT_DEVICE_ID
+						? true
+						: {deviceId: {exact: inputDeviceId}}
+			})
+			.then((stream) => {
+				stream.getTracks().forEach((track) => track.stop());
+			});
 	} catch {
 		/* Labels may be hidden until permission is granted. Enumerate anyway. */
 	}

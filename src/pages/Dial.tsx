@@ -571,6 +571,7 @@ export default function Dial() {
 					onToggleReady={onToggleReady}
 					campaigns={campaigns}
 					onToggleCampaign={onToggleCampaign}
+					inputDeviceId={device.inputDeviceId}
 					onInputDeviceChange={device.setInputDevice}
 					onOutputDeviceChange={device.setOutputDevice}
 					available={displayAvailable}
@@ -676,6 +677,7 @@ function DialSidebar({
 	onToggleReady,
 	campaigns,
 	onToggleCampaign,
+	inputDeviceId,
 	onInputDeviceChange,
 	onOutputDeviceChange,
 	available,
@@ -701,6 +703,7 @@ function DialSidebar({
 	onToggleReady: () => void;
 	campaigns: DialerCampaign[];
 	onToggleCampaign: (campaignId: string, ready: boolean) => void;
+	inputDeviceId: string;
 	onInputDeviceChange: (deviceId: string) => Promise<void>;
 	onOutputDeviceChange: (deviceId: string) => Promise<void>;
 	available: 0 | 1 | null;
@@ -718,7 +721,10 @@ function DialSidebar({
 	canDial: boolean;
 	dialPending: boolean;
 }) {
-	const systemMicMeter = useMicLevelMeter({enabled: provisioned});
+	const systemMicMeter = useMicLevelMeter({
+		enabled: provisioned,
+		deviceId: inputDeviceId
+	});
 	const selectedCampaigns = campaigns.filter((campaign) => campaign.ready);
 	const showCampaignAllowancePopup =
 		selectedCampaigns.length > 0 && status !== 'ready' && busy !== 'status';
@@ -781,6 +787,7 @@ function DialSidebar({
 							onToggleCampaign={onToggleCampaign}
 						/>
 						<AudioSetupDialog
+							inputDeviceId={inputDeviceId}
 							onInputDeviceChange={onInputDeviceChange}
 							onOutputDeviceChange={onOutputDeviceChange}
 						/>

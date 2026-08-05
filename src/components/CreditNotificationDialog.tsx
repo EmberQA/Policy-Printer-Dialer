@@ -88,6 +88,7 @@ function formatCallTime(value: string | null): string {
 
 function formatReason(value: string): string {
 	const labels: Record<string, string> = {
+		non_english_speaker: 'Caller did not speak English.',
 		wrong_number: 'Caller said they dialed the wrong number.',
 		grocery_angle: 'Caller was inquiring about a grocery benefit.',
 		over_89: 'Caller was over 89 years old.',

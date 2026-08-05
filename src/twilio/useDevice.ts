@@ -106,6 +106,8 @@ export interface UseDeviceState {
 	startOutbound: (toNumber: string) => Promise<void>;
 	/** Stop the exact pending parent leg. Safe against answer/callback races. */
 	cancelPendingOutbound: () => Promise<void>;
+	/** Microphone currently selected for Twilio calls and local audio checks. */
+	inputDeviceId: string;
 	setInputDevice: (deviceId: string) => Promise<void>;
 	setOutputDevice: (deviceId: string) => Promise<void>;
 }
@@ -136,6 +138,7 @@ export function useDevice({
 		useState<StartingOutboundCall | null>(null);
 	const [pendingOutbound, setPendingOutbound] =
 		useState<PendingOutboundCall | null>(null);
+	const [inputDeviceId, setInputDeviceId] = useState('default');
 
 	const deviceRef = useRef<Device | null>(null);
 	const callRef = useRef<Call | null>(null);
@@ -144,6 +147,7 @@ export function useDevice({
 	const callerHangupNoticeTimerRef = useRef<number | null>(null);
 	const outboundStartingRef = useRef<StartingOutboundCall | null>(null);
 	const pendingOutboundRef = useRef<PendingOutboundCall | null>(null);
+	const inputDeviceIdRef = useRef('default');
 	const outputDeviceIdRef = useRef('default');
 	const ringbackRef = useRef<OutboundRingback | null>(null);
 	const answerToneRef = useRef<InboundAnswerTone | null>(null);
@@ -326,6 +330,8 @@ export function useDevice({
 				throw new Error('Softphone audio is not ready yet.');
 			}
 			await audio.setInputDevice(deviceId);
+			inputDeviceIdRef.current = deviceId;
+			setInputDeviceId(deviceId);
 		},
 		[]
 	);
@@ -377,7 +383,13 @@ export function useDevice({
 			// (2) Mic permission + input priming. Release the tracks immediately;
 			// the Twilio SDK opens its own stream on accept(). We only needed the
 			// permission grant + the user-gesture context.
-			const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+			const selectedInputDeviceId = inputDeviceIdRef.current;
+			const stream = await navigator.mediaDevices.getUserMedia({
+				audio:
+					selectedInputDeviceId === 'default'
+						? true
+						: {deviceId: {exact: selectedInputDeviceId}}
+			});
 			stream.getTracks().forEach((t) => t.stop());
 		} catch (e) {
 			setError(micErrorMessage(e));
@@ -1043,6 +1055,17 @@ export function useDevice({
 				// We accept inbound calls immediately and provide our own post-answer
 				// agent-only chime. Prevent Twilio's pre-answer ringtone from racing it.
 				device.audio?.incoming(false);
+				device.audio?.on('deviceChange', () => {
+					if (cancelled) return;
+					const activeInputDeviceId = device?.audio?.inputDevice?.deviceId;
+					if (!activeInputDeviceId) {
+						inputDeviceIdRef.current = 'default';
+						setInputDeviceId('default');
+						return;
+					}
+					inputDeviceIdRef.current = activeInputDeviceId;
+					setInputDeviceId(activeInputDeviceId);
+				});
 				deviceRef.current = device;
 
 				device.on('registered', () => {
@@ -1132,6 +1155,7 @@ export function useDevice({
 		dismissCallerHangupNotice,
 		outboundStarting,
 		pendingOutbound,
+		inputDeviceId,
 		mute,
 		setHold,
 		hangup,

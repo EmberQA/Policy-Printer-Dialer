@@ -309,6 +309,7 @@ function AuthenticatedDialerApp({
 				open={audioCheckOpen}
 				required
 				showTrigger={false}
+				inputDeviceId={device.inputDeviceId}
 				onRequiredComplete={() => {
 					// The completion button is a browser gesture. Arm the post-answer
 					// tone here too, because a restored Ready state may never be toggled.
