@@ -572,6 +572,7 @@ export default function Dial() {
 					campaigns={campaigns}
 					onToggleCampaign={onToggleCampaign}
 					inputDeviceId={device.inputDeviceId}
+					outputDeviceId={device.outputDeviceId}
 					onInputDeviceChange={device.setInputDevice}
 					onOutputDeviceChange={device.setOutputDevice}
 					available={displayAvailable}
@@ -678,6 +679,7 @@ function DialSidebar({
 	campaigns,
 	onToggleCampaign,
 	inputDeviceId,
+	outputDeviceId,
 	onInputDeviceChange,
 	onOutputDeviceChange,
 	available,
@@ -704,6 +706,7 @@ function DialSidebar({
 	campaigns: DialerCampaign[];
 	onToggleCampaign: (campaignId: string, ready: boolean) => void;
 	inputDeviceId: string;
+	outputDeviceId: string;
 	onInputDeviceChange: (deviceId: string) => Promise<void>;
 	onOutputDeviceChange: (deviceId: string) => Promise<void>;
 	available: 0 | 1 | null;
@@ -788,6 +791,7 @@ function DialSidebar({
 						/>
 						<AudioSetupDialog
 							inputDeviceId={inputDeviceId}
+							outputDeviceId={outputDeviceId}
 							onInputDeviceChange={onInputDeviceChange}
 							onOutputDeviceChange={onOutputDeviceChange}
 						/>

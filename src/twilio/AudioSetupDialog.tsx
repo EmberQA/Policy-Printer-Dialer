@@ -39,6 +39,7 @@ type ApplyingState = 'input' | 'output' | 'speaker' | 'echo' | 'refresh' | null;
 
 interface AudioSetupDialogProps {
 	inputDeviceId: string;
+	outputDeviceId: string;
 	onInputDeviceChange: (deviceId: string) => Promise<void>;
 	onOutputDeviceChange: (deviceId: string) => Promise<void>;
 	open?: boolean;
@@ -50,6 +51,7 @@ interface AudioSetupDialogProps {
 
 export function AudioSetupDialog({
 	inputDeviceId,
+	outputDeviceId,
 	onInputDeviceChange,
 	onOutputDeviceChange,
 	open: controlledOpen,
@@ -60,7 +62,6 @@ export function AudioSetupDialog({
 }: AudioSetupDialogProps) {
 	const [internalOpen, setInternalOpen] = useState(false);
 	const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-	const [selectedOutputId, setSelectedOutputId] = useState(DEFAULT_DEVICE_ID);
 	const [speakerStatus, setSpeakerStatus] = useState('Speaker idle');
 	const [echoStatus, setEchoStatus] = useState(
 		'Record a few words, then hear them played back.'
@@ -142,11 +143,6 @@ export function AudioSetupDialog({
 			const nextDevices = await enumerateAudioDevices(inputDeviceId);
 			if (cancelled) return;
 			setDevices(nextDevices);
-			setSelectedOutputId((current) =>
-				containsDevice(nextDevices, 'audiooutput', current)
-					? current
-					: DEFAULT_DEVICE_ID
-			);
 		};
 
 		void refresh();
@@ -184,7 +180,6 @@ export function AudioSetupDialog({
 
 	const changeOutputDevice = async (deviceId: string) => {
 		dispatchTabletAudioEvidence({type: 'outputDeviceChanged'});
-		setSelectedOutputId(deviceId);
 		setApplying('output');
 		setError(null);
 		try {
@@ -203,7 +198,7 @@ export function AudioSetupDialog({
 		setError(null);
 		setSpeakerStatus('Playing');
 		try {
-			await playTestTone(selectedOutputId);
+			await playTestTone(outputDeviceId);
 			setSpeakerStatus('Test complete');
 			dispatchTabletAudioEvidence({type: 'speakerTestCompleted'});
 		} catch (err) {
@@ -277,7 +272,7 @@ export function AudioSetupDialog({
 
 		playback = new RecordedEcho(
 			inputDeviceId,
-			selectedOutputId,
+			outputDeviceId,
 			handlePhaseChange,
 			(progress) => {
 				if (echoPlaybackRef.current === playback) setEchoProgress(progress);
@@ -464,7 +459,7 @@ export function AudioSetupDialog({
 							</div>
 							<div className="flex flex-col gap-2 sm:flex-row">
 								<Select
-									value={selectedOutputId}
+									value={outputDeviceId}
 									onValueChange={changeOutputDevice}
 								>
 										<SelectTrigger
@@ -731,19 +726,6 @@ function deviceName(
 	if (device.deviceId === DEFAULT_DEVICE_ID) return `Default ${label}`;
 	if (device.deviceId === 'communications') return `Communications ${label}`;
 	return `${capitalize(label)} ${index + 1}`;
-}
-
-function containsDevice(
-	devices: MediaDeviceInfo[],
-	kind: MediaDeviceKind,
-	deviceId: string
-) {
-	return (
-		deviceId === DEFAULT_DEVICE_ID ||
-		devices.some(
-			(device) => device.kind === kind && device.deviceId === deviceId
-		)
-	);
 }
 
 async function enumerateAudioDevices(inputDeviceId: string) {

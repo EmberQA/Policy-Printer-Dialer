@@ -108,6 +108,8 @@ export interface UseDeviceState {
 	cancelPendingOutbound: () => Promise<void>;
 	/** Microphone currently selected for Twilio calls and local audio checks. */
 	inputDeviceId: string;
+	/** Speaker currently selected for Twilio calls and local audio checks. */
+	outputDeviceId: string;
 	setInputDevice: (deviceId: string) => Promise<void>;
 	setOutputDevice: (deviceId: string) => Promise<void>;
 }
@@ -139,6 +141,7 @@ export function useDevice({
 	const [pendingOutbound, setPendingOutbound] =
 		useState<PendingOutboundCall | null>(null);
 	const [inputDeviceId, setInputDeviceId] = useState('default');
+	const [outputDeviceId, setOutputDeviceId] = useState('default');
 
 	const deviceRef = useRef<Device | null>(null);
 	const callRef = useRef<Call | null>(null);
@@ -353,6 +356,7 @@ export function useDevice({
 				audio.ringtoneDevices.set(deviceId)
 			]);
 			outputDeviceIdRef.current = deviceId;
+			setOutputDeviceId(deviceId);
 			ringbackRef.current?.setOutputDevice(deviceId);
 			answerToneRef.current?.setOutputDevice(deviceId);
 		},
@@ -1057,14 +1061,16 @@ export function useDevice({
 				device.audio?.incoming(false);
 				device.audio?.on('deviceChange', () => {
 					if (cancelled) return;
-					const activeInputDeviceId = device?.audio?.inputDevice?.deviceId;
-					if (!activeInputDeviceId) {
-						inputDeviceIdRef.current = 'default';
-						setInputDeviceId('default');
-						return;
-					}
+					const activeInputDeviceId =
+						device?.audio?.inputDevice?.deviceId ?? 'default';
 					inputDeviceIdRef.current = activeInputDeviceId;
 					setInputDeviceId(activeInputDeviceId);
+
+					const activeOutputDeviceId =
+						Array.from(device?.audio?.speakerDevices.get() ?? [])[0]
+							?.deviceId ?? 'default';
+					outputDeviceIdRef.current = activeOutputDeviceId;
+					setOutputDeviceId(activeOutputDeviceId);
 				});
 				deviceRef.current = device;
 
@@ -1156,6 +1162,7 @@ export function useDevice({
 		outboundStarting,
 		pendingOutbound,
 		inputDeviceId,
+		outputDeviceId,
 		mute,
 		setHold,
 		hangup,
