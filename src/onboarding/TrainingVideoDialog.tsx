@@ -25,7 +25,7 @@ export function TrainingVideoDialog({
 					<div className="flex items-start justify-between gap-3">
 						<div className="space-y-1">
 							<DialogPrimitive.Title className="text-lg font-semibold">
-								How to use the Policy Printer Dialer
+								How to use the dialer
 							</DialogPrimitive.Title>
 							<DialogPrimitive.Description className="text-sm text-muted-foreground">
 								Watch this short walkthrough before taking calls.
@@ -47,7 +47,7 @@ export function TrainingVideoDialog({
 					<div className="relative min-h-0 overflow-hidden rounded-lg border bg-black">
 						<iframe
 							src={videoSrc}
-							title="Policy Printer Dialer training video"
+							title="Dialer training video"
 							frameBorder="0"
 							allowFullScreen
 							className="absolute inset-0 size-full"

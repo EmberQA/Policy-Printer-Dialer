@@ -510,7 +510,7 @@ function TldImportDialog({
 
 	const runImport = () => {
 		if (!signedInUserId) {
-			setError('The signed-in Policy Printer user could not be identified.');
+			setError('The signed-in user could not be identified.');
 			return;
 		}
 		if (selectedRows.length === 0) {
@@ -541,7 +541,7 @@ function TldImportDialog({
 							</DialogPrimitive.Title>
 							<DialogPrimitive.Description className="text-sm text-muted-foreground">
 								Upload a TLD CSV export, then choose the TLD user whose contacts
-								belong to this Policy Printer account.
+								belong to this account.
 							</DialogPrimitive.Description>
 						</div>
 						<DialogPrimitive.Close asChild>
@@ -650,7 +650,7 @@ function TldImportDialog({
 
 					<div className="flex items-center justify-between gap-3 border-t p-5">
 						<p className="text-xs text-muted-foreground">
-							Stored in this browser for the signed-in Policy Printer user.
+							Stored in this browser for the signed-in user.
 						</p>
 						<div className="flex gap-2">
 							<DialogPrimitive.Close asChild>

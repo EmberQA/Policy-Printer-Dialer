@@ -32,6 +32,7 @@ import {
 	type CreditFlight
 } from '@/components/CreditFlightAnimation';
 import {acknowledgeCreditNotification} from '@/lib/api';
+import {isPlainBranding} from '@/branding';
 
 type BootState =
 	| {phase: 'booting'}
@@ -51,6 +52,7 @@ const TRAINING_VIDEO_SRC =
  */
 export default function App() {
 	const [boot, setBoot] = useState<BootState>({phase: 'booting'});
+	const plainBranding = isPlainBranding();
 	const user = getUser();
 	const userName =
 		[user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
@@ -102,11 +104,11 @@ export default function App() {
 						Dialer access
 					</Badge>
 					<h1 className="text-xl font-semibold tracking-tight">
-						Open the dialer from Policy Printer
+						Open the dialer from the main app
 					</h1>
 					<p className="mt-2 text-sm leading-6 text-muted-foreground">
-						Launch this page with the Open Dialer button in the main Policy
-						Printer app so we can sign you in automatically.
+						Launch this page with the Open Dialer button in the main app so we
+						can sign you in automatically.
 					</p>
 					{boot.message && (
 						<p className="mt-3 text-xs text-destructive">{boot.message}</p>
@@ -141,6 +143,7 @@ export default function App() {
 					key={user?.user_id ?? 'unknown-user'}
 					userId={user?.user_id ?? 'unknown-user'}
 					userName={userName}
+					plainBranding={plainBranding}
 				/>
 			</LeadNotesProvider>
 		</DialerSessionProvider>
@@ -184,10 +187,12 @@ function DuplicateTabScreen() {
 
 function AuthenticatedDialerApp({
 	userId,
-	userName
+	userName,
+	plainBranding
 }: {
 	userId: string;
 	userName: string;
+	plainBranding: boolean;
 }) {
 	const {
 		bootstrapped,
@@ -264,7 +269,7 @@ function AuthenticatedDialerApp({
 					</h1>
 					<p className="mt-2 text-sm leading-6 text-muted-foreground">
 						An administrator has paused your dialer access. You can still use
-						the rest of the Policy Printer app.
+						the rest of the main app.
 					</p>
 				</div>
 			</div>
@@ -276,11 +281,13 @@ function AuthenticatedDialerApp({
 			<header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
 				<div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-1 sm:px-6">
 					<div className="flex min-w-0 flex-wrap items-center gap-4">
-						<img
-							src={policyPrinterLogo}
-							alt="Policy Printer"
-							className="h-14 w-auto shrink-0 object-contain"
-						/>
+						{!plainBranding && (
+							<img
+								src={policyPrinterLogo}
+								alt="Dialer"
+								className="h-14 w-auto shrink-0 object-contain"
+							/>
+						)}
 						<nav className="flex items-center gap-1" aria-label="Primary">
 							<NavTab to="/dial" label="Calls" />
 							<NavTab to="/crm" label="CRM" />

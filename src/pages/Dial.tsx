@@ -1163,7 +1163,7 @@ function StatusPreview({
 	const availabilityHelper = !provisioned
 		? 'Provisioning is required before calls can be routed.'
 		: isAvailable
-			? 'Currently available for calls from the Policy Printer network.'
+			? 'Currently available for calls.'
 			: reasonNotAvailable(presence, anyArmed, connected, deviceStatus, onCall);
 
 	return (
@@ -1227,10 +1227,10 @@ function StatusPreview({
 						icon={deviceRegistered ? Wifi : WifiOff}
 						label="Phone Registration"
 						value={deviceRegistered ? 'Registered' : deviceStatus}
-						helper={
+							helper={
 							deviceRegistered
-								? 'Device registered with Policy Printer phone network.'
-								: 'Not registered with Policy Printer phone network.'
+								? 'Device registered with the phone network.'
+								: 'Not registered with the phone network.'
 						}
 						tone={deviceRegistered ? 'success' : 'destructive'}
 					/>
@@ -1238,10 +1238,10 @@ function StatusPreview({
 						icon={RadioTower}
 						label="Call Network"
 						value={connected ? 'Connected' : 'Reconnecting'}
-						helper={
+							helper={
 							connected
-								? 'Device connected to Policy Printer call publishing network.'
-								: 'Device not connected to Policy Printer call publishing network.'
+								? 'Device connected to the call network.'
+								: 'Device not connected to the call network.'
 						}
 						tone={connected ? 'success' : 'destructive'}
 					/>
@@ -1393,12 +1393,12 @@ function reasonNotAvailable(
 	deviceStatus: string,
 	onCall: boolean
 ): string {
-	if (!connected) return 'Reconnecting to the Policy Printer network';
+	if (!connected) return 'Reconnecting to the call network';
 	if (onCall || presence?.on_call) return 'Currently on a call';
 	if (!anyArmed) return 'No campaign enabled';
 	if (deviceStatus !== 'registered')
-		return 'Your device isn’t connected to the Policy Printer network';
-	return 'Waiting on a ping from the Policy Printer network';
+		return 'Your device isn’t connected to the call network';
+	return 'Waiting on a ping from the call network';
 }
 
 function readError(err: any, fallback: string): string {

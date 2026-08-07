@@ -41,7 +41,7 @@ describe('TLD CSV import', () => {
 		expect(rowsForAgent(rows, 'id:267')).toHaveLength(1);
 	});
 
-	it('maps known TLD outcomes to Policy Printer dispositions', () => {
+	it('maps known TLD outcomes to dialer dispositions', () => {
 		expect(mapTldDisposition('SALE')).toEqual({
 			key: 'sale',
 			label: 'Sale Complete'
