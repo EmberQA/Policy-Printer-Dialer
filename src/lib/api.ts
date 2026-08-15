@@ -206,6 +206,12 @@ export interface DialerCampaign {
 	calls_allotted?: number | null;
 	calls_remaining?: number | null;
 	calls_remaining_status?: CampaignRemainingCallsStatus;
+	/** Retreaver Daily-cap usage for this (agent, campaign) buyer, counting TODAY only
+	 * (Retreaver resets it nightly). Null when the buyer has no daily cap — the UI
+	 * shows a plain remaining count in that case, no "x of y". */
+	daily_cap?: number | null;
+	daily_used?: number | null;
+	daily_remaining?: number | null;
 }
 
 export interface CampaignsResponse {
@@ -221,6 +227,9 @@ export interface CampaignRemainingCalls {
 	calls_used: number | null;
 	calls_allotted: number | null;
 	calls_remaining: number | null;
+	daily_cap: number | null;
+	daily_used: number | null;
+	daily_remaining: number | null;
 }
 
 export type CampaignRemainingCallsStatus =

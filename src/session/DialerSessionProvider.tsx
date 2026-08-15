@@ -130,7 +130,10 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 								calls_used: campaignUsage.calls_used,
 								calls_allotted: campaignUsage.calls_allotted,
 								calls_remaining: campaignUsage.calls_remaining,
-								calls_remaining_status: campaignUsage.calls_remaining_status
+								calls_remaining_status: campaignUsage.calls_remaining_status,
+								daily_cap: campaignUsage.daily_cap,
+								daily_used: campaignUsage.daily_used,
+								daily_remaining: campaignUsage.daily_remaining
 							}
 						: campaign;
 				})
@@ -171,7 +174,10 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 						current.map((campaign) => ({
 							...campaign,
 							calls_remaining: null,
-							calls_remaining_status: 'retreaver_unavailable'
+							calls_remaining_status: 'retreaver_unavailable',
+							daily_cap: null,
+							daily_used: null,
+							daily_remaining: null
 						}))
 					);
 				});

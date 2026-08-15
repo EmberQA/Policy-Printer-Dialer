@@ -1,5 +1,9 @@
 import {type CSSProperties} from 'react';
 import {type DialerCampaign} from '@/lib/api';
+import {
+	formatAllowanceCount,
+	resolveCampaignAllowance
+} from '@/lib/campaignAllowance';
 import {cn} from '@/lib/utils';
 
 export function CampaignAllowanceDisplay({
@@ -17,10 +21,11 @@ export function CampaignAllowanceDisplay({
 
 			<div className="mt-1 divide-y divide-border/60">
 				{campaigns.map((campaign, index) => {
-					const remaining = campaign.calls_remaining;
-					const available = typeof remaining === 'number';
-					const urgent = available && remaining === 0;
-					const low = available && remaining > 0 && remaining <= 5;
+					const allowance = resolveCampaignAllowance(campaign);
+					const available = allowance.state === 'available';
+					const urgent = available && allowance.remaining === 0;
+					const low =
+						available && allowance.remaining > 0 && allowance.remaining <= 5;
 					const numberTone = urgent
 						? 'text-destructive'
 						: low
@@ -46,9 +51,12 @@ export function CampaignAllowanceDisplay({
 									available ? numberTone : 'text-muted-foreground'
 								)}
 							>
-								{available
-									? `${remaining.toLocaleString()} remaining`
-									: remaining === undefined
+								{allowance.state === 'available'
+									? `${formatAllowanceCount(
+											allowance.remaining,
+											allowance.dailyCap
+										)} remaining`
+									: allowance.state === 'loading'
 										? 'Loading…'
 										: 'Unavailable'}
 							</span>
