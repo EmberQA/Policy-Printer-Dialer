@@ -23,7 +23,6 @@ import Dial from '@/pages/Dial';
 import Crm from '@/pages/Crm';
 import Leads from '@/pages/Leads';
 import {LeadNotesProvider} from '@/leads/LeadNotesContext';
-import policyPrinterLogo from '@/assets/policy-printer-logo.png';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
 import {CreditNotificationDialog} from '@/components/CreditNotificationDialog';
@@ -32,7 +31,11 @@ import {
 	type CreditFlight
 } from '@/components/CreditFlightAnimation';
 import {acknowledgeCreditNotification} from '@/lib/api';
-import {isPlainBranding} from '@/branding';
+import {
+	getDialerBranding,
+	isPlainBranding,
+	type DialerBranding
+} from '@/branding';
 
 type BootState =
 	| {phase: 'booting'}
@@ -53,6 +56,7 @@ const TRAINING_VIDEO_SRC =
 export default function App() {
 	const [boot, setBoot] = useState<BootState>({phase: 'booting'});
 	const plainBranding = isPlainBranding();
+	const branding = getDialerBranding();
 	const user = getUser();
 	const userName =
 		[user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
@@ -144,6 +148,7 @@ export default function App() {
 					userId={user?.user_id ?? 'unknown-user'}
 					userName={userName}
 					plainBranding={plainBranding}
+					branding={branding}
 				/>
 			</LeadNotesProvider>
 		</DialerSessionProvider>
@@ -188,11 +193,13 @@ function DuplicateTabScreen() {
 function AuthenticatedDialerApp({
 	userId,
 	userName,
-	plainBranding
+	plainBranding,
+	branding
 }: {
 	userId: string;
 	userName: string;
 	plainBranding: boolean;
+	branding: DialerBranding;
 }) {
 	const {
 		bootstrapped,
@@ -283,8 +290,8 @@ function AuthenticatedDialerApp({
 					<div className="flex min-w-0 flex-wrap items-center gap-4">
 						{!plainBranding && (
 							<img
-								src={policyPrinterLogo}
-								alt="Dialer"
+								src={branding.logoUrl}
+								alt={`${branding.appName} dialer`}
 								className="h-14 w-auto shrink-0 object-contain"
 							/>
 						)}

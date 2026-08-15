@@ -26,10 +26,19 @@ captures automatically.
 A separate subdomain can't share the main app's host-only `sameSite:Strict`
 cookies — hence the handoff rather than a shared cookie.
 
+L2 launches use `dialer.l2-infinite-insurance.link`, served by the same Amplify
+app. The dialer resolves that hostname to `pp_l2_infinite_insurance` and applies
+the matching logo, favicon, accessible name, and document title. The launcher
+also passes `dialer_brand=<brand>` as a backward-compatible fallback. An absent
+or unknown value safely falls back to Policy Printer. The brand changes
+presentation only — auth, permissions, and all API routes remain Policy
+Printer-scoped.
+
 Key files:
 - `src/auth/handoff.ts` — read `?code` → exchange → store → strip from URL
 - `src/auth/session.ts` — token storage + rotation
 - `src/lib/api.ts` — axios with the combined `Authorization` header + token rotation
+- `src/branding.ts` — visual-brand registry and tab-scoped selection
 
 ## Develop
 

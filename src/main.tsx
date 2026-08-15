@@ -3,9 +3,13 @@ import {createRoot} from 'react-dom/client';
 import {BrowserRouter} from 'react-router-dom';
 import App from './App';
 import './index.css';
-import {applyDocumentBranding, isPlainBranding} from './branding';
+import {
+	applyDocumentBranding,
+	getDialerBranding,
+	isPlainBranding
+} from './branding';
 
-applyDocumentBranding(isPlainBranding());
+applyDocumentBranding(isPlainBranding(), getDialerBranding());
 
 createRoot(document.getElementById('root')!).render(
 	<StrictMode>
