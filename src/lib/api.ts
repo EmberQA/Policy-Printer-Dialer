@@ -4,9 +4,9 @@
  * The backend's auth gate expects the access+refresh JWTs in ONE header:
  *   Authorization: <access>,<refresh>
  * and, when it rotates the access token, returns the fresh one in the RESPONSE
- * BODY as `newAccessToken` (not a header). So we:
+ * BODY as `newAccessToken` / `newRefreshToken` (not headers). So we:
  *   - attach the combined Authorization header on every request, and
- *   - capture `newAccessToken` from every response body and store it.
+ *   - capture both rotated tokens from every response body and store them.
  *
  * All authenticated endpoints are POSTs under VITE_API_BASE/api/v1/qualityscore
  * with an empty-ish JSON body (the backend reads authPayload server-side).
@@ -17,6 +17,7 @@ import {
 	getAccessToken,
 	getRefreshToken,
 	setAccessToken,
+	setRefreshToken,
 	clearSession
 } from '@/auth/session';
 
@@ -42,13 +43,32 @@ api.interceptors.request.use((config) => {
 	return config;
 });
 
+/**
+ * Store whichever tokens the backend re-issued on this response.
+ *
+ * Runs on error responses as well as successful ones: the backend re-mints tokens
+ * whenever the access token has expired and returns them in the body of whatever
+ * response it was already sending, so a request that both refreshed AND failed on
+ * business logic would otherwise throw the fresh tokens away.
+ */
+const captureRotatedTokens = (data: any): void => {
+	const newAccessToken = data?.newAccessToken;
+	if (typeof newAccessToken === 'string' && newAccessToken.length > 0) {
+		setAccessToken(newAccessToken);
+	}
+	// The refresh token slides — the backend re-issues it with a fresh 7-day expiry
+	// each time it is spent. Storing it is what keeps a running dialer signed in
+	// indefinitely; ignoring it would age the session out 7 days after LOGIN
+	// regardless of use, and could end a session mid-call.
+	const newRefreshToken = data?.newRefreshToken;
+	if (typeof newRefreshToken === 'string' && newRefreshToken.length > 0) {
+		setRefreshToken(newRefreshToken);
+	}
+};
+
 api.interceptors.response.use(
 	(response) => {
-		// Rotate the access token in place when the backend issued a fresh one.
-		const newAccessToken = response.data?.newAccessToken;
-		if (typeof newAccessToken === 'string' && newAccessToken.length > 0) {
-			setAccessToken(newAccessToken);
-		}
+		captureRotatedTokens(response.data);
 		return response;
 	},
 	(error) => {
@@ -57,6 +77,8 @@ api.interceptors.response.use(
 		// "relaunch from main app" screen.
 		if (error?.response?.status === 401) {
 			clearSession();
+		} else {
+			captureRotatedTokens(error?.response?.data);
 		}
 		return Promise.reject(error);
 	}
