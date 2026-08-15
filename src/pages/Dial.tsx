@@ -32,9 +32,12 @@ import {
 	setPresence,
 	type DialerCampaign,
 	type DialerPresence,
-	type CampaignRemainingCallsStatus,
 	type PresenceStatus
 } from '@/lib/api';
+import {
+	formatAllowanceCount,
+	resolveCampaignAllowance
+} from '@/lib/campaignAllowance';
 import {Input} from '@/components/ui/input';
 import {useDialerSession} from '@/session/DialerSessionProvider';
 import {type ActiveCall} from '@/twilio/useDevice';
@@ -897,10 +900,7 @@ function CampaignMenu({
 										</span>
 										<span aria-hidden="true">·</span>
 										<span className="tabular-nums text-foreground/75">
-											{formatCampaignRemainingCalls(
-												campaign.calls_remaining,
-												campaign.calls_remaining_status
-											)}
+											{formatCampaignRemainingCalls(campaign)}
 										</span>
 									</p>
 								</div>
@@ -930,14 +930,15 @@ function CampaignMenu({
 	);
 }
 
-function formatCampaignRemainingCalls(
-	callsRemaining: number | null | undefined,
-	status: CampaignRemainingCallsStatus | undefined
-): string {
-	if (callsRemaining === undefined) return 'Loading calls remaining…';
-	if (callsRemaining !== null) {
-		return `${callsRemaining.toLocaleString()} call${callsRemaining === 1 ? '' : 's'} remaining`;
+function formatCampaignRemainingCalls(campaign: DialerCampaign): string {
+	const allowance = resolveCampaignAllowance(campaign);
+	if (allowance.state === 'loading') return 'Loading calls remaining…';
+	if (allowance.state === 'available') {
+		const count = formatAllowanceCount(allowance.remaining, allowance.dailyCap);
+		return `${count} call${allowance.remaining === 1 && allowance.dailyCap === null ? '' : 's'} remaining`;
 	}
+
+	const status = campaign.calls_remaining_status;
 	if (status === 'buyer_id_not_configured') {
 		return 'Buyer ID not configured';
 	}
