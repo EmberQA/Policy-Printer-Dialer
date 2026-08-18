@@ -328,6 +328,12 @@ export interface VoiceTokenResponse {
 	provider?: 'telnyx' | 'twilio';
 	token?: string;
 	identity?: string;
+	/**
+	 * An administrator pinned this agent's network. The wizard must not run at all when it
+	 * is true — in either direction, and not run-and-be-refused. Rides on the one call
+	 * every dialer boot already makes rather than costing a second endpoint.
+	 */
+	provider_locked?: boolean;
 }
 
 /**
@@ -340,6 +346,61 @@ export interface VoiceTokenResponse {
  */
 export const getVoiceToken = (): Promise<VoiceTokenResponse> =>
 	qsPost('/policyPrinter/dialer/voice/token');
+
+/* -------------------------------------------------------------------------- */
+/* The network wizard (ENG-159 Subplan 07)                                    */
+/*                                                                             */
+/* ⚠️ Nothing in this block may put a carrier name, "Primary" or "Fallback" in  */
+/* front of the agent. The wizard's whole promise is that it just works.       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Mint a Primary-network token for an agent currently on Fallback, so the wizard can test
+ * whether they can go back.
+ *
+ * ⚠️ A NON-SUCCESS HERE IS THE ORDINARY ANSWER, not an error to surface: it means this
+ * agent is not a promotion candidate (already on Primary, administrator-pinned, or never
+ * provisioned on Primary). `/voice/token` mints against the ACTIVE carrier by design, so
+ * without this route an agent on Fallback has nothing to test Primary with and the
+ * promotion path is impossible rather than merely unbuilt.
+ */
+export const getVoiceProbeToken = (): Promise<VoiceTokenResponse> =>
+	qsPost('/policyPrinter/dialer/voice/probeToken');
+
+export interface VoiceFallbackResponse {
+	statusCode: string;
+	statusMessage: string;
+	ok?: boolean;
+}
+
+/**
+ * Move this agent onto `provider`. Self-only — the backend uses the caller's own ids and
+ * never reads a user from the body, and it will not accept the administrator pin here.
+ *
+ * `diagnostics` rides into the flip's own `provider_switched` row, which is why the wizard
+ * does not separately record an outcome that ended in a flip.
+ */
+export const postVoiceFallback = (
+	provider: 'telnyx' | 'twilio',
+	diagnostics?: Record<string, unknown>
+): Promise<VoiceFallbackResponse> =>
+	qsPost('/policyPrinter/dialer/voice/fallback', {
+		provider,
+		...(diagnostics ? {diagnostics} : {})
+	});
+
+/**
+ * Record a wizard outcome that did NOT end in a flip: a plain pass (the denominator
+ * without which a failure count means nothing), a fail-then-pass flap, or a promotion
+ * probe that failed. Best-effort on both ends — it must never fail a dialer boot.
+ */
+export const recordNetworkTest = (payload: {
+	passed: boolean;
+	direction: 'stay' | 'promote' | 'demote';
+	failed_stage?: string | null;
+	detail?: Record<string, unknown>;
+}): Promise<{statusCode: string; statusMessage: string}> =>
+	qsPost('/policyPrinter/dialer/voice/networkTest', payload);
 
 export interface StartOutboundCallResponse {
 	statusCode: string;

@@ -581,6 +581,7 @@ export default function Dial() {
 					available={displayAvailable}
 					connected={heartbeat.connected}
 					deviceStatus={device.deviceStatus}
+					networkChecking={device.networkChecking}
 					armedCount={armedCampaigns.length}
 					campaignCount={campaigns.length}
 					anyArmed={anyArmed}
@@ -688,6 +689,7 @@ function DialSidebar({
 	available,
 	connected,
 	deviceStatus,
+	networkChecking,
 	armedCount,
 	campaignCount,
 	anyArmed,
@@ -715,6 +717,7 @@ function DialSidebar({
 	available: 0 | 1 | null;
 	connected: boolean;
 	deviceStatus: string;
+	networkChecking: boolean;
 	armedCount: number;
 	campaignCount: number;
 	anyArmed: boolean;
@@ -828,6 +831,7 @@ function DialSidebar({
 				connected={connected}
 				status={status}
 				deviceStatus={deviceStatus}
+				networkChecking={networkChecking}
 				armedCount={armedCount}
 				campaignCount={campaignCount}
 				anyArmed={anyArmed}
@@ -1138,6 +1142,7 @@ function StatusPreview({
 	connected,
 	status,
 	deviceStatus,
+	networkChecking,
 	armedCount,
 	campaignCount,
 	anyArmed,
@@ -1150,6 +1155,7 @@ function StatusPreview({
 	connected: boolean;
 	status: PresenceStatus;
 	deviceStatus: string;
+	networkChecking: boolean;
 	armedCount: number;
 	campaignCount: number;
 	anyArmed: boolean;
@@ -1224,16 +1230,42 @@ function StatusPreview({
 						}
 						pending={!onCall && readyStatePending}
 					/>
+					{/*
+					 * ENG-159 Subplan 07. While the wizard runs, the softphone is
+					 * deliberately not built yet, so this row would otherwise read
+					 * "Not registered" in red for a second or two of every boot —
+					 * alarming, and about a state that is entirely normal.
+					 *
+					 * ⚠️ THE ONE STRING THIS FEATURE OWNS. It names no carrier, no
+					 * "Primary"/"Fallback", and never says a switch happened: the agent has
+					 * no action to take on any of it, so the only thing surfacing it could
+					 * produce is a support ticket about a system that is working correctly.
+					 */}
 					<StatusRow
-						icon={deviceRegistered ? Wifi : WifiOff}
+						icon={networkChecking ? Loader2 : deviceRegistered ? Wifi : WifiOff}
 						label="Phone Registration"
-						value={deviceRegistered ? 'Registered' : deviceStatus}
-							helper={
-							deviceRegistered
-								? 'Device registered with the phone network.'
-								: 'Not registered with the phone network.'
+						value={
+							networkChecking
+								? 'Checking'
+								: deviceRegistered
+									? 'Registered'
+									: deviceStatus
 						}
-						tone={deviceRegistered ? 'success' : 'destructive'}
+						helper={
+							networkChecking
+								? 'Finding the best connection…'
+								: deviceRegistered
+									? 'Device registered with the phone network.'
+									: 'Not registered with the phone network.'
+						}
+						tone={
+							networkChecking
+								? 'warning'
+								: deviceRegistered
+									? 'success'
+									: 'destructive'
+						}
+						pending={networkChecking}
 					/>
 					<StatusRow
 						icon={RadioTower}

@@ -27,7 +27,10 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {
 	cancelOutboundCall,
 	getCurrentOutboundCall,
+	getVoiceProbeToken,
 	getVoiceToken,
+	postVoiceFallback,
+	recordNetworkTest,
 	setOnCall,
 	setPresence,
 	startOutboundCall,
@@ -35,7 +38,13 @@ import {
 } from '@/lib/api';
 import {TelnyxTransport} from '@/voice/TelnyxTransport';
 import {TwilioTransport} from '@/voice/TwilioTransport';
-import type {IncomingLeg, VoiceTransport} from '@/voice/VoiceTransport';
+import {runNetworkProbe} from '@/voice/networkProbe';
+import {readWizardMarker, runNetworkWizard} from '@/voice/networkWizard';
+import type {
+	IncomingLeg,
+	VoiceProvider,
+	VoiceTransport
+} from '@/voice/VoiceTransport';
 import {
 	claimIncomingOwner,
 	clearActiveCallOwner,
@@ -93,6 +102,14 @@ export interface UseDeviceState {
 	apiPingMs: number | null;
 	/** Last device/call error message, for surfacing in the UI. */
 	error: string | null;
+	/**
+	 * The network wizard is running (ENG-159 Subplan 07). The ONLY thing it may put on
+	 * screen is a neutral "Finding the best connection…" line — never a carrier name,
+	 * never a network tier, and never a notice that a switch happened. The agent has no
+	 * action to take on any of that, so surfacing it can only produce a support ticket
+	 * about a system that is working correctly.
+	 */
+	networkChecking: boolean;
 	/** Short-lived notice when a remote inbound caller ends the call. */
 	callerHangupNotice: {id: number; message: string} | null;
 	dismissCallerHangupNotice: () => void;
@@ -150,6 +167,18 @@ export function useDevice({
 		useState<PendingOutboundCall | null>(null);
 	const [inputDeviceId, setInputDeviceId] = useState('default');
 	const [outputDeviceId, setOutputDeviceId] = useState('default');
+	/** The one thing the network wizard is allowed to put on screen (Subplan 07). It
+	 *  drives a neutral "Finding the best connection…" line and nothing else — no carrier
+	 *  name, no tier, no notice that a switch happened. */
+	const [networkChecking, setNetworkChecking] = useState(false);
+	/**
+	 * Bumped when the wizard moves this agent AFTER the softphone is already up (the
+	 * network-change demotion path). It is in the setup effect's dependency array, so a
+	 * bump tears the transport down and rebuilds it against a freshly-minted token for the
+	 * new carrier — reusing the cleanup that already exists rather than hand-rolling a
+	 * second teardown that would drift from it.
+	 */
+	const [voiceEpoch, setVoiceEpoch] = useState(0);
 
 	const transportRef = useRef<VoiceTransport | null>(null);
 	const callRef = useRef<IncomingLeg | null>(null);
@@ -806,6 +835,36 @@ export function useDevice({
 		let transport: VoiceTransport | null = null;
 		let apiPingTimer: number | null = null;
 		let apiPingController: AbortController | null = null;
+		/** What the live transport was built from — the wizard's input on a re-test. */
+		let activeVoice: {
+			provider: VoiceProvider;
+			providerLocked: boolean;
+			token: string;
+		} | null = null;
+		let networkChangeBusy = false;
+
+		/**
+		 * A network change is the one event that means "this agent may be broken RIGHT
+		 * NOW", so it re-tests. Reentrancy is guarded because `online` and `connection
+		 * change` routinely fire together on the same physical event, and two overlapping
+		 * probes would race to flip the same agent.
+		 */
+		const onNetworkChange = (): void => {
+			const current = activeVoice;
+			if (cancelled || !current || networkChangeBusy) return;
+			networkChangeBusy = true;
+			void (async () => {
+				try {
+					const moved = await runWizard(current, 'network-change');
+					// Bumping the epoch re-runs this whole effect: teardown, fresh token,
+					// new transport. The session marker written by the flip makes the boot
+					// wizard skip on that re-run, so this cannot loop.
+					if (!cancelled && moved) setVoiceEpoch((epoch) => epoch + 1);
+				} finally {
+					networkChangeBusy = false;
+				}
+			})();
+		};
 
 		/**
 		 * Mint a token AND learn which carrier it is for. The provider comes from the
@@ -814,7 +873,8 @@ export function useDevice({
 		 */
 		const fetchToken = async (): Promise<{
 			token: string;
-			provider: 'telnyx' | 'twilio';
+			provider: VoiceProvider;
+			providerLocked: boolean;
 		}> => {
 			const res = await getVoiceToken();
 			if (res.statusCode !== 'SP100' || !res.token) {
@@ -822,7 +882,81 @@ export function useDevice({
 			}
 			// Default to twilio when the field is absent: an agent who has never been
 			// flipped is on Twilio, so this fails safe rather than failing closed.
-			return {token: res.token, provider: res.provider ?? 'twilio'};
+			return {
+				token: res.token,
+				provider: res.provider ?? 'twilio',
+				// Absent ⇒ unpinned. An older backend that does not send this must not
+				// silently freeze every agent's network.
+				providerLocked: res.provider_locked === true
+			};
+		};
+
+		/**
+		 * The wizard's IO, in one place so both entry points (boot and network change) run
+		 * the identical machine. Every call here is best-effort by contract: none of it may
+		 * take out the dialer boot it sits in front of.
+		 */
+		const wizardIo = {
+			getProbeToken: async (): Promise<string | null> => {
+				const res = await getVoiceProbeToken();
+				// A refusal is the ORDINARY answer — it means "not a promotion candidate"
+				// (already on Primary, administrator-pinned, or never provisioned on
+				// Primary) and is never surfaced to the agent.
+				return res.statusCode === 'SP100' && res.token ? res.token : null;
+			},
+			runProbe: (token: string) => runNetworkProbe(token),
+			postFallback: async (
+				provider: VoiceProvider,
+				diagnostics: Record<string, unknown>
+			): Promise<boolean> => {
+				const res = await postVoiceFallback(provider, diagnostics);
+				return res.ok === true;
+			},
+			recordTest: async (payload: {
+				passed: boolean;
+				direction: 'stay' | 'promote' | 'demote';
+				failedStage?: string | null;
+				detail?: Record<string, unknown>;
+			}): Promise<void> => {
+				await recordNetworkTest({
+					passed: payload.passed,
+					direction: payload.direction,
+					failed_stage: payload.failedStage ?? null,
+					detail: payload.detail
+				}).catch(() => undefined);
+			}
+		};
+
+		/**
+		 * Decide which network this agent should be on, and move them if needed.
+		 *
+		 * Returns the carrier they were moved to, or null. At boot this runs BEFORE the
+		 * transport is built, so the softphone is never live on a carrier we are about to
+		 * move them off — and there is exactly one transport build in the common case.
+		 */
+		const runWizard = async (
+			current: {provider: VoiceProvider; providerLocked: boolean; token: string},
+			trigger: 'boot' | 'network-change'
+		): Promise<VoiceProvider | null> => {
+			const marker = readWizardMarker();
+			setNetworkChecking(true);
+			try {
+				const outcome = await runNetworkWizard(
+					{
+						provider: current.provider,
+						providerLocked: current.providerLocked,
+						trigger,
+						hasActiveCall: callRef.current !== null,
+						demotedThisSession: marker.demoted === true,
+						promotedThisSession: marker.promoted === true
+					},
+					current.token,
+					wizardIo
+				);
+				return outcome.flippedTo;
+			} finally {
+				if (!cancelled) setNetworkChecking(false);
+			}
 		};
 
 		/** Time a cache-bypassed request to EmberQA without backend auth or DB work. */
@@ -1041,8 +1175,20 @@ export function useDevice({
 				}
 				if (cancelled) return;
 
-				const {token, provider} = await fetchToken();
+				const first = await fetchToken();
 				if (cancelled) return;
+
+				// THE WIZARD RUNS BEFORE THE TRANSPORT (Subplan 07). Testing after the
+				// softphone is live would leave an agent registered on — and taking calls
+				// through — a network we are in the middle of condemning, and a reloading
+				// agent whose presence is still 'ready' from their last session would hit
+				// exactly that window. A flip means the token we already hold is for the
+				// wrong carrier, so re-mint; otherwise reuse the one we have.
+				const flipped = await runWizard(first, 'boot');
+				if (cancelled) return;
+				const active = flipped ? await fetchToken() : first;
+				if (cancelled) return;
+				const {token, provider} = active;
 
 				// The backend chose the carrier; build the matching transport. Everything
 				// below this line is provider-agnostic.
@@ -1088,6 +1234,15 @@ export function useDevice({
 					() => void probeApi(),
 					API_PING_INTERVAL_MS
 				);
+
+				// Re-test when the machine's network actually changes. DEMOTION ONLY — the
+				// wizard's own entry gate enforces that, and the reason is that a flapping
+				// wifi would otherwise swing an agent back and forth, each swing costing a
+				// Retreaver re-point and a window where our database and Retreaver disagree
+				// about which number to dial.
+				activeVoice = active;
+				window.addEventListener('online', onNetworkChange);
+				networkInfo()?.addEventListener('change', onNetworkChange);
 			} catch (e) {
 				if (cancelled) return;
 				setDeviceStatus('error');
@@ -1099,6 +1254,9 @@ export function useDevice({
 
 		return () => {
 			cancelled = true;
+			window.removeEventListener('online', onNetworkChange);
+			networkInfo()?.removeEventListener('change', onNetworkChange);
+			activeVoice = null;
 			if (apiPingTimer !== null) {
 				window.clearInterval(apiPingTimer);
 			}
@@ -1129,7 +1287,10 @@ export function useDevice({
 		enabled,
 		reconcileAuthoritativeOutbound,
 		showCallerHangupNotice,
-		updatePendingOutbound
+		updatePendingOutbound,
+		// A mid-session flip (Subplan 07) rebuilds the transport through this effect's own
+		// teardown rather than through a second, drift-prone one of its own.
+		voiceEpoch
 	]);
 
 	return {
@@ -1138,6 +1299,7 @@ export function useDevice({
 		twilioRttMs,
 		apiPingMs,
 		error,
+		networkChecking,
 		callerHangupNotice,
 		dismissCallerHangupNotice,
 		outboundStarting,
@@ -1162,6 +1324,20 @@ const OUTBOUND_ATTEMPT_STORAGE_KEY = 'pp_dialer_outbound_attempt';
 const API_PING_INTERVAL_MS = 15_000;
 const API_PING_TIMEOUT_MS = 5_000;
 const CALLER_HANGUP_NOTICE_MS = 6_000;
+
+/**
+ * `navigator.connection` is still unshipped on Safari and absent from the DOM lib types,
+ * so it is read defensively rather than declared — the `online` listener alone is a
+ * perfectly good trigger on browsers that lack it.
+ */
+const networkInfo = (): EventTarget | null => {
+	if (typeof navigator === 'undefined') return null;
+	const connection = (navigator as Navigator & {connection?: EventTarget})
+		.connection;
+	return connection && typeof connection.addEventListener === 'function'
+		? connection
+		: null;
+};
 
 class AmbiguousOutboundStartError extends Error {}
 class DefinitiveOutboundStartError extends Error {}
