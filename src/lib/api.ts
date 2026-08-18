@@ -313,19 +313,33 @@ export const listCampaignRemainingCalls =
 		qsPost('/policyPrinter/dialer/campaigns/remainingCalls');
 
 /* -------------------------------------------------------------------------- */
-/* Twilio softphone (Subplan 03)                                              */
+/* Softphone token (Subplan 03; provider-neutral since ENG-159 Subplan 05)    */
 /* -------------------------------------------------------------------------- */
 
-export interface TwilioTokenResponse {
+export interface VoiceTokenResponse {
 	statusCode: string;
 	statusMessage: string;
+	/**
+	 * Which carrier this token is for. THE BACKEND DECIDES — it reads
+	 * `dialer_agents.voice_provider` — so flipping an agent changes the transport the
+	 * browser builds on its next token fetch, with no deploy and no client flag.
+	 * Absent on a failure response.
+	 */
+	provider?: 'telnyx' | 'twilio';
 	token?: string;
 	identity?: string;
 }
 
-/** Mint a short-lived Twilio Voice access token for this browser Device. */
-export const getTwilioToken = (): Promise<TwilioTokenResponse> =>
-	qsPost('/policyPrinter/dialer/twilio/token');
+/**
+ * Mint a voice access token for this browser client.
+ *
+ * Replaced `getTwilioToken()` / `/dialer/twilio/token` in ENG-159 Subplan 05. Clean cut
+ * with no fallback: 00–08 ship as ONE release, so there is never a dialer build talking
+ * to a backend without this route, and a fallback path could only hide a broken primary.
+ * The backend's legacy alias can be deleted in Subplan 08.
+ */
+export const getVoiceToken = (): Promise<VoiceTokenResponse> =>
+	qsPost('/policyPrinter/dialer/voice/token');
 
 export interface StartOutboundCallResponse {
 	statusCode: string;

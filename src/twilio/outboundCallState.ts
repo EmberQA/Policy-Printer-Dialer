@@ -22,18 +22,25 @@ export interface OutboundCallParameters {
 	isExplicitOutbound: boolean;
 }
 
-/** Read the backend-supplied Twilio Client parameters used for exact parent-leg
- * correlation. Outbound direction is never inferred from elapsed time. */
+/**
+ * Read the backend-supplied per-leg parameters used for exact parent-leg correlation.
+ * Outbound direction is never inferred from elapsed time.
+ *
+ * Takes a plain record rather than Twilio's `Map` since ENG-159 Subplan 05: the same
+ * five values arrive as `<Client><Parameter>` on Twilio and as `X-` SIP headers on
+ * Telnyx, and `voice/legParameters.ts` flattens both to this shape. That normalization
+ * is the ONLY thing the carrier swap changed about the outbound state machine — every
+ * matcher below is untouched.
+ */
 export function readOutboundCallParameters(
-	customParameters: Pick<Map<string, string>, 'get'>
+	params: Record<string, string>
 ): OutboundCallParameters {
 	return {
-		parentCallSid: customParameters.get('parent_call_sid')?.trim() ?? '',
-		attemptId: customParameters.get('outbound_attempt_id')?.trim() || null,
-		dialedNumber: customParameters.get('dialed_number')?.trim() || null,
+		parentCallSid: params.parent_call_sid?.trim() ?? '',
+		attemptId: params.outbound_attempt_id?.trim() || null,
+		dialedNumber: params.dialed_number?.trim() || null,
 		isExplicitOutbound:
-			customParameters.get('call_direction')?.trim().toLowerCase() ===
-			'outbound'
+			params.call_direction?.trim().toLowerCase() === 'outbound'
 	};
 }
 
