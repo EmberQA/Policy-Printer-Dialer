@@ -209,6 +209,17 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		if (heartbeat.presence) setPresence(heartbeat.presence);
 	}, [heartbeat.presence]);
 
+	// The heartbeat also reports which carrier the server has this agent on, so an
+	// administrator moving them reaches this running session (ENG-159 Subplan 08). The
+	// softphone decides what to do with it — including doing nothing mid-call. Wired
+	// here, not passed into useDevice as an option, because useDevice is declared FIRST
+	// and the heartbeat already consumes device.deviceStatus: an option would be a
+	// declaration cycle.
+	const reportServerProvider = device.reportServerProvider;
+	useEffect(() => {
+		reportServerProvider(heartbeat.voiceProvider);
+	}, [heartbeat.voiceProvider, reportServerProvider]);
+
 	const onCall =
 		Boolean(device.activeCall) ||
 		Boolean(device.outboundStarting) ||

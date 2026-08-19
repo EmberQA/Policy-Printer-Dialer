@@ -40,6 +40,7 @@ import {TelnyxTransport} from '@/voice/TelnyxTransport';
 import {TwilioTransport} from '@/voice/TwilioTransport';
 import {runNetworkProbe} from '@/voice/networkProbe';
 import {readWizardMarker, runNetworkWizard} from '@/voice/networkWizard';
+import {shouldRebuildTransport} from '@/voice/providerSync';
 import type {
 	IncomingLeg,
 	VoiceProvider,
@@ -137,6 +138,15 @@ export interface UseDeviceState {
 	outputDeviceId: string;
 	setInputDevice: (deviceId: string) => Promise<void>;
 	setOutputDevice: (deviceId: string) => Promise<void>;
+	/**
+	 * Tell the softphone which carrier the SERVER has this agent on (fed from the
+	 * heartbeat). A mismatch with the live transport rebuilds it — that is how a switch
+	 * made in the admin panel reaches a session that is already running, instead of
+	 * waiting for the agent to happen to reload. No-ops while a call is up.
+	 *
+	 * Stable identity, safe to call on every beat.
+	 */
+	reportServerProvider: (provider: VoiceProvider | null) => void;
 }
 
 export interface UseDeviceOptions {
@@ -180,6 +190,17 @@ export function useDevice({
 	 */
 	const [voiceEpoch, setVoiceEpoch] = useState(0);
 
+	/**
+	 * Which carrier the LIVE transport was actually built against. Compared with what the
+	 * server reports on each heartbeat to notice a switch made outside this browser (an
+	 * administrator moving the agent in the EmberQA panel).
+	 *
+	 * Hook-scoped rather than effect-scoped like `activeVoice`, because the comparison is
+	 * driven from outside the setup effect — the effect is precisely what it needs to
+	 * restart.
+	 */
+	const builtVoiceProviderRef = useRef<VoiceProvider | null>(null);
+
 	const transportRef = useRef<VoiceTransport | null>(null);
 	const callRef = useRef<IncomingLeg | null>(null);
 	const locallyEndedCallRef = useRef<IncomingLeg | null>(null);
@@ -196,6 +217,39 @@ export function useDevice({
 	const heldRef = useRef(false);
 	const holdTransitionRef = useRef(false);
 	const preHoldMutedRef = useRef<boolean | null>(null);
+
+	/**
+	 * The server says this agent is on a different carrier than the transport we built —
+	 * rebuild against the right one.
+	 *
+	 * This is how an ADMIN switch reaches a running dialer. Without it, an agent whose
+	 * network was moved in the admin panel keeps a softphone registered on the carrier
+	 * they just left: their DID has moved, Retreaver has been re-pointed at it, and the
+	 * bridge has nobody to hand the call to. The backend pauses them at the moment of the
+	 * switch to close that window immediately; this is what makes going Ready again safe.
+	 *
+	 * NEVER MID-CALL — a rebuild tears the transport down, which would drop the very call
+	 * the switch was forbidden from interrupting. Nothing is queued: the heartbeat repeats
+	 * this every ~5s, so the mismatch is simply noticed again once the call ends. A
+	 * repeating signal needs no pending state, and pending state is how you end up
+	 * rebuilding against a carrier that has since changed again.
+	 *
+	 * The ref is updated optimistically so the beats landing during the rebuild do not
+	 * each bump the epoch again.
+	 */
+	const reportServerProvider = useCallback(
+		(provider: VoiceProvider | null): void => {
+			const shouldRebuild = shouldRebuildTransport({
+				built: builtVoiceProviderRef.current,
+				reported: provider,
+				hasActiveCall: callRef.current !== null
+			});
+			if (!shouldRebuild || !provider) return;
+			builtVoiceProviderRef.current = provider;
+			setVoiceEpoch((epoch) => epoch + 1);
+		},
+		[]
+	);
 
 	const dismissCallerHangupNotice = useCallback(() => {
 		if (callerHangupNoticeTimerRef.current !== null) {
@@ -1241,6 +1295,7 @@ export function useDevice({
 				// Retreaver re-point and a window where our database and Retreaver disagree
 				// about which number to dial.
 				activeVoice = active;
+				builtVoiceProviderRef.current = provider;
 				window.addEventListener('online', onNetworkChange);
 				networkInfo()?.addEventListener('change', onNetworkChange);
 			} catch (e) {
@@ -1257,6 +1312,7 @@ export function useDevice({
 			window.removeEventListener('online', onNetworkChange);
 			networkInfo()?.removeEventListener('change', onNetworkChange);
 			activeVoice = null;
+			builtVoiceProviderRef.current = null;
 			if (apiPingTimer !== null) {
 				window.clearInterval(apiPingTimer);
 			}
@@ -1313,7 +1369,8 @@ export function useDevice({
 		startOutbound,
 		cancelPendingOutbound,
 		setInputDevice,
-		setOutputDevice
+		setOutputDevice,
+		reportServerProvider
 	};
 }
 

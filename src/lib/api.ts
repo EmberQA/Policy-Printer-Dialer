@@ -20,6 +20,11 @@ import {
 	setRefreshToken,
 	clearSession
 } from '@/auth/session';
+// Type-only, so no runtime edge is added between the wire layer and the transport
+// layer it feeds. Imported rather than mirrored (the way TwilioDeviceStatus is)
+// because a SECOND copy of this particular union is exactly how a transport and the
+// server's idea of a transport would quietly drift apart.
+import type {VoiceProvider} from '@/voice/VoiceTransport';
 
 // Prod build (`vite build`) targets the deployed backend; dev (`vite`) targets
 // the LOCAL backend on :3000 (matches EmberQA's fetchWithAuth convention — 3001
@@ -187,6 +192,17 @@ export interface PresenceResponse {
 	statusMessage: string;
 	available?: 0 | 1;
 	presence?: DialerPresence | null;
+	/**
+	 * Which carrier the SERVER has this agent on. Only the heartbeat returns it, which
+	 * is why it is optional here — the other presence mutations share this envelope.
+	 *
+	 * ⚠️ A TRANSPORT SELECTOR, NEVER SOMETHING TO RENDER. It is the one carrier-shaped
+	 * value that reaches the agent's browser at all, and it exists solely so a switch
+	 * made in the admin panel rebuilds a running session's transport instead of waiting
+	 * for the agent to happen to reload. Nothing may put it, or any word derived from
+	 * it, in front of the agent.
+	 */
+	voice_provider?: VoiceProvider;
 }
 
 /** A campaign the agent is linked to, plus this agent's per-campaign `ready` toggle. */
