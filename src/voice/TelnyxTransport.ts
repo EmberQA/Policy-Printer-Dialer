@@ -42,9 +42,42 @@ import type {
 	VoiceTransportOptions
 } from './VoiceTransport';
 
-/** Telnyx tokens last 24h; renew at 75% so a failed attempt has hours of runway. */
-const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
-const TOKEN_REFRESH_AT_MS = TOKEN_TTL_MS * 0.75;
+/**
+ * Token lifetime is checked on a SHORT TICK against the token's own expiry, rather than
+ * scheduled as one long timer.
+ *
+ * ⚠️ WHY, because the obvious "setTimeout(18h)" is what this replaces. A single long timer
+ * is one-shot: whether the refresh succeeded or failed, the next attempt was another 18
+ * hours away — so one transient blip at the 18h mark meant either an agent going silently
+ * offline at hour 24 (when the token actually died) or, if the reconnect was the half that
+ * failed, going offline immediately with nothing to retry until hour 36. A softphone tab
+ * open for a full shift is the normal case here, so that is not a rare shape.
+ *
+ * Ticking every 15 minutes and refreshing once we are within an hour of expiry fixes both
+ * halves at once: a failed attempt simply gets retried on the next tick, with ~4 attempts
+ * of runway inside the margin, and no retry/backoff bookkeeping of its own.
+ */
+const TOKEN_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+const TOKEN_REFRESH_MARGIN_MS = 60 * 60 * 1000;
+/** Fallback lifetime when a token carries no readable `exp` (Telnyx issues 24h). */
+const TOKEN_ASSUMED_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Read a JWT's `exp` as epoch milliseconds, without verifying it — we are not trusting
+ * this token, we minted it; we only need to know when it dies. Returns null when the
+ * token is not a readable JWT, and the caller falls back to an assumed lifetime.
+ */
+export const readTokenExpiry = (token: string): number | null => {
+	try {
+		const payload = token.split('.')[1];
+		if (!payload) return null;
+		const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+		const exp = (JSON.parse(json) as {exp?: unknown}).exp;
+		return typeof exp === 'number' && Number.isFinite(exp) ? exp * 1000 : null;
+	} catch {
+		return null;
+	}
+};
 /** Matches Twilio's `sample` cadence so the quality chip updates identically. */
 const RTT_POLL_MS = 1_000;
 
@@ -79,8 +112,10 @@ export class TelnyxTransport implements VoiceTransport {
 	private incomingCb: ((leg: IncomingLeg) => void) | null = null;
 	private statusCb: ((s: TransportStatus, e?: string) => void) | null = null;
 	private refreshTimer: number | null = null;
-	/** A refresh that came due mid-call and is waiting for the line to clear. */
-	private refreshPending = false;
+	/** When the CURRENT token dies, read from the token itself. */
+	private tokenExpiresAt: number | null = null;
+	/** A refresh is in flight — the tick and the call-end trigger must not overlap. */
+	private refreshing = false;
 	/**
 	 * Only the OUTPUT selection is mirrored here. The mic needs no local copy: the
 	 * `BaseCall` constructor reads `micId` and the session's audio constraints off the
@@ -94,13 +129,20 @@ export class TelnyxTransport implements VoiceTransport {
 
 	async register(token: string): Promise<void> {
 		this.statusCb?.('connecting');
-		await this.connectWith(token);
-		this.scheduleRefresh();
+		this.client = await this.buildClient(token);
+		this.rememberTokenExpiry(token);
+		this.startRefreshTicker();
 	}
 
-	private async connectWith(token: string): Promise<void> {
+	/**
+	 * Build a client, wire it, and bring the socket up. Returns it rather than assigning
+	 * `this.client`, so a refresh can connect its replacement BEFORE retiring the working
+	 * one — see `refreshNow`.
+	 */
+	private async buildClient(
+		token: string
+	): Promise<InstanceType<typeof TelnyxRTC>> {
 		const client = new TelnyxRTC({login_token: token});
-		this.client = client;
 
 		// The SDK plays remote audio into this element. It must exist before connect so
 		// an immediately-arriving call has somewhere to land.
@@ -121,6 +163,7 @@ export class TelnyxTransport implements VoiceTransport {
 		client.on('telnyx.notification', (n: unknown) => this.onNotification(n));
 
 		await client.connect();
+		return client;
 	}
 
 	/**
@@ -164,52 +207,89 @@ export class TelnyxTransport implements VoiceTransport {
 		if (isTerminalState(call.state)) {
 			existing.dispose();
 			this.legs.delete(call.id);
-			// A refresh that came due mid-call has been waiting for exactly this.
-			if (this.refreshPending && this.legs.size === 0) void this.refreshNow();
+			// A refresh deferred because a call was up has been waiting for exactly this.
+			if (this.legs.size === 0) void this.maybeRefresh();
 		}
 	}
 
 	/* ── token refresh ─────────────────────────────────────────────────────────
-	   The SDK has no `tokenWillExpire` and no `updateToken`, so the schedule and the
-	   reconnect are both ours. An 18h timer against a minutes-long call makes deferral
-	   free — there is no scenario where waiting for the line to clear risks expiry. */
+	   The SDK has no `tokenWillExpire` and no `updateToken`, so both the schedule and the
+	   reconnect are ours. The schedule is a short repeating CHECK against the token's own
+	   expiry rather than one long timer to the deadline — see the constants above for why
+	   the one-shot version was a liability. */
 
-	private scheduleRefresh(): void {
-		if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);
-		this.refreshTimer = window.setTimeout(() => {
-			if (this.destroyed) return;
-			if (this.legs.size > 0) {
-				this.refreshPending = true;
-				return;
-			}
-			void this.refreshNow();
-		}, TOKEN_REFRESH_AT_MS);
+	private rememberTokenExpiry(token: string): void {
+		this.tokenExpiresAt =
+			readTokenExpiry(token) ?? Date.now() + TOKEN_ASSUMED_TTL_MS;
+	}
+
+	private startRefreshTicker(): void {
+		if (this.refreshTimer !== null) window.clearInterval(this.refreshTimer);
+		this.refreshTimer = window.setInterval(() => {
+			void this.maybeRefresh();
+		}, TOKEN_CHECK_INTERVAL_MS);
+	}
+
+	/**
+	 * Refresh if the token is close enough to death and the line is clear. Called on the
+	 * tick and again whenever the last call ends.
+	 *
+	 * Deferral needs no queue: if a call is up we simply do nothing, and the next tick
+	 * (or the call ending) asks again — against a fresh clock rather than a decision made
+	 * minutes ago. The margin is an hour, so a deferral has ~4 more chances before the
+	 * token actually expires.
+	 */
+	private async maybeRefresh(): Promise<void> {
+		if (this.destroyed || this.refreshing) return;
+		if (this.tokenExpiresAt === null) return;
+		if (Date.now() < this.tokenExpiresAt - TOKEN_REFRESH_MARGIN_MS) return;
+		if (this.legs.size > 0) return;
+
+		this.refreshing = true;
+		try {
+			await this.refreshNow();
+		} finally {
+			this.refreshing = false;
+		}
 	}
 
 	private async refreshNow(): Promise<void> {
-		this.refreshPending = false;
 		try {
 			const token = await this.options.refreshToken();
 			if (this.destroyed) return;
+
+			// CONNECT THE REPLACEMENT BEFORE RETIRING THE WORKING CLIENT. Disconnecting
+			// first — as this used to — meant a reconnect that failed for any reason left
+			// the agent with no transport at all, offline until they happened to reload.
+			// Building first means a failure here costs nothing: the old client is still
+			// registered and still taking calls, and the next tick tries again.
+			const next = await this.buildClient(token);
+			if (this.destroyed) {
+				try {
+					await next.disconnect();
+				} catch {
+					/* nothing to unwind */
+				}
+				return;
+			}
+
 			const previous = this.client;
-			this.client = null;
+			this.client = next;
+			this.rememberTokenExpiry(token);
 			try {
 				await previous?.disconnect();
 			} catch {
 				/* the socket may already be gone */
 			}
-			this.statusCb?.('connecting');
-			await this.connectWith(token);
 		} catch {
+			// Leave the existing client exactly where it is; it is still the working one.
 			this.options.onError?.('Failed to refresh the Telnyx token');
-		} finally {
-			if (!this.destroyed) this.scheduleRefresh();
 		}
 	}
 
 	destroy(): void {
 		this.destroyed = true;
-		if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);
+		if (this.refreshTimer !== null) window.clearInterval(this.refreshTimer);
 		this.refreshTimer = null;
 		void this.stopHold().catch(() => undefined);
 		for (const leg of this.legs.values()) leg.dispose();
@@ -251,10 +331,35 @@ export class TelnyxTransport implements VoiceTransport {
 	 */
 	async setInputDevice(deviceId: string): Promise<void> {
 		const call = this.activeCall();
-		if (call) {
-			await call.setAudioInDevice(deviceId);
+
+		// ⚠️ NEVER SWITCH THE LIVE SENDER WHILE THE CALL IS HELD. Hold works by
+		// `replaceTrack(musicTrack)` on the call's audio sender — and `setAudioInDevice`
+		// replaces the track on that same sender. Calling it here would swap the hold
+		// music back out for the agent's LIVE MICROPHONE: the caller, who was just put on
+		// hold, starts hearing the room, while the agent (still `deaf()`) cannot hear them
+		// and has no idea it happened. Hand the new device to the hold controller instead,
+		// so the music keeps playing and Resume restores the microphone they just chose.
+		if (call && this.holdController) {
+			await this.holdController.setHeldInputDevice(deviceId);
+			await this.persistInputPreference(deviceId);
 			return;
 		}
+
+		if (call) {
+			await call.setAudioInDevice(deviceId);
+			// AND persist it on the client. Without this the change applies to the current
+			// call only: the SDK builds each new call from the client's own `micId`, so the
+			// next inbound silently reverts to the previous device while the settings UI
+			// still shows the one the agent picked.
+			await this.persistInputPreference(deviceId);
+			return;
+		}
+
+		await this.persistInputPreference(deviceId);
+	}
+
+	/** The client-level microphone preference every future SDK-created call inherits. */
+	private async persistInputPreference(deviceId: string): Promise<void> {
 		const client = this.client;
 		if (!client) throw new Error('Softphone audio is not ready yet.');
 		client.micId = deviceId;

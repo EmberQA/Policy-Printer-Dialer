@@ -904,16 +904,32 @@ export function useDevice({
 		 * probes would race to flip the same agent.
 		 */
 		const onNetworkChange = (): void => {
-			const current = activeVoice;
-			if (cancelled || !current || networkChangeBusy) return;
+			if (cancelled || !activeVoice || networkChangeBusy) return;
 			networkChangeBusy = true;
 			void (async () => {
 				try {
-					const moved = await runWizard(current, 'network-change');
+					// MINT A FRESH TOKEN TO PROBE WITH — never reuse the boot token.
+					//
+					// ⚠️ A dialer tab routinely outlives its token. Telnyx tokens last 24h,
+					// the transport quietly renews its OWN copy, and the boot value captured
+					// here is never updated — so in any tab older than a day this probe would
+					// register with an expired JWT, fail the `registration` stage, fail it
+					// again on the retry (same token), and demote a perfectly healthy agent
+					// onto the fallback network. Waking a laptop fires `online`, so the
+					// population is "anyone who did not reload since yesterday". It also
+					// poisons the rollout numbers, recording a provisioning-shaped failure
+					// for a network that is fine. One round trip on a rare path avoids all
+					// of it — and picks up an admin pin applied since boot for free.
+					const fresh = await fetchToken();
+					if (cancelled) return;
+					const moved = await runWizard(fresh, 'network-change');
 					// Bumping the epoch re-runs this whole effect: teardown, fresh token,
 					// new transport. The session marker written by the flip makes the boot
 					// wizard skip on that re-run, so this cannot loop.
 					if (!cancelled && moved) setVoiceEpoch((epoch) => epoch + 1);
+				} catch {
+					// A token we could not mint says nothing about the agent's network.
+					// Leave them exactly where they are.
 				} finally {
 					networkChangeBusy = false;
 				}

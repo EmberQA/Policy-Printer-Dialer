@@ -73,6 +73,29 @@ export class TelnyxHoldController {
 		}
 	}
 
+	/**
+	 * Change which microphone Resume will restore, WITHOUT disturbing the live sender.
+	 *
+	 * The settings dialog stays reachable during a call, and hold is a plausible moment to
+	 * fix a misbehaving headset. The one thing that must not happen is the obvious
+	 * implementation: `setAudioInDevice` replaces the track on the very sender the hold
+	 * music occupies, so it would put the agent's live microphone on the line to a caller
+	 * who believes they are on hold. Swap the SAVED track instead — the music plays on,
+	 * and Resume brings back the device the agent actually chose.
+	 */
+	async setHeldInputDevice(deviceId: string): Promise<void> {
+		if (!this.music) return;
+		const stream = await navigator.mediaDevices.getUserMedia({
+			audio: deviceId === 'default' ? true : {deviceId: {exact: deviceId}}
+		});
+		const track = stream.getAudioTracks()[0] ?? null;
+		if (!track) return;
+		// Release the device we were holding for the resume, or it stays open (and, on
+		// some platforms, keeps the microphone's in-use indicator lit).
+		this.originalTrack?.stop();
+		this.originalTrack = track;
+	}
+
 	async stop(): Promise<void> {
 		if (this.deafened) {
 			// Restore caller playback first, mirroring HoldAudioController's ordering: if
