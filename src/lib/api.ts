@@ -129,6 +129,9 @@ export interface DialerProfileResponse {
 		org_id: string;
 		user_id: string;
 		twilio_identity: string;
+		/** The number that takes calls on the agent's CURRENT carrier. Prefer this;
+		 *  `twilio_phone_number` is the raw column and is null for a Telnyx agent. */
+		phone_number?: string | null;
 		twilio_phone_number: string | null;
 	};
 }

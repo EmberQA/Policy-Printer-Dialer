@@ -157,8 +157,11 @@ export class TelnyxTransport implements VoiceTransport {
 			// (a transient media problem) must NOT flip us out of 'registered', or the
 			// heartbeat reports the agent unroutable and the backend stops claiming
 			// inbound calls for them.
-			if (error?.fatal) this.statusCb?.('error', error?.message || 'Telnyx error');
-			else this.options.onError?.(error?.message || 'Telnyx error');
+			// The SDK's own message is passed through when it has one; the fallback is
+			// ours and is shown to the agent, so it stays carrier-neutral.
+			if (error?.fatal)
+				this.statusCb?.('error', error?.message || 'Call network error');
+			else this.options.onError?.(error?.message || 'Call network error');
 		});
 		client.on('telnyx.notification', (n: unknown) => this.onNotification(n));
 
@@ -283,7 +286,8 @@ export class TelnyxTransport implements VoiceTransport {
 			}
 		} catch {
 			// Leave the existing client exactly where it is; it is still the working one.
-			this.options.onError?.('Failed to refresh the Telnyx token');
+			// Agent-facing (renders as `device.error` on the Dial page), so no carrier name.
+			this.options.onError?.('Reconnecting to the call network…');
 		}
 	}
 

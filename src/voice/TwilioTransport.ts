@@ -58,7 +58,10 @@ export class TwilioTransport implements VoiceTransport {
 				const fresh = await this.options.refreshToken();
 				if (!this.destroyed) await this.device?.updateToken(fresh);
 			} catch {
-				this.options.onError?.('Failed to refresh Twilio token');
+				// `onError` lands in `device.error`, which renders on the Dial page — so
+				// this is agent-facing copy and must not name a carrier. See the identical
+				// string in TelnyxTransport.
+				this.options.onError?.('Reconnecting to the call network…');
 			}
 		});
 
