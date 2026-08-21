@@ -25,6 +25,7 @@ export class TwilioTransport implements VoiceTransport {
 	private holdController: HoldAudioController | null = null;
 	private incomingCb: ((leg: IncomingLeg) => void) | null = null;
 	private statusCb: ((s: TransportStatus, e?: string) => void) | null = null;
+	private deviceChangeCb: ((input: string, output: string) => void) | null = null;
 	private destroyed = false;
 
 	constructor(private readonly options: VoiceTransportOptions) {}
@@ -38,9 +39,16 @@ export class TwilioTransport implements VoiceTransport {
 		// agent-only chime. Prevent Twilio's pre-answer ringtone from racing it.
 		device.audio?.incoming(false);
 		this.device = device;
+		// Keep this listener ahead of register(), as it was in the direct Twilio
+		// implementation. Bluetooth devices can settle on a concrete input/output while
+		// registration is in flight; subscribing afterward loses that transition and
+		// leaves the dialer pointing at `default` or a stale headset profile.
+		device.audio?.on('deviceChange', this.emitDeviceSelection);
+		this.emitDeviceSelection();
 
 		device.on('registered', () => {
 			device.audio?.incoming(false);
+			this.emitDeviceSelection();
 			this.statusCb?.('registered');
 		});
 		device.on('unregistered', () => this.statusCb?.('offline'));
@@ -151,16 +159,22 @@ export class TwilioTransport implements VoiceTransport {
 		this.holdController = null;
 	}
 
-	/** Exposed so the hook can report which device-selection the SDK settled on. */
+	/** Exposed so the hook can report which device selection the SDK settled on. */
 	onDeviceChange(cb: (input: string, output: string) => void): void {
-		this.device?.audio?.on('deviceChange', () => {
-			const input = this.device?.audio?.inputDevice?.deviceId ?? 'default';
-			const output =
-				Array.from(this.device?.audio?.speakerDevices.get() ?? [])[0]
-					?.deviceId ?? 'default';
-			cb(input, output);
-		});
+		// `useDevice` installs this before register(). Store it until the SDK Device is
+		// constructed, then emit immediately as well as on subsequent hardware changes.
+		this.deviceChangeCb = cb;
+		this.emitDeviceSelection();
 	}
+
+	private readonly emitDeviceSelection = (): void => {
+		if (!this.device || !this.deviceChangeCb) return;
+		const input = this.device.audio?.inputDevice?.deviceId ?? 'default';
+		const output =
+			Array.from(this.device.audio?.speakerDevices.get() ?? [])[0]?.deviceId ??
+			'default';
+		this.deviceChangeCb(input, output);
+	};
 }
 
 /** One Twilio Client leg behind the carrier-neutral interface. */

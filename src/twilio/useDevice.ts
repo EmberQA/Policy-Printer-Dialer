@@ -1285,11 +1285,10 @@ export function useDevice({
 				});
 				transport.onIncoming(onIncoming);
 
-				await transport.register(token);
-				if (cancelled) return;
-
 				// Twilio reports the device selection the SDK actually settled on; Telnyx
-				// has no equivalent event, and there its selection is only ever ours.
+				// has no equivalent event, and there its selection is only ever ours. This
+				// must be registered before the SDK Device registers: Bluetooth hardware can
+				// finish selecting its input/output during that registration window.
 				if (transport instanceof TwilioTransport) {
 					transport.onDeviceChange((input, output) => {
 						if (cancelled) return;
@@ -1299,6 +1298,9 @@ export function useDevice({
 						setOutputDeviceId(output);
 					});
 				}
+
+				await transport.register(token);
+				if (cancelled) return;
 				void probeApi();
 				apiPingTimer = window.setInterval(
 					() => void probeApi(),
