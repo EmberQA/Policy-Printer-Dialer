@@ -1,32 +1,51 @@
 /**
- * useDevice — the Twilio browser softphone (Subplan 03).
+ * useDevice — the browser softphone (Subplan 03; carrier-neutral since ENG-159
+ * Subplan 05).
  *
- * Mints a Voice access token, registers a Twilio `Device`, and AUTO-ANSWERS the
- * inbound call Retreaver bridged to this agent (Retreaver already selected a ready
- * agent, so there's no "accept?" step — the browser just picks up). It also:
- *   - reports the device registration status (consumed by useHeartbeat so the
- *     backend's computeReady only routes when the Device is actually 'registered'),
- *   - refreshes the token on `tokenWillExpire`,
+ * Mints a voice access token, registers a `VoiceTransport` for whichever carrier the
+ * BACKEND named in the token response, and AUTO-ANSWERS the inbound call Retreaver
+ * bridged to this agent (Retreaver already selected a ready agent, so there's no
+ * "accept?" step — the browser just picks up). It also:
+ *   - reports the transport registration status (consumed by useHeartbeat so the
+ *     backend's computeReady only routes when the client is actually 'registered'),
  *   - signals on_call=true on accept (the page releases it after lead wrap-up),
- *   - exposes the live Call + mute/hold/hangup so the active-call UI can drive it.
+ *   - exposes the live call + mute/hold/hangup so the active-call UI can drive it.
  *
  * Outbound calls are REST-originated by the backend and arrive here as an exact
- * parent-SID-correlated Client leg; this hook owns their pending state, local
+ * parent-SID-correlated incoming leg; this hook owns their pending state, local
  * ringback, and cancellation. Mic permission is requested up front because the
- * SDK needs it to answer. One Device per tab; cleaned up on unmount.
+ * SDK needs it to answer. One transport per tab; cleaned up on unmount.
+ *
+ * ⚠️ Everything below the transport boundary is carrier-agnostic ON PURPOSE. The
+ * outbound attempt state machine, call ownership, ringback, the answer tone, presence
+ * posting and the caller-hangup notices are the bulk of this file and touch no SDK —
+ * re-deriving them per provider would be large regression risk for zero benefit. Token
+ * refresh and all audio plumbing live in the transport; see voice/VoiceTransport.ts.
  */
 
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {Call, Device, type RTCSample} from '@twilio/voice-sdk';
 import {
 	cancelOutboundCall,
 	getCurrentOutboundCall,
-	getTwilioToken,
+	getVoiceProbeToken,
+	getVoiceToken,
+	postVoiceFallback,
+	recordNetworkTest,
 	setOnCall,
 	setPresence,
 	startOutboundCall,
 	type TwilioDeviceStatus
 } from '@/lib/api';
+import {TelnyxTransport} from '@/voice/TelnyxTransport';
+import {TwilioTransport} from '@/voice/TwilioTransport';
+import {runNetworkProbe} from '@/voice/networkProbe';
+import {readWizardMarker, runNetworkWizard} from '@/voice/networkWizard';
+import {shouldRebuildTransport} from '@/voice/providerSync';
+import type {
+	IncomingLeg,
+	VoiceProvider,
+	VoiceTransport
+} from '@/voice/VoiceTransport';
 import {
 	claimIncomingOwner,
 	clearActiveCallOwner,
@@ -45,7 +64,6 @@ import {
 	type PendingOutboundCall,
 	type StartingOutboundCall
 } from './outboundCallState';
-import {HoldAudioController} from './holdAudio';
 import {InboundAnswerTone} from './inboundAnswerTone';
 import {OutboundRingback} from './outboundRingback';
 
@@ -85,6 +103,14 @@ export interface UseDeviceState {
 	apiPingMs: number | null;
 	/** Last device/call error message, for surfacing in the UI. */
 	error: string | null;
+	/**
+	 * The network wizard is running (ENG-159 Subplan 07). The ONLY thing it may put on
+	 * screen is a neutral "Finding the best connection…" line — never a carrier name,
+	 * never a network tier, and never a notice that a switch happened. The agent has no
+	 * action to take on any of that, so surfacing it can only produce a support ticket
+	 * about a system that is working correctly.
+	 */
+	networkChecking: boolean;
 	/** Short-lived notice when a remote inbound caller ends the call. */
 	callerHangupNotice: {id: number; message: string} | null;
 	dismissCallerHangupNotice: () => void;
@@ -112,6 +138,15 @@ export interface UseDeviceState {
 	outputDeviceId: string;
 	setInputDevice: (deviceId: string) => Promise<void>;
 	setOutputDevice: (deviceId: string) => Promise<void>;
+	/**
+	 * Tell the softphone which carrier the SERVER has this agent on (fed from the
+	 * heartbeat). A mismatch with the live transport rebuilds it — that is how a switch
+	 * made in the admin panel reaches a session that is already running, instead of
+	 * waiting for the agent to happen to reload. No-ops while a call is up.
+	 *
+	 * Stable identity, safe to call on every beat.
+	 */
+	reportServerProvider: (provider: VoiceProvider | null) => void;
 }
 
 export interface UseDeviceOptions {
@@ -142,10 +177,33 @@ export function useDevice({
 		useState<PendingOutboundCall | null>(null);
 	const [inputDeviceId, setInputDeviceId] = useState('default');
 	const [outputDeviceId, setOutputDeviceId] = useState('default');
+	/** The one thing the network wizard is allowed to put on screen (Subplan 07). It
+	 *  drives a neutral "Finding the best connection…" line and nothing else — no carrier
+	 *  name, no tier, no notice that a switch happened. */
+	const [networkChecking, setNetworkChecking] = useState(false);
+	/**
+	 * Bumped when the wizard moves this agent AFTER the softphone is already up (the
+	 * network-change demotion path). It is in the setup effect's dependency array, so a
+	 * bump tears the transport down and rebuilds it against a freshly-minted token for the
+	 * new carrier — reusing the cleanup that already exists rather than hand-rolling a
+	 * second teardown that would drift from it.
+	 */
+	const [voiceEpoch, setVoiceEpoch] = useState(0);
 
-	const deviceRef = useRef<Device | null>(null);
-	const callRef = useRef<Call | null>(null);
-	const locallyEndedCallRef = useRef<Call | null>(null);
+	/**
+	 * Which carrier the LIVE transport was actually built against. Compared with what the
+	 * server reports on each heartbeat to notice a switch made outside this browser (an
+	 * administrator moving the agent in the EmberQA panel).
+	 *
+	 * Hook-scoped rather than effect-scoped like `activeVoice`, because the comparison is
+	 * driven from outside the setup effect — the effect is precisely what it needs to
+	 * restart.
+	 */
+	const builtVoiceProviderRef = useRef<VoiceProvider | null>(null);
+
+	const transportRef = useRef<VoiceTransport | null>(null);
+	const callRef = useRef<IncomingLeg | null>(null);
+	const locallyEndedCallRef = useRef<IncomingLeg | null>(null);
 	const callerHangupNoticeIdRef = useRef(0);
 	const callerHangupNoticeTimerRef = useRef<number | null>(null);
 	const outboundStartingRef = useRef<StartingOutboundCall | null>(null);
@@ -155,9 +213,43 @@ export function useDevice({
 	const ringbackRef = useRef<OutboundRingback | null>(null);
 	const answerToneRef = useRef<InboundAnswerTone | null>(null);
 	const outboundReconcileSequenceRef = useRef(0);
-	const holdControllerRef = useRef<HoldAudioController | null>(null);
+	/** True while the transport is holding the call. Mirrors the old controller ref. */
+	const heldRef = useRef(false);
 	const holdTransitionRef = useRef(false);
 	const preHoldMutedRef = useRef<boolean | null>(null);
+
+	/**
+	 * The server says this agent is on a different carrier than the transport we built —
+	 * rebuild against the right one.
+	 *
+	 * This is how an ADMIN switch reaches a running dialer. Without it, an agent whose
+	 * network was moved in the admin panel keeps a softphone registered on the carrier
+	 * they just left: their DID has moved, Retreaver has been re-pointed at it, and the
+	 * bridge has nobody to hand the call to. The backend pauses them at the moment of the
+	 * switch to close that window immediately; this is what makes going Ready again safe.
+	 *
+	 * NEVER MID-CALL — a rebuild tears the transport down, which would drop the very call
+	 * the switch was forbidden from interrupting. Nothing is queued: the heartbeat repeats
+	 * this every ~5s, so the mismatch is simply noticed again once the call ends. A
+	 * repeating signal needs no pending state, and pending state is how you end up
+	 * rebuilding against a carrier that has since changed again.
+	 *
+	 * The ref is updated optimistically so the beats landing during the rebuild do not
+	 * each bump the epoch again.
+	 */
+	const reportServerProvider = useCallback(
+		(provider: VoiceProvider | null): void => {
+			const shouldRebuild = shouldRebuildTransport({
+				built: builtVoiceProviderRef.current,
+				reported: provider,
+				hasActiveCall: callRef.current !== null
+			});
+			if (!shouldRebuild || !provider) return;
+			builtVoiceProviderRef.current = provider;
+			setVoiceEpoch((epoch) => epoch + 1);
+		},
+		[]
+	);
 
 	const dismissCallerHangupNotice = useCallback(() => {
 		if (callerHangupNoticeTimerRef.current !== null) {
@@ -197,30 +289,29 @@ export function useDevice({
 	);
 
 	const clearHoldAudio = useCallback(async (): Promise<void> => {
-		const controller = holdControllerRef.current;
-		holdControllerRef.current = null;
+		const wasHeld = heldRef.current;
+		heldRef.current = false;
 		holdTransitionRef.current = false;
 		preHoldMutedRef.current = null;
-		if (!controller) return;
+		if (!wasHeld) return;
 		try {
-			await controller.stop();
+			await transportRef.current?.stopHold();
 		} catch {
-			// The call is already ending; device.destroy() is the final cleanup boundary.
+			// The call is already ending; transport.destroy() is the final cleanup boundary.
 		}
 	}, []);
 
 	const mute = useCallback((muted: boolean) => {
 		const call = callRef.current;
-		if (!call || holdControllerRef.current || holdTransitionRef.current) return;
+		if (!call || heldRef.current || holdTransitionRef.current) return;
 		call.mute(muted);
 		setActiveCall((prev) => (prev ? {...prev, muted} : prev));
 	}, []);
 
 	const setHold = useCallback(async (held: boolean): Promise<void> => {
 		const call = callRef.current;
-		const device = deviceRef.current;
-		const audio = device?.audio;
-		if (!call || !audio) {
+		const transport = transportRef.current;
+		if (!call || !transport) {
 			throw new Error('There is no active call to place on hold.');
 		}
 		if (holdTransitionRef.current) return;
@@ -232,7 +323,7 @@ export function useDevice({
 		};
 
 		if (held) {
-			if (holdControllerRef.current) return;
+			if (heldRef.current) return;
 			holdTransitionRef.current = true;
 			setError(null);
 			updateOwnedCall({holdPending: true});
@@ -240,28 +331,22 @@ export function useDevice({
 			const wasMuted = call.isMuted();
 			preHoldMutedRef.current = wasMuted;
 			// Mute applies after processing, so it must be off for the generated music
-			// stream to reach Twilio. The prior state is restored on Resume.
+			// stream to reach the carrier. The prior state is restored on Resume.
 			call.mute(false);
 			updateOwnedCall({muted: false});
 
-			let controller: HoldAudioController | null = null;
 			try {
-				controller = new HoldAudioController(audio);
-				holdControllerRef.current = controller;
-				await controller.start();
-				if (
-					callRef.current !== call ||
-					holdControllerRef.current !== controller
-				) {
-					await controller.stop().catch(() => undefined);
+				heldRef.current = true;
+				await transport.startHold();
+				if (callRef.current !== call || !heldRef.current) {
+					await transport.stopHold().catch(() => undefined);
+					heldRef.current = false;
 					return;
 				}
 				updateOwnedCall({held: true, holdPending: false});
 			} catch (holdError) {
-				if (controller && holdControllerRef.current === controller) {
-					holdControllerRef.current = null;
-				}
-				await controller?.stop().catch(() => undefined);
+				heldRef.current = false;
+				await transport.stopHold().catch(() => undefined);
 				if (callRef.current === call) {
 					call.mute(wasMuted);
 					updateOwnedCall({
@@ -282,20 +367,16 @@ export function useDevice({
 			return;
 		}
 
-		const controller = holdControllerRef.current;
-		if (!controller) return;
+		if (!heldRef.current) return;
 		holdTransitionRef.current = true;
 		setError(null);
 		updateOwnedCall({holdPending: true});
 		try {
-			await controller.stop();
-			if (
-				callRef.current !== call ||
-				holdControllerRef.current !== controller
-			) {
+			await transport.stopHold();
+			if (callRef.current !== call || !heldRef.current) {
 				return;
 			}
-			holdControllerRef.current = null;
+			heldRef.current = false;
 			const restoreMuted = preHoldMutedRef.current ?? false;
 			preHoldMutedRef.current = null;
 			call.mute(restoreMuted);
@@ -328,11 +409,11 @@ export function useDevice({
 
 	const setInputDevice = useCallback(
 		async (deviceId: string): Promise<void> => {
-			const audio = deviceRef.current?.audio;
-			if (!audio) {
+			const transport = transportRef.current;
+			if (!transport) {
 				throw new Error('Softphone audio is not ready yet.');
 			}
-			await audio.setInputDevice(deviceId);
+			await transport.setInputDevice(deviceId);
 			inputDeviceIdRef.current = deviceId;
 			setInputDeviceId(deviceId);
 		},
@@ -341,22 +422,15 @@ export function useDevice({
 
 	const setOutputDevice = useCallback(
 		async (deviceId: string): Promise<void> => {
-			const audio = deviceRef.current?.audio;
-			if (!audio) {
+			const transport = transportRef.current;
+			if (!transport) {
 				throw new Error('Softphone audio is not ready yet.');
 			}
-			if (!audio.isOutputSelectionSupported) {
-				if (deviceId === 'default') return;
-				throw new Error(
-					'This browser cannot choose a speaker. Use Chrome or your system output settings.'
-				);
-			}
-			await Promise.all([
-				audio.speakerDevices.set(deviceId),
-				audio.ringtoneDevices.set(deviceId)
-			]);
+			await transport.setOutputDevice(deviceId);
 			outputDeviceIdRef.current = deviceId;
 			setOutputDeviceId(deviceId);
+			// The local ringback and answer tone are our own graphs, not the carrier's,
+			// so they follow the selection independently on both providers.
 			ringbackRef.current?.setOutputDevice(deviceId);
 			answerToneRef.current?.setOutputDevice(deviceId);
 		},
@@ -374,9 +448,9 @@ export function useDevice({
 	// on the "Go ready" toggle. Three things must happen inside the gesture:
 	//   1) keep the local post-answer tone silently active,
 	//   2) getUserMedia({audio}) — grants mic + primes the input device,
-	//   3) AudioContext.resume() — the SDK plays call audio through a shared
-	//      AudioContext that starts 'suspended'; browsers only let a gesture
-	//      resume it, and until it's running the auto-answered call has no sound.
+	//   3) transport.armAudio() — unblock carrier playback. What that MEANS differs by
+	//      provider (Twilio resumes a shared AudioContext, Telnyx plays its remote
+	//      media element), which is exactly why it sits behind the transport.
 	const armAudio = useCallback(async (): Promise<boolean> => {
 		// This must happen before the first await so audio.play() is called directly
 		// inside the Ready-button gesture. It is a separate local graph and never
@@ -400,16 +474,10 @@ export function useDevice({
 			return false;
 		}
 
-		// (3) Resume the SDK's AudioContext so playback isn't blocked. The Voice
-		// SDK exposes its AudioContext on device.audio; resuming it here (still
-		// within the gesture) unblocks the auto-answered call's audio.
+		// (3) Unblock carrier playback, still within the gesture, so the auto-answered
+		// call has sound without a second click.
 		try {
-			const audio = deviceRef.current?.audio as
-				{_audioContext?: AudioContext} | undefined;
-			const ctx = audio?._audioContext;
-			if (ctx && ctx.state === 'suspended') {
-				await ctx.resume();
-			}
+			await transportRef.current?.armAudio();
 		} catch {
 			/* non-fatal: mic is granted; playback may still resume on accept */
 		}
@@ -818,16 +886,147 @@ export function useDevice({
 		if (!enabled) return;
 
 		let cancelled = false;
-		let device: Device | null = null;
+		let transport: VoiceTransport | null = null;
 		let apiPingTimer: number | null = null;
 		let apiPingController: AbortController | null = null;
+		/** What the live transport was built from — the wizard's input on a re-test. */
+		let activeVoice: {
+			provider: VoiceProvider;
+			providerLocked: boolean;
+			token: string;
+		} | null = null;
+		let networkChangeBusy = false;
 
-		const fetchToken = async (): Promise<string> => {
-			const res = await getTwilioToken();
+		/**
+		 * A network change is the one event that means "this agent may be broken RIGHT
+		 * NOW", so it re-tests. Reentrancy is guarded because `online` and `connection
+		 * change` routinely fire together on the same physical event, and two overlapping
+		 * probes would race to flip the same agent.
+		 */
+		const onNetworkChange = (): void => {
+			if (cancelled || !activeVoice || networkChangeBusy) return;
+			networkChangeBusy = true;
+			void (async () => {
+				try {
+					// MINT A FRESH TOKEN TO PROBE WITH — never reuse the boot token.
+					//
+					// ⚠️ A dialer tab routinely outlives its token. Telnyx tokens last 24h,
+					// the transport quietly renews its OWN copy, and the boot value captured
+					// here is never updated — so in any tab older than a day this probe would
+					// register with an expired JWT, fail the `registration` stage, fail it
+					// again on the retry (same token), and demote a perfectly healthy agent
+					// onto the fallback network. Waking a laptop fires `online`, so the
+					// population is "anyone who did not reload since yesterday". It also
+					// poisons the rollout numbers, recording a provisioning-shaped failure
+					// for a network that is fine. One round trip on a rare path avoids all
+					// of it — and picks up an admin pin applied since boot for free.
+					const fresh = await fetchToken();
+					if (cancelled) return;
+					const moved = await runWizard(fresh, 'network-change');
+					// Bumping the epoch re-runs this whole effect: teardown, fresh token,
+					// new transport. The session marker written by the flip makes the boot
+					// wizard skip on that re-run, so this cannot loop.
+					if (!cancelled && moved) setVoiceEpoch((epoch) => epoch + 1);
+				} catch {
+					// A token we could not mint says nothing about the agent's network.
+					// Leave them exactly where they are.
+				} finally {
+					networkChangeBusy = false;
+				}
+			})();
+		};
+
+		/**
+		 * Mint a token AND learn which carrier it is for. The provider comes from the
+		 * backend (`dialer_agents.voice_provider`) — the browser never chooses — which
+		 * is what makes flipping an agent a server-side config change.
+		 */
+		const fetchToken = async (): Promise<{
+			token: string;
+			provider: VoiceProvider;
+			providerLocked: boolean;
+		}> => {
+			const res = await getVoiceToken();
 			if (res.statusCode !== 'SP100' || !res.token) {
-				throw new Error(res.statusMessage || 'Failed to get Twilio token');
+				throw new Error(res.statusMessage || 'Failed to get voice token');
 			}
-			return res.token;
+			// Default to twilio when the field is absent: an agent who has never been
+			// flipped is on Twilio, so this fails safe rather than failing closed.
+			return {
+				token: res.token,
+				provider: res.provider ?? 'twilio',
+				// Absent ⇒ unpinned. An older backend that does not send this must not
+				// silently freeze every agent's network.
+				providerLocked: res.provider_locked === true
+			};
+		};
+
+		/**
+		 * The wizard's IO, in one place so both entry points (boot and network change) run
+		 * the identical machine. Every call here is best-effort by contract: none of it may
+		 * take out the dialer boot it sits in front of.
+		 */
+		const wizardIo = {
+			getProbeToken: async (): Promise<string | null> => {
+				const res = await getVoiceProbeToken();
+				// A refusal is the ORDINARY answer — it means "not a promotion candidate"
+				// (already on Primary, administrator-pinned, or never provisioned on
+				// Primary) and is never surfaced to the agent.
+				return res.statusCode === 'SP100' && res.token ? res.token : null;
+			},
+			runProbe: (token: string) => runNetworkProbe(token),
+			postFallback: async (
+				provider: VoiceProvider,
+				diagnostics: Record<string, unknown>
+			): Promise<boolean> => {
+				const res = await postVoiceFallback(provider, diagnostics);
+				return res.ok === true;
+			},
+			recordTest: async (payload: {
+				passed: boolean;
+				direction: 'stay' | 'promote' | 'demote';
+				failedStage?: string | null;
+				detail?: Record<string, unknown>;
+			}): Promise<void> => {
+				await recordNetworkTest({
+					passed: payload.passed,
+					direction: payload.direction,
+					failed_stage: payload.failedStage ?? null,
+					detail: payload.detail
+				}).catch(() => undefined);
+			}
+		};
+
+		/**
+		 * Decide which network this agent should be on, and move them if needed.
+		 *
+		 * Returns the carrier they were moved to, or null. At boot this runs BEFORE the
+		 * transport is built, so the softphone is never live on a carrier we are about to
+		 * move them off — and there is exactly one transport build in the common case.
+		 */
+		const runWizard = async (
+			current: {provider: VoiceProvider; providerLocked: boolean; token: string},
+			trigger: 'boot' | 'network-change'
+		): Promise<VoiceProvider | null> => {
+			const marker = readWizardMarker();
+			setNetworkChecking(true);
+			try {
+				const outcome = await runNetworkWizard(
+					{
+						provider: current.provider,
+						providerLocked: current.providerLocked,
+						trigger,
+						hasActiveCall: callRef.current !== null,
+						demotedThisSession: marker.demoted === true,
+						promotedThisSession: marker.promoted === true
+					},
+					current.token,
+					wizardIo
+				);
+				return outcome.flippedTo;
+			} finally {
+				if (!cancelled) setNetworkChecking(false);
+			}
 		};
 
 		/** Time a cache-bypassed request to EmberQA without backend auth or DB work. */
@@ -864,8 +1063,8 @@ export function useDevice({
 		};
 
 		/** Wire the per-call listeners + auto-answer. */
-		const onIncoming = (call: Call) => {
-			const outboundParams = readOutboundCallParameters(call.customParameters);
+		const onIncoming = (call: IncomingLeg) => {
+			const outboundParams = readOutboundCallParameters(call.params);
 			const isPendingOutbound = matchesPendingOutbound(
 				pendingOutboundRef.current,
 				outboundParams
@@ -927,26 +1126,27 @@ export function useDevice({
 					// the accepted live call wins and all local ringback/busy state is reset.
 					clearOutboundAttempt();
 				}
-				// `CallSid` is the browser Client leg. The TwiML bridge passes the
-				// parent SID so a lead save associates with the durable dialer_calls
-				// record created for this call instead of materializing a second row.
-				const parentCallSid = call.customParameters.get('parent_call_sid');
+				// `legId` is the browser leg. The bridge markup passes the parent SID so a
+				// lead save associates with the durable dialer_calls record created for
+				// this call instead of materializing a second row — on both carriers,
+				// where it arrives as <Parameter> and as X-Parent-Call-Sid respectively.
+				const parentCallSid = call.params.parent_call_sid;
 				setActiveCall({
 					from: isOutbound
 						? outboundParams.dialedNumber ||
 							pending?.toNumber ||
 							starting?.toNumber ||
 							'Unknown'
-						: call.parameters.From || 'Unknown',
+						: call.from || 'Unknown',
 					callSid:
 						outboundParams.parentCallSid ||
 						parentCallSid ||
-						call.parameters.CallSid ||
+						call.legId ||
 						'',
-					clientCallSid: call.parameters.CallSid || '',
+					clientCallSid: call.legId || '',
 					campaignId: isOutbound
 						? null
-						: call.customParameters.get('campaign_id')?.trim() || null,
+						: call.params.campaign_id?.trim() || null,
 					muted: false,
 					held: false,
 					holdPending: false,
@@ -959,21 +1159,18 @@ export function useDevice({
 				void setOnCall(true).catch(() => undefined);
 				void setPresence({status: 'paused'}).catch(() => undefined);
 				if (!isOutbound) {
-					// Twilio is already accepted and streaming both ways. This only
+					// The carrier is already accepted and streaming both ways. This only
 					// overlays a local tone on the agent's selected output device.
 					answerToneRef.current?.play();
 				}
 			});
 
-			// Twilio publishes a WebRTC quality sample every second during a call.
-			// Its RTT is the closest possible browser-side ping to the actual media path.
-			call.on('sample', (sample: RTCSample) => {
+			// Live round-trip time to the carrier — the closest possible browser-side
+			// ping to the actual media path. Twilio pushes a sample every second; the
+			// Telnyx transport polls its peer connection at the same cadence.
+			call.onRtt((ms) => {
 				if (cancelled || callRef.current !== call) return;
-				setTwilioRttMs(
-					Number.isFinite(sample.rtt)
-						? Math.max(0, Math.round(sample.rtt))
-						: null
-				);
+				setTwilioRttMs(ms);
 			});
 
 			const clearCall = () => {
@@ -986,8 +1183,7 @@ export function useDevice({
 					locallyEndedCallRef.current = null;
 				}
 				if (!callRef.current) setTwilioRttMs(null);
-				const callSid = call.parameters.CallSid || '';
-				setActiveCall((current) => clearActiveCallOwner(current, callSid));
+				setActiveCall((current) => clearActiveCallOwner(current, call.legId || ''));
 				if (outboundParams.isExplicitOutbound && ownsOutboundInvite) {
 					const attemptId =
 						outboundParams.attemptId ||
@@ -1017,16 +1213,16 @@ export function useDevice({
 			call.on('disconnect', () => finishCall('disconnect'));
 			call.on('cancel', () => finishCall('cancel'));
 			call.on('reject', () => finishCall('reject'));
-			call.on('error', (e: {message?: string}) => {
+			call.on('error', (e?: unknown) => {
 				if (cancelled) return;
 				terminalHandled = true;
-				setError(e?.message || 'Call error');
+				setError((e as {message?: string} | undefined)?.message || 'Call error');
 				clearCall();
 			});
 
 			// Accept every owned leg immediately. Inbound notification is a separate,
 			// one-second local tone started by the accept event, so neither direction
-			// of Twilio audio waits for the notification to finish.
+			// of carrier audio waits for the notification to finish.
 			call.accept();
 		};
 
@@ -1049,64 +1245,75 @@ export function useDevice({
 				}
 				if (cancelled) return;
 
-				const token = await fetchToken();
+				const first = await fetchToken();
 				if (cancelled) return;
 
-				device = new Device(token, {
-					codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
-					allowIncomingWhileBusy: false
-				});
-				// We accept inbound calls immediately and provide our own post-answer
-				// agent-only chime. Prevent Twilio's pre-answer ringtone from racing it.
-				device.audio?.incoming(false);
-				device.audio?.on('deviceChange', () => {
-					if (cancelled) return;
-					const activeInputDeviceId =
-						device?.audio?.inputDevice?.deviceId ?? 'default';
-					inputDeviceIdRef.current = activeInputDeviceId;
-					setInputDeviceId(activeInputDeviceId);
-
-					const activeOutputDeviceId =
-						Array.from(device?.audio?.speakerDevices.get() ?? [])[0]
-							?.deviceId ?? 'default';
-					outputDeviceIdRef.current = activeOutputDeviceId;
-					setOutputDeviceId(activeOutputDeviceId);
-				});
-				deviceRef.current = device;
-
-				device.on('registered', () => {
-					device?.audio?.incoming(false);
-					if (!cancelled) setDeviceStatus('registered');
-				});
-				device.on(
-					'unregistered',
-					() => !cancelled && setDeviceStatus('offline')
-				);
-				device.on('error', (e: {message?: string}) => {
-					if (cancelled) return;
-					setDeviceStatus('error');
-					setError(e?.message || 'Device error');
-				});
-				device.on('incoming', onIncoming);
-
-				// Refresh the (short-lived) Twilio token before it expires.
-				device.on('tokenWillExpire', async () => {
-					try {
-						const fresh = await fetchToken();
-						if (!cancelled) await device?.updateToken(fresh);
-					} catch (e) {
-						if (!cancelled) setError('Failed to refresh Twilio token');
-					}
-				});
-
-				setDeviceStatus('connecting');
-				await device.register();
+				// THE WIZARD RUNS BEFORE THE TRANSPORT (Subplan 07). Testing after the
+				// softphone is live would leave an agent registered on — and taking calls
+				// through — a network we are in the middle of condemning, and a reloading
+				// agent whose presence is still 'ready' from their last session would hit
+				// exactly that window. A flip means the token we already hold is for the
+				// wrong carrier, so re-mint; otherwise reuse the one we have.
+				const flipped = await runWizard(first, 'boot');
 				if (cancelled) return;
+				const active = flipped ? await fetchToken() : first;
+				if (cancelled) return;
+				const {token, provider} = active;
+
+				// The backend chose the carrier; build the matching transport. Everything
+				// below this line is provider-agnostic.
+				transport =
+					provider === 'telnyx'
+						? new TelnyxTransport({
+								refreshToken: async () => (await fetchToken()).token,
+								onError: (message) => !cancelled && setError(message)
+							})
+						: new TwilioTransport({
+								refreshToken: async () => (await fetchToken()).token,
+								onError: (message) => !cancelled && setError(message)
+							});
+				transportRef.current = transport;
+
+				// ⚠️ Posted to the backend as `twilio_device_status` on every heartbeat.
+				// The name is legacy; the GATE is carrier-neutral. If a transport stops
+				// reporting 'registered', claimInboundCallByAgent stops claiming and every
+				// inbound call for this agent is rejected agent_busy_or_unreachable.
+				transport.onStatus((status, statusError) => {
+					if (cancelled) return;
+					setDeviceStatus(status);
+					if (statusError) setError(statusError);
+				});
+				transport.onIncoming(onIncoming);
+
+				await transport.register(token);
+				if (cancelled) return;
+
+				// Twilio reports the device selection the SDK actually settled on; Telnyx
+				// has no equivalent event, and there its selection is only ever ours.
+				if (transport instanceof TwilioTransport) {
+					transport.onDeviceChange((input, output) => {
+						if (cancelled) return;
+						inputDeviceIdRef.current = input;
+						setInputDeviceId(input);
+						outputDeviceIdRef.current = output;
+						setOutputDeviceId(output);
+					});
+				}
 				void probeApi();
 				apiPingTimer = window.setInterval(
 					() => void probeApi(),
 					API_PING_INTERVAL_MS
 				);
+
+				// Re-test when the machine's network actually changes. DEMOTION ONLY — the
+				// wizard's own entry gate enforces that, and the reason is that a flapping
+				// wifi would otherwise swing an agent back and forth, each swing costing a
+				// Retreaver re-point and a window where our database and Retreaver disagree
+				// about which number to dial.
+				activeVoice = active;
+				builtVoiceProviderRef.current = provider;
+				window.addEventListener('online', onNetworkChange);
+				networkInfo()?.addEventListener('change', onNetworkChange);
 			} catch (e) {
 				if (cancelled) return;
 				setDeviceStatus('error');
@@ -1118,6 +1325,10 @@ export function useDevice({
 
 		return () => {
 			cancelled = true;
+			window.removeEventListener('online', onNetworkChange);
+			networkInfo()?.removeEventListener('change', onNetworkChange);
+			activeVoice = null;
+			builtVoiceProviderRef.current = null;
 			if (apiPingTimer !== null) {
 				window.clearInterval(apiPingTimer);
 			}
@@ -1129,11 +1340,11 @@ export function useDevice({
 			}
 			void clearHoldAudio();
 			try {
-				device?.destroy();
+				transport?.destroy();
 			} catch {
 				/* ignore */
 			}
-			deviceRef.current = null;
+			transportRef.current = null;
 			callRef.current = null;
 			ringbackRef.current?.stop();
 			ringbackRef.current = null;
@@ -1148,7 +1359,10 @@ export function useDevice({
 		enabled,
 		reconcileAuthoritativeOutbound,
 		showCallerHangupNotice,
-		updatePendingOutbound
+		updatePendingOutbound,
+		// A mid-session flip (Subplan 07) rebuilds the transport through this effect's own
+		// teardown rather than through a second, drift-prone one of its own.
+		voiceEpoch
 	]);
 
 	return {
@@ -1157,6 +1371,7 @@ export function useDevice({
 		twilioRttMs,
 		apiPingMs,
 		error,
+		networkChecking,
 		callerHangupNotice,
 		dismissCallerHangupNotice,
 		outboundStarting,
@@ -1170,7 +1385,8 @@ export function useDevice({
 		startOutbound,
 		cancelPendingOutbound,
 		setInputDevice,
-		setOutputDevice
+		setOutputDevice,
+		reportServerProvider
 	};
 }
 
@@ -1181,6 +1397,20 @@ const OUTBOUND_ATTEMPT_STORAGE_KEY = 'pp_dialer_outbound_attempt';
 const API_PING_INTERVAL_MS = 15_000;
 const API_PING_TIMEOUT_MS = 5_000;
 const CALLER_HANGUP_NOTICE_MS = 6_000;
+
+/**
+ * `navigator.connection` is still unshipped on Safari and absent from the DOM lib types,
+ * so it is read defensively rather than declared — the `online` listener alone is a
+ * perfectly good trigger on browsers that lack it.
+ */
+const networkInfo = (): EventTarget | null => {
+	if (typeof navigator === 'undefined') return null;
+	const connection = (navigator as Navigator & {connection?: EventTarget})
+		.connection;
+	return connection && typeof connection.addEventListener === 'function'
+		? connection
+		: null;
+};
 
 class AmbiguousOutboundStartError extends Error {}
 class DefinitiveOutboundStartError extends Error {}

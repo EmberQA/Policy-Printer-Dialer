@@ -20,6 +20,11 @@ import {
 	setRefreshToken,
 	clearSession
 } from '@/auth/session';
+// Type-only, so no runtime edge is added between the wire layer and the transport
+// layer it feeds. Imported rather than mirrored (the way TwilioDeviceStatus is)
+// because a SECOND copy of this particular union is exactly how a transport and the
+// server's idea of a transport would quietly drift apart.
+import type {VoiceProvider} from '@/voice/VoiceTransport';
 
 // Prod build (`vite build`) targets the deployed backend; dev (`vite`) targets
 // the LOCAL backend on :3000 (matches EmberQA's fetchWithAuth convention — 3001
@@ -124,6 +129,9 @@ export interface DialerProfileResponse {
 		org_id: string;
 		user_id: string;
 		twilio_identity: string;
+		/** The number that takes calls on the agent's CURRENT carrier. Prefer this;
+		 *  `twilio_phone_number` is the raw column and is null for a Telnyx agent. */
+		phone_number?: string | null;
 		twilio_phone_number: string | null;
 	};
 }
@@ -187,6 +195,17 @@ export interface PresenceResponse {
 	statusMessage: string;
 	available?: 0 | 1;
 	presence?: DialerPresence | null;
+	/**
+	 * Which carrier the SERVER has this agent on. Only the heartbeat returns it, which
+	 * is why it is optional here — the other presence mutations share this envelope.
+	 *
+	 * ⚠️ A TRANSPORT SELECTOR, NEVER SOMETHING TO RENDER. It is the one carrier-shaped
+	 * value that reaches the agent's browser at all, and it exists solely so a switch
+	 * made in the admin panel rebuilds a running session's transport instead of waiting
+	 * for the agent to happen to reload. Nothing may put it, or any word derived from
+	 * it, in front of the agent.
+	 */
+	voice_provider?: VoiceProvider;
 }
 
 /** A campaign the agent is linked to, plus this agent's per-campaign `ready` toggle. */
@@ -313,19 +332,94 @@ export const listCampaignRemainingCalls =
 		qsPost('/policyPrinter/dialer/campaigns/remainingCalls');
 
 /* -------------------------------------------------------------------------- */
-/* Twilio softphone (Subplan 03)                                              */
+/* Softphone token (Subplan 03; provider-neutral since ENG-159 Subplan 05)    */
 /* -------------------------------------------------------------------------- */
 
-export interface TwilioTokenResponse {
+export interface VoiceTokenResponse {
 	statusCode: string;
 	statusMessage: string;
+	/**
+	 * Which carrier this token is for. THE BACKEND DECIDES — it reads
+	 * `dialer_agents.voice_provider` — so flipping an agent changes the transport the
+	 * browser builds on its next token fetch, with no deploy and no client flag.
+	 * Absent on a failure response.
+	 */
+	provider?: 'telnyx' | 'twilio';
 	token?: string;
 	identity?: string;
+	/**
+	 * An administrator pinned this agent's network. The wizard must not run at all when it
+	 * is true — in either direction, and not run-and-be-refused. Rides on the one call
+	 * every dialer boot already makes rather than costing a second endpoint.
+	 */
+	provider_locked?: boolean;
 }
 
-/** Mint a short-lived Twilio Voice access token for this browser Device. */
-export const getTwilioToken = (): Promise<TwilioTokenResponse> =>
-	qsPost('/policyPrinter/dialer/twilio/token');
+/**
+ * Mint a voice access token for this browser client.
+ *
+ * Replaced `getTwilioToken()` / `/dialer/twilio/token` in ENG-159 Subplan 05. Clean cut
+ * with no fallback: 00–08 ship as ONE release, so there is never a dialer build talking
+ * to a backend without this route, and a fallback path could only hide a broken primary.
+ * The backend's legacy alias can be deleted in Subplan 08.
+ */
+export const getVoiceToken = (): Promise<VoiceTokenResponse> =>
+	qsPost('/policyPrinter/dialer/voice/token');
+
+/* -------------------------------------------------------------------------- */
+/* The network wizard (ENG-159 Subplan 07)                                    */
+/*                                                                             */
+/* ⚠️ Nothing in this block may put a carrier name, "Primary" or "Fallback" in  */
+/* front of the agent. The wizard's whole promise is that it just works.       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Mint a Primary-network token for an agent currently on Fallback, so the wizard can test
+ * whether they can go back.
+ *
+ * ⚠️ A NON-SUCCESS HERE IS THE ORDINARY ANSWER, not an error to surface: it means this
+ * agent is not a promotion candidate (already on Primary, administrator-pinned, or never
+ * provisioned on Primary). `/voice/token` mints against the ACTIVE carrier by design, so
+ * without this route an agent on Fallback has nothing to test Primary with and the
+ * promotion path is impossible rather than merely unbuilt.
+ */
+export const getVoiceProbeToken = (): Promise<VoiceTokenResponse> =>
+	qsPost('/policyPrinter/dialer/voice/probeToken');
+
+export interface VoiceFallbackResponse {
+	statusCode: string;
+	statusMessage: string;
+	ok?: boolean;
+}
+
+/**
+ * Move this agent onto `provider`. Self-only — the backend uses the caller's own ids and
+ * never reads a user from the body, and it will not accept the administrator pin here.
+ *
+ * `diagnostics` rides into the flip's own `provider_switched` row, which is why the wizard
+ * does not separately record an outcome that ended in a flip.
+ */
+export const postVoiceFallback = (
+	provider: 'telnyx' | 'twilio',
+	diagnostics?: Record<string, unknown>
+): Promise<VoiceFallbackResponse> =>
+	qsPost('/policyPrinter/dialer/voice/fallback', {
+		provider,
+		...(diagnostics ? {diagnostics} : {})
+	});
+
+/**
+ * Record a wizard outcome that did NOT end in a flip: a plain pass (the denominator
+ * without which a failure count means nothing), a fail-then-pass flap, or a promotion
+ * probe that failed. Best-effort on both ends — it must never fail a dialer boot.
+ */
+export const recordNetworkTest = (payload: {
+	passed: boolean;
+	direction: 'stay' | 'promote' | 'demote';
+	failed_stage?: string | null;
+	detail?: Record<string, unknown>;
+}): Promise<{statusCode: string; statusMessage: string}> =>
+	qsPost('/policyPrinter/dialer/voice/networkTest', payload);
 
 export interface StartOutboundCallResponse {
 	statusCode: string;

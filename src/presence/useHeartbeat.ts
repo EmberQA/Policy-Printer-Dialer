@@ -31,6 +31,7 @@ import {
 	type DialerPresence,
 	type TwilioDeviceStatus
 } from '@/lib/api';
+import type {VoiceProvider} from '@/voice/VoiceTransport';
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
 /** Cap for the exponential backoff applied after consecutive failed beats. */
@@ -50,6 +51,15 @@ export interface HeartbeatState {
 	presence: DialerPresence | null;
 	/** True once at least one heartbeat round-tripped (UI can show "connected"). */
 	connected: boolean;
+	/**
+	 * The carrier the SERVER has this agent on, from the last successful beat. Null
+	 * until one lands, and deliberately LEFT ALONE on a failed beat — a network blip
+	 * is not evidence the agent's carrier changed, and clearing it would invite a
+	 * transport rebuild every time the backend hiccups.
+	 *
+	 * ⚠️ Transport selection only. Never rendered — see PresenceResponse.
+	 */
+	voiceProvider: VoiceProvider | null;
 }
 
 export interface UseHeartbeatOptions {
@@ -66,7 +76,8 @@ export function useHeartbeat({
 	const [state, setState] = useState<HeartbeatState>({
 		available: null,
 		presence: null,
-		connected: false
+		connected: false,
+		voiceProvider: null
 	});
 
 	// Session id is stable for the life of this hook instance (this tab).
@@ -108,11 +119,16 @@ export function useHeartbeat({
 				);
 				if (cancelled) return;
 				failureStreak = 0;
-				setState({
+				setState((prev) => ({
 					available: (res.available ?? 0) as 0 | 1,
 					presence: res.presence ?? null,
-					connected: true
-				});
+					connected: true,
+					// Hold the last known value when a beat comes back without one — an
+					// older backend, or a beat the agent row could not be read for. Falling
+					// to null would read as "the carrier changed" downstream and rebuild
+					// the transport for no reason.
+					voiceProvider: res.voice_provider ?? prev.voiceProvider
+				}));
 			} catch {
 				if (cancelled) return;
 				// A failed beat means we are not advertising availability right now; back off.

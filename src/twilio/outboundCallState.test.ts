@@ -8,6 +8,13 @@ import {
 	type PendingOutboundCall
 } from './outboundCallState';
 
+/**
+ * The normalized record a transport hands us. Was a raw `Map` before ENG-159
+ * Subplan 05, when Twilio's `customParameters` was the only shape that existed.
+ */
+const legParams = (entries: Array<[string, string]>): Record<string, string> =>
+	Object.fromEntries(entries);
+
 const pending: PendingOutboundCall = {
 	attemptId: '00000000-0000-4000-8000-000000000001',
 	callSid: 'CA00000000000000000000000000000001',
@@ -20,7 +27,7 @@ const pending: PendingOutboundCall = {
 describe('outbound Client-leg correlation', () => {
 	it('requires explicit direction and the exact parent SID', () => {
 		const params = readOutboundCallParameters(
-			new Map([
+			legParams([
 				['call_direction', 'outbound'],
 				['parent_call_sid', pending.callSid],
 				['outbound_attempt_id', pending.attemptId],
@@ -34,7 +41,7 @@ describe('outbound Client-leg correlation', () => {
 
 	it('matches a pre-response invite only by exact attempt id', () => {
 		const params = readOutboundCallParameters(
-			new Map([
+			legParams([
 				['call_direction', 'outbound'],
 				['parent_call_sid', pending.callSid],
 				['outbound_attempt_id', pending.attemptId]
@@ -68,7 +75,7 @@ describe('outbound Client-leg correlation', () => {
 
 	it('ignores a non-owner outbound copy without affecting inbound calls', () => {
 		const owned = readOutboundCallParameters(
-			new Map([
+			legParams([
 				['call_direction', 'outbound'],
 				['parent_call_sid', pending.callSid],
 				['outbound_attempt_id', pending.attemptId]
@@ -91,7 +98,7 @@ describe('outbound Client-leg correlation', () => {
 
 	it('does not consume a stale or other-tab outbound leg', () => {
 		const params = readOutboundCallParameters(
-			new Map([
+			legParams([
 				['call_direction', 'outbound'],
 				['parent_call_sid', 'CA00000000000000000000000000000002']
 			])
@@ -102,7 +109,7 @@ describe('outbound Client-leg correlation', () => {
 
 	it('does not match an ordinary inbound leg and keeps ownership during cancel', () => {
 		const inbound = readOutboundCallParameters(
-			new Map([['parent_call_sid', pending.callSid]])
+			legParams([['parent_call_sid', pending.callSid]])
 		);
 		expect(matchesPendingOutbound(pending, inbound)).toBe(false);
 		expect(

@@ -428,7 +428,10 @@ function HeaderUserBlock({
 	onShowTraining: () => void;
 }) {
 	const {profile, provisioned, device} = useDialerSession();
-	const callbackNumber = profile?.agent?.twilio_phone_number;
+	// `phone_number` is the agent's number on whichever carrier they are actually on.
+	// The fallback covers a response from a backend that predates it.
+	const callbackNumber =
+		profile?.agent?.phone_number ?? profile?.agent?.twilio_phone_number;
 	const pingMs = device.activeCall ? device.twilioRttMs : device.apiPingMs;
 
 	return (
@@ -491,8 +494,9 @@ function InboundCallAutoNav() {
 }
 
 /**
- * The agent's own direct callback number (their Twilio DID). A direct dial back to
- * this number bypasses Retreaver routing and triggers the returning-caller pull-up.
+ * The agent's own direct callback number (their DID on their active carrier). A direct
+ * dial back to this number bypasses Retreaver routing and triggers the returning-caller
+ * pull-up.
  */
 function CallbackNumber({number}: {number: string}) {
 	const [copied, setCopied] = useState(false);

@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@telnyx/webrtc": "^2.27.9",
     "@twilio/voice-sdk": "2.18.3",
     "axios": "^1.18.1",
     "class-variance-authority": "^0.7.1",
