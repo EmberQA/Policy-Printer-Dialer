@@ -730,12 +730,8 @@ function DialSidebar({
 	canDial: boolean;
 	dialPending: boolean;
 }) {
-	// Off during a call. The meter opens its own getUserMedia with processing disabled,
-	// which the Voice SDK holds with processing enabled — Chrome cannot serve both from
-	// one device instance, and on a Bluetooth mic that contention (plus the re-acquire
-	// this effect does whenever `inputDeviceId` changes) is what chops call audio.
 	const systemMicMeter = useMicLevelMeter({
-		enabled: provisioned && !onCall,
+		enabled: provisioned,
 		deviceId: inputDeviceId
 	});
 	const selectedCampaigns = campaigns.filter((campaign) => campaign.ready);
