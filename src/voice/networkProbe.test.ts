@@ -1,4 +1,4 @@
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
 	candidateType,
 	classifyCandidates,
@@ -187,5 +187,60 @@ describe('runNetworkProbe', () => {
 		});
 
 		expect(iceSawClientRunning).toBe(true);
+	});
+
+	/**
+	 * A region rewrites the SIGNALING host and nothing else. It reaching the ICE stage would
+	 * imply a pinned re-probe could recover a `host`-only network — it cannot, because those
+	 * servers are the fixed global `TELNYX_ICE_SERVERS` list and the stage takes no token.
+	 */
+	it('forwards the region to the client stage only', async () => {
+		const runClientStage = vi.fn(async () => ({
+			socketOpened: true,
+			registered: true
+		}));
+		const runIceStage = vi.fn(async () => ({iceType: 'srflx' as const, ms: 1}));
+
+		await runNetworkProbe(
+			'tok',
+			{runClientStage, runIceStage, userAgent: 'ua'},
+			'us-central'
+		);
+
+		expect(runClientStage).toHaveBeenCalledWith('tok', 'us-central');
+		expect(runIceStage).toHaveBeenCalledWith();
+	});
+
+	// The unpinned path must stay exactly what shipped.
+	it('passes no region when none was asked for', async () => {
+		const runClientStage = vi.fn(async () => ({
+			socketOpened: true,
+			registered: true
+		}));
+
+		const report = await runNetworkProbe('tok', {
+			runClientStage,
+			runIceStage: async () => ({iceType: 'srflx', ms: 1}),
+			userAgent: 'ua'
+		});
+
+		expect(runClientStage).toHaveBeenCalledWith('tok', undefined);
+		expect(report.region).toBeNull();
+	});
+
+	// The recorded row has to say which edge was tested, or "passed" and "passed only once
+	// pinned" are indistinguishable afterwards.
+	it('reports the region it tested', async () => {
+		const report = await runNetworkProbe(
+			'tok',
+			{
+				runClientStage: async () => ({socketOpened: true, registered: true}),
+				runIceStage: async () => ({iceType: 'srflx', ms: 1}),
+				userAgent: 'ua'
+			},
+			'us-central'
+		);
+
+		expect(report).toMatchObject({passed: true, region: 'us-central'});
 	});
 });

@@ -20,13 +20,33 @@
  * Promotion is only ever a RETURN to a carrier the agent already owns; the backend decides
  * that, not this file (see `getProbeToken`).
  *
+ * ─── The region pin ──────────────────────────────────────────────────────────
+ *
+ * Agents were failing the `signaling` stage outright: the WSS socket to Telnyx's default
+ * host never opened and timed out, while the `us-central` edge worked from the same
+ * machine. So the demotion retry is not a plain do-it-again — ATTEMPT 2 IS PINNED to
+ * `us-central`, which absorbs a transient (what the retry was always for) and a bad edge
+ * (what was actually happening) in the same two probes. Boot cost is unchanged.
+ *
+ * ⚠️ A PINNED PASS IS WORTHLESS UNLESS THE LIVE TRANSPORT IS ALSO PINNED. The probe and
+ * the softphone are different clients; proving `us-central` works and then building the
+ * real one on the default host reproduces the exact outage we just measured. That is why
+ * `WizardOutcome.region` exists and why every return path below sets it — including the
+ * skipped ones, where it comes back off the marker so a mid-session rebuild (an epoch bump,
+ * a network change) cannot silently drop a pin the agent is depending on.
+ *
+ * The pin only moves the signaling host. An `ice` failure is unreachable by it and will
+ * demote to Fallback exactly as it did before — correctly, since no edge would fix it.
+ *
  * ─── Three asymmetries, all deliberate ───────────────────────────────────────
  *
  * 1. RETRY IS DEMOTION-ONLY. A retry exists to avoid acting on a transient. For demotion
  *    the risk is acting too eagerly, so retry once before moving a working agent off
  *    Primary. For promotion, retrying would mean *keep trying until it passes* — which is
  *    precisely how you promote an agent whose network is marginal, and they will be
- *    demoted again within the hour. One clean pass or leave them alone.
+ *    demoted again within the hour. One clean pass or leave them alone. The promotion
+ *    probe IS pinned, though: it is still one attempt, but pointing it at the default host
+ *    would leave every agent this bug already demoted stranded on Fallback forever.
  *
  * 2. PROMOTION IS BOOT-ONLY. Demotion also runs on a network change, because it answers
  *    "this agent is broken RIGHT NOW". Promotion answers "things look better", and running
@@ -45,8 +65,17 @@
  * exactly the overcooking the ticket warns against.
  */
 
+import {Region} from '@telnyx/webrtc';
 import type {ProbeReport} from './networkProbe';
 import type {VoiceProvider} from './VoiceTransport';
+
+/**
+ * The edge we escalate to. Every Policy Printer agent is US-based, and this is the one
+ * that was observed working from machines where the default host timed out. It is a
+ * frontend constant on purpose — see the note at the bottom of the file about where it
+ * belongs if agents ever need different edges.
+ */
+export const PINNED_REGION: string = Region.US_CENTRAL;
 
 export type WizardDirection = 'stay' | 'promote' | 'demote';
 
@@ -66,6 +95,12 @@ export interface WizardConditions {
 	hasActiveCall: boolean;
 	demotedThisSession: boolean;
 	promotedThisSession: boolean;
+	/**
+	 * A region this session already settled on, from the marker. Non-null means a previous
+	 * run in this tab found the default host unusable — so start there rather than
+	 * rediscovering it, and hand it back even when the gate says skip.
+	 */
+	pinnedRegion: string | null;
 }
 
 /**
@@ -98,6 +133,8 @@ const SESSION_KEY = 'pp_dialer_network_wizard';
 interface SessionMarker {
 	demoted?: boolean;
 	promoted?: boolean;
+	/** The signaling edge this tab settled on. Absent = the default host is fine. */
+	region?: string;
 }
 
 export const readWizardMarker = (): SessionMarker => {
@@ -129,7 +166,8 @@ export interface WizardIo {
 	 *  says this agent is not a promotion candidate — that refusal IS the eligibility
 	 *  answer, so there is no separate capability check. */
 	getProbeToken: () => Promise<string | null>;
-	runProbe: (token: string) => Promise<ProbeReport>;
+	/** `region` pins the signaling host for this attempt; omitted means the default. */
+	runProbe: (token: string, region?: string) => Promise<ProbeReport>;
 	/** Move the agent. Resolves true when they landed on `provider`. */
 	postFallback: (
 		provider: VoiceProvider,
@@ -151,14 +189,27 @@ export interface WizardOutcome {
 	direction: WizardDirection | null;
 	/** Set only when the agent actually moved; the caller must re-fetch their token. */
 	flippedTo: VoiceProvider | null;
+	/**
+	 * The signaling region the Telnyx transport MUST now be built with, or null for the
+	 * default host. Load-bearing, not informational: build the transport without it and a
+	 * pinned agent goes straight back onto the host that was timing out. Set on every
+	 * return path, skips included.
+	 */
+	region: string | null;
 }
 
-const skipped: WizardOutcome = {ran: false, direction: null, flippedTo: null};
+const skip = (region: string | null): WizardOutcome => ({
+	ran: false,
+	direction: null,
+	flippedTo: null,
+	region
+});
 
 const probeDetail = (report: ProbeReport, extra: Record<string, unknown> = {}) => ({
 	ice_type: report.iceType,
 	stage_timings: report.timings,
 	user_agent: report.userAgent,
+	region: report.region,
 	...(report.error ? {error: report.error} : {}),
 	...extra
 });
@@ -180,37 +231,62 @@ export const runNetworkWizard = async (
 	io: WizardIo
 ): Promise<WizardOutcome> => {
 	const plan = wizardPlan(conditions);
-	if (!plan) return skipped;
+	// Even a skip must hand back the pin: the caller builds the transport from this, and
+	// the gate says no on exactly the paths (active call, admin pin) where an agent is
+	// mid-shift on a host we already know does not work for them.
+	if (!plan) return skip(conditions.pinnedRegion);
 	const delay = io.delay ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
 
 	try {
 		if (plan === 'test-primary') {
-			const first = await io.runProbe(activeToken);
+			// Already pinned in this tab? Start there. Rediscovering costs the agent a
+			// guaranteed 6s timeout on a host this session has already ruled out.
+			const firstRegion = conditions.pinnedRegion ?? undefined;
+			const first = await io.runProbe(activeToken, firstRegion);
 			if (first.passed) {
 				await io.recordTest({
 					passed: true,
 					direction: 'stay',
 					detail: probeDetail(first, {attempt: 1})
 				});
-				return {ran: true, direction: 'stay', flippedTo: null};
+				return {
+					ran: true,
+					direction: 'stay',
+					flippedTo: null,
+					region: conditions.pinnedRegion
+				};
 			}
 
-			// Retry once. Do not demote on a blip.
+			// Retry once. Do not demote on a blip — and escalate to the pinned edge while we
+			// are here, because the failure this retry now most often meets is a default
+			// host that will not open at all. An already-pinned session re-tests its own
+			// region instead, which is the original blip-absorbing retry, unchanged.
 			await delay(RETRY_DELAY_MS);
-			const second = await io.runProbe(activeToken);
+			const retryRegion = conditions.pinnedRegion ?? PINNED_REGION;
+			const second = await io.runProbe(activeToken, retryRegion);
 			if (second.passed) {
 				// A pass that had to flap is the early warning that this agent is about to
 				// start bouncing, and it leaves no other trace anywhere.
+				const pinnedNow = retryRegion !== conditions.pinnedRegion;
+				if (pinnedNow) writeWizardMarker({region: retryRegion});
 				await io.recordTest({
 					passed: true,
 					direction: 'stay',
 					detail: probeDetail(second, {
 						attempt: 2,
 						flapped: true,
-						first_failed_stage: first.failedStage
+						first_failed_stage: first.failedStage,
+						// Distinguishes "the blip cleared" from "only the pinned edge works",
+						// which is the number that says whether this fix is earning its keep.
+						...(pinnedNow ? {pinned_region: retryRegion} : {})
 					})
 				});
-				return {ran: true, direction: 'stay', flippedTo: null};
+				return {
+					ran: true,
+					direction: 'stay',
+					flippedTo: null,
+					region: retryRegion
+				};
 			}
 
 			// The flip records its own diagnostic (carrying this detail as context), so
@@ -221,13 +297,17 @@ export const runNetworkWizard = async (
 				failed_stage: second.failedStage,
 				attempt: 2,
 				first_failed_stage: first.failedStage,
+				// Separates "the pinned edge did not help either" from "we never tried it".
+				pinned_region_tried: retryRegion,
 				...probeDetail(second)
 			});
 			if (moved) writeWizardMarker({demoted: true});
 			return {
 				ran: true,
 				direction: 'demote',
-				flippedTo: moved ? 'twilio' : null
+				flippedTo: moved ? 'twilio' : null,
+				// A demoted agent is on Twilio, where region means nothing.
+				region: moved ? null : conditions.pinnedRegion
 			};
 		}
 
@@ -235,33 +315,49 @@ export const runNetworkWizard = async (
 		const probeToken = await io.getProbeToken();
 		// Not a promotion candidate. The overwhelmingly common answer, and not an event:
 		// recording it would write a row per boot for every agent who was never on Primary.
-		if (!probeToken) return skipped;
+		if (!probeToken) return skip(conditions.pinnedRegion);
 
-		const report = await io.runProbe(probeToken);
+		// One attempt, still — but pinned. Anyone this bug already demoted is sitting on
+		// Fallback precisely because the default host fails for them, so an unpinned
+		// promotion probe is guaranteed to fail and strand them there permanently.
+		const promoteRegion = conditions.pinnedRegion ?? PINNED_REGION;
+		const report = await io.runProbe(probeToken, promoteRegion);
 		if (!report.passed) {
 			await io.recordTest({
 				passed: false,
 				direction: 'promote',
 				failedStage: report.failedStage,
-				detail: probeDetail(report, {attempt: 1})
+				detail: probeDetail(report, {
+					attempt: 1,
+					pinned_region: promoteRegion
+				})
 			});
-			return {ran: true, direction: 'promote', flippedTo: null};
+			return {
+				ran: true,
+				direction: 'promote',
+				flippedTo: null,
+				region: conditions.pinnedRegion
+			};
 		}
 
 		const moved = await io.postFallback('telnyx', {
 			direction: 'promote',
 			attempt: 1,
+			pinned_region: promoteRegion,
 			...probeDetail(report)
 		});
-		if (moved) writeWizardMarker({promoted: true});
+		// Only remember the pin if they actually landed on Telnyx — a refused flip leaves
+		// them on Twilio, where recording a signaling edge would be meaningless.
+		if (moved) writeWizardMarker({promoted: true, region: promoteRegion});
 		return {
 			ran: true,
 			direction: 'promote',
-			flippedTo: moved ? 'telnyx' : null
+			flippedTo: moved ? 'telnyx' : null,
+			region: moved ? promoteRegion : conditions.pinnedRegion
 		};
 	} catch {
 		// Leave the agent exactly where they are. Their current carrier is, by definition,
 		// the one they were already working on.
-		return skipped;
+		return skip(conditions.pinnedRegion);
 	}
 };

@@ -920,13 +920,22 @@ export function useDevice({
 					// poisons the rollout numbers, recording a provisioning-shaped failure
 					// for a network that is fine. One round trip on a rare path avoids all
 					// of it — and picks up an admin pin applied since boot for free.
+					const regionBefore = readWizardMarker().region ?? null;
 					const fresh = await fetchToken();
 					if (cancelled) return;
-					const moved = await runWizard(fresh, 'network-change');
+					const outcome = await runWizard(fresh, 'network-change');
+					// A NEW PIN NEEDS A REBUILD JUST AS MUCH AS A FLIP DOES. The live
+					// transport was built for the old region; discovering on this network
+					// that the agent now needs a pinned edge changes nothing until the
+					// client is reconstructed against it, and without this they would sit
+					// on the failing host until their next reload.
+					const changed =
+						outcome.flippedTo !== null || outcome.region !== regionBefore;
 					// Bumping the epoch re-runs this whole effect: teardown, fresh token,
 					// new transport. The session marker written by the flip makes the boot
-					// wizard skip on that re-run, so this cannot loop.
-					if (!cancelled && moved) setVoiceEpoch((epoch) => epoch + 1);
+					// wizard skip on that re-run, and a re-run re-reads the same pin it just
+					// wrote rather than rediscovering one, so this cannot loop.
+					if (!cancelled && changed) setVoiceEpoch((epoch) => epoch + 1);
 				} catch {
 					// A token we could not mint says nothing about the agent's network.
 					// Leave them exactly where they are.
@@ -974,7 +983,8 @@ export function useDevice({
 				// Primary) and is never surfaced to the agent.
 				return res.statusCode === 'SP100' && res.token ? res.token : null;
 			},
-			runProbe: (token: string) => runNetworkProbe(token),
+			runProbe: (token: string, region?: string) =>
+				runNetworkProbe(token, {}, region),
 			postFallback: async (
 				provider: VoiceProvider,
 				diagnostics: Record<string, unknown>
@@ -1000,14 +1010,20 @@ export function useDevice({
 		/**
 		 * Decide which network this agent should be on, and move them if needed.
 		 *
-		 * Returns the carrier they were moved to, or null. At boot this runs BEFORE the
-		 * transport is built, so the softphone is never live on a carrier we are about to
-		 * move them off — and there is exactly one transport build in the common case.
+		 * Returns the carrier they were moved to (or null), AND the signaling region the
+		 * transport must be built with. Both matter: `flippedTo` says the token we hold is
+		 * for the wrong carrier, `region` says which Telnyx edge actually works from this
+		 * machine — and a caller that drops the second one rebuilds the softphone on the
+		 * host the wizard just proved unusable.
+		 *
+		 * At boot this runs BEFORE the transport is built, so the softphone is never live
+		 * on a carrier we are about to move them off — and there is exactly one transport
+		 * build in the common case.
 		 */
 		const runWizard = async (
 			current: {provider: VoiceProvider; providerLocked: boolean; token: string},
 			trigger: 'boot' | 'network-change'
-		): Promise<VoiceProvider | null> => {
+		): Promise<{flippedTo: VoiceProvider | null; region: string | null}> => {
 			const marker = readWizardMarker();
 			setNetworkChecking(true);
 			try {
@@ -1018,12 +1034,13 @@ export function useDevice({
 						trigger,
 						hasActiveCall: callRef.current !== null,
 						demotedThisSession: marker.demoted === true,
-						promotedThisSession: marker.promoted === true
+						promotedThisSession: marker.promoted === true,
+						pinnedRegion: marker.region ?? null
 					},
 					current.token,
 					wizardIo
 				);
-				return outcome.flippedTo;
+				return {flippedTo: outcome.flippedTo, region: outcome.region};
 			} finally {
 				if (!cancelled) setNetworkChecking(false);
 			}
@@ -1254,19 +1271,25 @@ export function useDevice({
 				// agent whose presence is still 'ready' from their last session would hit
 				// exactly that window. A flip means the token we already hold is for the
 				// wrong carrier, so re-mint; otherwise reuse the one we have.
-				const flipped = await runWizard(first, 'boot');
+				const wizard = await runWizard(first, 'boot');
 				if (cancelled) return;
-				const active = flipped ? await fetchToken() : first;
+				const active = wizard.flippedTo ? await fetchToken() : first;
 				if (cancelled) return;
 				const {token, provider} = active;
 
 				// The backend chose the carrier; build the matching transport. Everything
 				// below this line is provider-agnostic.
+				//
+				// `region` is the wizard's OTHER output and is load-bearing on the Telnyx
+				// side: when the default signaling host is unusable from this machine, the
+				// softphone has to reach the same edge the probe passed on, or we rebuild
+				// the exact outage that was just measured.
 				transport =
 					provider === 'telnyx'
 						? new TelnyxTransport({
 								refreshToken: async () => (await fetchToken()).token,
-								onError: (message) => !cancelled && setError(message)
+								onError: (message) => !cancelled && setError(message),
+								region: wizard.region ?? undefined
 							})
 						: new TwilioTransport({
 								refreshToken: async () => (await fetchToken()).token,

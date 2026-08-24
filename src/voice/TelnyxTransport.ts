@@ -138,11 +138,20 @@ export class TelnyxTransport implements VoiceTransport {
 	 * Build a client, wire it, and bring the socket up. Returns it rather than assigning
 	 * `this.client`, so a refresh can connect its replacement BEFORE retiring the working
 	 * one — see `refreshNow`.
+	 *
+	 * ⚠️ The region is read off `this.options` on EVERY build, not captured once at
+	 * `register`. That is what carries a wizard-discovered pin through `refreshNow` — which
+	 * constructs a whole new client near the token's 24h expiry. Capture it once and a
+	 * pinned agent silently reverts to the default host most of a day into their shift,
+	 * which looks like a random overnight outage rather than a dropped setting.
 	 */
 	private async buildClient(
 		token: string
 	): Promise<InstanceType<typeof TelnyxRTC>> {
-		const client = new TelnyxRTC({login_token: token});
+		const client = new TelnyxRTC({
+			login_token: token,
+			...(this.options.region ? {region: this.options.region} : {})
+		});
 
 		// The SDK plays remote audio into this element. It must exist before connect so
 		// an immediately-arriving call has somewhere to land.
