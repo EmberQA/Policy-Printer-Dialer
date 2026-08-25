@@ -80,6 +80,13 @@ export interface VoiceTransportOptions {
 	refreshToken: () => Promise<string>;
 	/** Surfaced to the user; also the transport's channel for non-fatal problems. */
 	onError?: (message: string) => void;
+	/**
+	 * TELNYX ONLY — pins the signaling edge (`wss://<region>.rtc.telnyx.com`). Set from the
+	 * network wizard's outcome when the default host fails for this machine; omitted means
+	 * the carrier's own geo routing picks. `TwilioTransport` ignores it: its analogue is
+	 * `edge`, and nothing has needed one.
+	 */
+	region?: string;
 }
 
 export interface VoiceTransport {

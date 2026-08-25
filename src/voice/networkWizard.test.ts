@@ -35,23 +35,29 @@ const conditions = (
 	hasActiveCall: false,
 	demotedThisSession: false,
 	promotedThisSession: false,
+	pinnedRegion: null,
 	...overrides
 });
 
-const pass = (): ProbeReport => ({
+const pass = (region: string | null = null): ProbeReport => ({
 	passed: true,
 	failedStage: null,
 	iceType: 'srflx',
 	timings: {signaling: 30, registration: 80, ice: 20},
-	userAgent: 'ua'
+	userAgent: 'ua',
+	region
 });
 
-const fail = (stage: ProbeReport['failedStage'] = 'signaling'): ProbeReport => ({
+const fail = (
+	stage: ProbeReport['failedStage'] = 'signaling',
+	region: string | null = null
+): ProbeReport => ({
 	passed: false,
 	failedStage: stage,
 	iceType: 'none',
 	timings: {ice: 4000},
-	userAgent: 'ua'
+	userAgent: 'ua',
+	region
 });
 
 /** Bare `sessionStorage`, matching the outbound-attempt pattern already in useDevice. */
@@ -149,7 +155,12 @@ describe('demotion', () => {
 
 		const outcome = await runNetworkWizard(conditions(), 'active-token', deps);
 
-		expect(outcome).toEqual({ran: true, direction: 'stay', flippedTo: null});
+		expect(outcome).toEqual({
+			ran: true,
+			direction: 'stay',
+			flippedTo: null,
+			region: null
+		});
 		expect(deps.postFallback).not.toHaveBeenCalled();
 		expect(deps.recordTest).toHaveBeenCalledWith(
 			expect.objectContaining({passed: true, direction: 'stay'})
@@ -163,7 +174,9 @@ describe('demotion', () => {
 
 		await runNetworkWizard(conditions(), 'active-token', deps);
 
-		expect(deps.runProbe).toHaveBeenCalledWith('active-token');
+		// Unpinned on the first attempt: the default host is what most agents should use,
+		// and pinning everyone would throw away the carrier's own geo routing.
+		expect(deps.runProbe).toHaveBeenCalledWith('active-token', undefined);
 		expect(deps.getProbeToken).not.toHaveBeenCalled();
 	});
 
@@ -200,11 +213,18 @@ describe('demotion', () => {
 		expect(outcome).toEqual({
 			ran: true,
 			direction: 'demote',
-			flippedTo: 'twilio'
+			flippedTo: 'twilio',
+			// On Twilio now, where a Telnyx edge means nothing.
+			region: null
 		});
 		expect(deps.postFallback).toHaveBeenCalledWith(
 			'twilio',
-			expect.objectContaining({direction: 'demote', failed_stage: 'signaling'})
+			expect.objectContaining({
+				direction: 'demote',
+				failed_stage: 'signaling',
+				// Separates "the pinned edge did not help either" from "we never tried it".
+				pinned_region_tried: 'us-central'
+			})
 		);
 	});
 
@@ -241,6 +261,179 @@ describe('demotion', () => {
 	});
 });
 
+/**
+ * The reason this whole feature exists: agents whose signaling socket to the DEFAULT host
+ * never opens, while `us-central` works from the same machine. Attempt 2 carries the
+ * escalation, so the agent pays nothing extra for it.
+ */
+describe('the us-central pin', () => {
+	it('escalates attempt 2 to the pinned edge after an unpinned failure', async () => {
+		const deps = io({
+			runProbe: vi
+				.fn()
+				.mockResolvedValueOnce(fail('signaling'))
+				.mockResolvedValueOnce(pass('us-central'))
+		});
+
+		await runNetworkWizard(conditions(), 'tok', deps);
+
+		expect(deps.runProbe).toHaveBeenNthCalledWith(1, 'tok', undefined);
+		expect(deps.runProbe).toHaveBeenNthCalledWith(2, 'tok', 'us-central');
+	});
+
+	// Boot cost is unchanged: the pin replaced the old same-region retry rather than
+	// adding a third attempt in front of every agent who is going to be demoted anyway.
+	it('still costs exactly two probes', async () => {
+		const deps = io({runProbe: vi.fn(async () => fail('signaling'))});
+
+		await runNetworkWizard(conditions(), 'tok', deps);
+
+		expect(deps.runProbe).toHaveBeenCalledTimes(2);
+	});
+
+	// THE POINT OF THE WHOLE CHANGE. A pinned pass keeps the agent on Telnyx instead of
+	// demoting them, and hands back the edge the transport must be built against.
+	it('keeps the agent on Primary and reports the edge to build with', async () => {
+		const deps = io({
+			runProbe: vi
+				.fn()
+				.mockResolvedValueOnce(fail('signaling'))
+				.mockResolvedValueOnce(pass('us-central'))
+		});
+
+		const outcome = await runNetworkWizard(conditions(), 'tok', deps);
+
+		expect(outcome).toEqual({
+			ran: true,
+			direction: 'stay',
+			flippedTo: null,
+			region: 'us-central'
+		});
+		expect(deps.postFallback).not.toHaveBeenCalled();
+	});
+
+	// Distinguishes "the blip cleared" from "only the pinned edge works" — the number that
+	// says whether this fix is earning its keep.
+	it('records that the pass required a pin', async () => {
+		const deps = io({
+			runProbe: vi
+				.fn()
+				.mockResolvedValueOnce(fail('signaling'))
+				.mockResolvedValueOnce(pass('us-central'))
+		});
+
+		await runNetworkWizard(conditions(), 'tok', deps);
+
+		expect(deps.recordTest).toHaveBeenCalledWith(
+			expect.objectContaining({
+				passed: true,
+				direction: 'stay',
+				detail: expect.objectContaining({pinned_region: 'us-central'})
+			})
+		);
+	});
+
+	it('remembers the pin for the rest of the session', async () => {
+		const deps = io({
+			runProbe: vi
+				.fn()
+				.mockResolvedValueOnce(fail('signaling'))
+				.mockResolvedValueOnce(pass('us-central'))
+		});
+
+		await runNetworkWizard(conditions(), 'tok', deps);
+
+		expect(readWizardMarker().region).toBe('us-central');
+	});
+
+	// A rebuild (epoch bump, network change) must not re-pay a guaranteed 6s timeout on a
+	// host this tab has already ruled out.
+	it('starts on the remembered pin instead of rediscovering it', async () => {
+		const deps = io({runProbe: vi.fn(async () => pass('us-central'))});
+
+		const outcome = await runNetworkWizard(
+			conditions({pinnedRegion: 'us-central'}),
+			'tok',
+			deps
+		);
+
+		expect(deps.runProbe).toHaveBeenCalledTimes(1);
+		expect(deps.runProbe).toHaveBeenCalledWith('tok', 'us-central');
+		expect(outcome.region).toBe('us-central');
+	});
+
+	// An already-pinned session gets the ORIGINAL blip-absorbing retry — same region twice
+	// — rather than a second escalation to somewhere it already is.
+	it('retries within the pinned edge once already pinned', async () => {
+		const deps = io({
+			runProbe: vi
+				.fn()
+				.mockResolvedValueOnce(fail('signaling'))
+				.mockResolvedValueOnce(pass('us-central'))
+		});
+
+		await runNetworkWizard(conditions({pinnedRegion: 'us-central'}), 'tok', deps);
+
+		expect(deps.runProbe).toHaveBeenNthCalledWith(1, 'tok', 'us-central');
+		expect(deps.runProbe).toHaveBeenNthCalledWith(2, 'tok', 'us-central');
+		// Not a NEW pin, so nothing to re-record as one.
+		expect(deps.recordTest).toHaveBeenCalledWith(
+			expect.objectContaining({
+				detail: expect.not.objectContaining({pinned_region: expect.anything()})
+			})
+		);
+	});
+
+	// ⚠️ THE SKIP PATHS MATTER MOST. The gate says no exactly when an agent is mid-shift
+	// (on a call, admin-pinned). Losing the region there rebuilds their transport on the
+	// host we already know times out for them — a silent outage, mid-call.
+	it.each([
+		['mid-call', conditions({hasActiveCall: true, pinnedRegion: 'us-central'})],
+		['admin-pinned', conditions({providerLocked: true, pinnedRegion: 'us-central'})],
+		[
+			'already demoted',
+			conditions({demotedThisSession: true, pinnedRegion: 'us-central'})
+		]
+	])('hands the pin back even when skipping (%s)', async (_label, where) => {
+		const deps = io();
+
+		const outcome = await runNetworkWizard(where, 'tok', deps);
+
+		expect(outcome.ran).toBe(false);
+		expect(outcome.region).toBe('us-central');
+		expect(deps.runProbe).not.toHaveBeenCalled();
+	});
+
+	// A throw must not silently unpin someone either.
+	it('hands the pin back when a dependency throws', async () => {
+		const deps = io({
+			runProbe: vi.fn(async () => {
+				throw new Error('probe exploded');
+			})
+		});
+
+		const outcome = await runNetworkWizard(
+			conditions({pinnedRegion: 'us-central'}),
+			'tok',
+			deps
+		);
+
+		expect(outcome.region).toBe('us-central');
+	});
+
+	// An `ice` failure is unreachable by a region — the ICE servers are a fixed global list
+	// and the stage takes no token. The pinned attempt still runs (cheap, and the stage
+	// could differ), but a demotion here is the correct outcome, not a regression.
+	it('still demotes when the failure is one no edge can fix', async () => {
+		const deps = io({runProbe: vi.fn(async () => fail('ice'))});
+
+		const outcome = await runNetworkWizard(conditions(), 'tok', deps);
+
+		expect(outcome.flippedTo).toBe('twilio');
+		expect(outcome.region).toBeNull();
+	});
+});
+
 describe('promotion', () => {
 	const onFallback = conditions({provider: 'twilio'});
 
@@ -252,7 +445,8 @@ describe('promotion', () => {
 		expect(outcome).toEqual({
 			ran: true,
 			direction: 'promote',
-			flippedTo: 'telnyx'
+			flippedTo: 'telnyx',
+			region: 'us-central'
 		});
 		expect(deps.postFallback).toHaveBeenCalledWith(
 			'telnyx',
@@ -268,8 +462,41 @@ describe('promotion', () => {
 
 		await runNetworkWizard(onFallback, 'twilio-token', deps);
 
-		expect(deps.runProbe).toHaveBeenCalledWith('probe-token');
-		expect(deps.runProbe).not.toHaveBeenCalledWith('twilio-token');
+		expect(deps.runProbe).toHaveBeenCalledWith('probe-token', 'us-central');
+		expect(deps.runProbe).not.toHaveBeenCalledWith(
+			'twilio-token',
+			expect.anything()
+		);
+	});
+
+	// THE STRANDING GUARD. Everyone this bug already demoted is on Fallback *because* the
+	// default host fails for them. An unpinned promotion probe is therefore guaranteed to
+	// fail for exactly that population, and — promotion being boot-only and retry-free —
+	// they would never come back. One attempt, but pointed somewhere that can succeed.
+	it('probes the pinned edge so agents demoted by a bad default host can return', async () => {
+		const deps = io();
+
+		await runNetworkWizard(onFallback, 'twilio-token', deps);
+
+		expect(deps.runProbe).toHaveBeenCalledWith('probe-token', 'us-central');
+	});
+
+	// A promoted agent lands on Telnyx via the pinned edge; the transport must be built
+	// against that same edge, so the pin has to outlive this run.
+	it('remembers the pin it promoted on', async () => {
+		await runNetworkWizard(onFallback, 'tok', io());
+
+		expect(readWizardMarker().region).toBe('us-central');
+	});
+
+	// A refused flip leaves them on Twilio, where a Telnyx edge is meaningless.
+	it('does not remember a pin when the flip was refused', async () => {
+		const deps = io({postFallback: vi.fn(async () => false)});
+
+		const outcome = await runNetworkWizard(onFallback, 'tok', deps);
+
+		expect(outcome.region).toBeNull();
+		expect(readWizardMarker().region).toBeUndefined();
 	});
 
 	// The refusal IS the eligibility answer: already on Primary, administrator-pinned, or
@@ -280,7 +507,12 @@ describe('promotion', () => {
 
 		const outcome = await runNetworkWizard(onFallback, 'tok', deps);
 
-		expect(outcome).toEqual({ran: false, direction: null, flippedTo: null});
+		expect(outcome).toEqual({
+			ran: false,
+			direction: null,
+			flippedTo: null,
+			region: null
+		});
 		expect(deps.runProbe).not.toHaveBeenCalled();
 		expect(deps.recordTest).not.toHaveBeenCalled();
 	});
@@ -348,7 +580,12 @@ describe('the gate is enforced, not merely advertised', () => {
 
 		const outcome = await runNetworkWizard(conditions(), 'tok', deps);
 
-		expect(outcome).toEqual({ran: false, direction: null, flippedTo: null});
+		expect(outcome).toEqual({
+			ran: false,
+			direction: null,
+			flippedTo: null,
+			region: null
+		});
 		expect(deps.postFallback).not.toHaveBeenCalled();
 	});
 });

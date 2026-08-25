@@ -66,6 +66,12 @@ export interface ProbeReport {
 	timings: Partial<Record<ProbeStage, number>>;
 	/** Browser/OS patterns are half the answer to "for whom". */
 	userAgent: string;
+	/**
+	 * Which signaling edge this run tested. Null means the default host, i.e. Telnyx's own
+	 * geo routing chose. Recorded because "passed" and "passed only once pinned" are
+	 * different facts, and the second one is the whole reason the pin exists.
+	 */
+	region: string | null;
 	error?: string;
 }
 
@@ -143,7 +149,10 @@ export interface ProbeClientResult {
 }
 
 export interface ProbeDeps {
-	runClientStage: (token: string) => Promise<ProbeClientResult>;
+	runClientStage: (
+		token: string,
+		region?: string
+	) => Promise<ProbeClientResult>;
 	runIceStage: () => Promise<{iceType: IceType; ms: number}>;
 	userAgent: string;
 }
@@ -163,11 +172,19 @@ export const telnyxIceServers = (): RTCIceServer[] =>
  * It deliberately does NOT call `enableMicrophone()` or set `remoteElement`: it never
  * answers anything, and requesting the mic here would race the boot request in `useDevice`
  * for no gain.
+ *
+ * `region` pins the SIGNALING host and nothing else — the SDK rewrites
+ * `wss://rtc.telnyx.com` to `wss://<region>.rtc.telnyx.com`. It is spread in rather than
+ * passed as `region: undefined` so the unpinned path stays byte-identical to what shipped.
  */
 const defaultClientStage = async (
-	token: string
+	token: string,
+	region?: string
 ): Promise<ProbeClientResult> => {
-	const client = new TelnyxRTC({login_token: token});
+	const client = new TelnyxRTC({
+		login_token: token,
+		...(region ? {region} : {})
+	});
 	const startedAt = performance.now();
 	let socketOpened = false;
 	let registered = false;
@@ -263,10 +280,17 @@ const defaultIceStage = async (): Promise<{iceType: IceType; ms: number}> => {
 /**
  * Run the probe. Resolves to a verdict; it does NOT throw, because every caller's next
  * move on a thrown error would be to treat it as a failure anyway.
+ *
+ * `region` reaches the CLIENT STAGE ONLY, and that is a fact about what a region can do
+ * rather than an omission. It rewrites the signaling host; it has no bearing on ICE, whose
+ * servers are the fixed global `TELNYX_ICE_SERVERS` list and which needs no token. Feeding
+ * it to the ICE stage would imply a pinned re-probe could recover a `host`-only network,
+ * and it cannot — an `ice` failure fails identically on every edge.
  */
 export const runNetworkProbe = async (
 	token: string,
-	deps: Partial<ProbeDeps> = {}
+	deps: Partial<ProbeDeps> = {},
+	region?: string
 ): Promise<ProbeReport> => {
 	const runClientStage = deps.runClientStage ?? defaultClientStage;
 	const runIceStage = deps.runIceStage ?? defaultIceStage;
@@ -277,7 +301,7 @@ export const runNetworkProbe = async (
 	// Concurrent by design: the halves are independent, and an agent waiting on their
 	// dialer should wait for the slower one, not for both in turn.
 	const [client, ice] = await Promise.all([
-		runClientStage(token).catch(
+		runClientStage(token, region).catch(
 			(e): ProbeClientResult => ({
 				socketOpened: false,
 				registered: false,
@@ -303,6 +327,7 @@ export const runNetworkProbe = async (
 		iceType: ice.iceType,
 		timings,
 		userAgent,
+		region: region ?? null,
 		...(client.error ? {error: client.error} : {})
 	};
 };
