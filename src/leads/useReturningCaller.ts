@@ -1,10 +1,6 @@
 /**
- * useReturningCaller — the direct-dial callback pull-up.
- *
- * On a live inbound call, ask the backend whether this caller is a returning
- * direct-dial caller (a callback to the agent's own DID, not a Retreaver-routed
- * call). The backend does the classification from the agent's reservation state, so
- * this hook just fires the lookup keyed to the call and hands back the result.
+ * useReturningCaller — prior-history pull-up for agent-originated outbound calls.
+ * The dial page deliberately does not invoke this hook for inbound calls.
  *
  * Fire-and-forget by design: it never throws and never blocks the blank New-Lead
  * form — if it errors or the caller has no history, the caller experience is

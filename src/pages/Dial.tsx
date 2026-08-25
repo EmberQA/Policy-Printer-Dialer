@@ -62,8 +62,7 @@ import {CampaignAllowanceDisplay} from '@/components/CampaignAllowanceDisplay';
  * Social), then flips the global Ready master switch. While Ready + at least one armed
  * campaign + a fresh heartbeat + a registered Twilio device all hold, the backend
  * reports `available: 1` and Retreaver may route an inbound call from any armed buyer.
- * Each armed buyer's availability ping also RESERVES the agent briefly so a second
- * buyer's call in the window is skipped (call-reservation window).
+ * Each armed buyer is evaluated independently; Retreaver owns winner selection.
  *
  * On an inbound call the Device auto-answers (Retreaver already chose this ready agent);
  * the active-call banner shows caller/timer/mute/hangup, and the toggles are disabled
@@ -148,19 +147,11 @@ export default function Dial() {
 	);
 	const anyArmed = armedCampaigns.length > 0;
 
-	// Pick the campaign the active call's lead form is for, in priority order:
-	//   1. reserved_campaign_id — AUTHORITATIVE: the campaign whose buyer won the ping
-	//      that routed this call, even with several campaigns armed (no picker needed).
-	//   2. the sole armed campaign (single-campaign agents — the common case).
-	//   3. otherwise leave the agent's manual pick if still armed, else blank (they pick).
-	const reservedCampaignId = presence?.reserved_campaign_id ?? null;
+	// Preselect the sole armed campaign. With several campaigns armed, preserve the
+	// agent's manual choice while it remains valid. A campaign carried on an inbound
+	// voice invite is call-specific and overrides this below.
 	useEffect(() => {
-		if (
-			reservedCampaignId &&
-			campaigns.some((c) => c.id === reservedCampaignId)
-		) {
-			setLeadCampaignId(reservedCampaignId);
-		} else if (armedCampaigns.length === 1) {
+		if (armedCampaigns.length === 1) {
 			setLeadCampaignId(armedCampaigns[0].id);
 		} else if (
 			leadCampaignId &&
@@ -168,7 +159,7 @@ export default function Dial() {
 		) {
 			setLeadCampaignId('');
 		}
-	}, [reservedCampaignId, campaigns, armedCampaigns, leadCampaignId]);
+	}, [armedCampaigns, leadCampaignId]);
 
 	// Prefer the newest backend-computed availability: heartbeat responses and
 	// presence mutation responses both return the same computeReady result.

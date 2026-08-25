@@ -159,15 +159,11 @@ export interface DialerPresence {
 	status: PresenceStatus;
 	selected_campaign_id: string | null;
 	on_call: boolean;
-	/** Set while the agent is reserved for an incoming call (call-reservation
-	 *  window); null when unreserved. Transient — clears on the call landing or
-	 *  lazy-expires. */
+	/** @deprecated Reservation leases are retired; retained as null for compatibility. */
 	reserved_at: string | null;
 	reserved_call_uuid: string | null;
 	reserved_retreaver_call_uuid: string | null;
-	/** The campaign whose buyer won the reserving ping — the authoritative campaign
-	 *  for the incoming call. The dialer uses it to auto-open the correct lead form
-	 *  even when several campaigns are armed. Null when unreserved. */
+	/** @deprecated Reservation leases are retired; retained as null for compatibility. */
 	reserved_campaign_id: string | null;
 	bridging_call_sid: string | null;
 	bridging_claimed_at: string | null;
@@ -813,12 +809,8 @@ export interface ReturningCallerLead {
 	updated_at: string;
 }
 
-/**
- * returningCaller response. `is_direct_dial` is decided server-side from the agent's
- * reservation state: false ⇒ this was a Retreaver-routed call (a fresh lead, so no
- * history is returned). `most_recent_lead` (with its frozen snapshot + answers) drives
- * edit-in-place; `activity` is the prior leads+calls strip.
- */
+/** Returning-caller history for outbound calls. `most_recent_lead` (with its frozen
+ * snapshot + answers) drives edit-in-place; `activity` is the prior leads+calls strip. */
 export interface ReturningCallerResponse {
 	statusCode: string;
 	statusMessage: string;
