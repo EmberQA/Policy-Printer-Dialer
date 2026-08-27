@@ -96,6 +96,26 @@ describe('per-leg parameter normalization', () => {
 		expect(normalizeTwilioParameters(null)).toEqual({});
 	});
 
+	it('maps the Retreaver UUID header but never the Retreaver key', () => {
+		// A direct Retreaver → SIP call (ENG-213) carries both headers. The UUID is
+		// the attribution handle; the key is Retreaver's API key and must stay
+		// unmapped so it can never reach state, logs, or the UI.
+		const uuid = 'b6f1c2d3-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+		expect(
+			normalizeTelnyxHeaders([
+				{name: 'X-PH-RetreaverUUID', value: uuid},
+				{name: 'X-PH-RetreaverKey', value: 'secret-api-key'}
+			])
+		).toEqual({retreaver_uuid: uuid});
+
+		// Same INVITE must still read as inbound, not an outbound invite to disown.
+		expect(
+			readOutboundCallParameters(
+				normalizeTelnyxHeaders([{name: 'x-ph-retreaveruuid', value: uuid}])
+			).isExplicitOutbound
+		).toBe(false);
+	});
+
 	it('omits absent keys rather than emitting empty strings', () => {
 		// readOutboundCallParameters distinguishes "" from null on attemptId and
 		// dialedNumber, so an absent header must not arrive as a present empty value.

@@ -57,10 +57,15 @@ export function ActiveCallBanner({
 							{isOutbound ? 'Outbound call' : 'Active call'}
 						</Badge>
 						{!isOutbound && (
-							<Badge variant="outline">
+							<Badge
+								variant="outline"
+								title={call.retreaverUuid ?? undefined}
+							>
 								{call.campaignId
 									? `Campaign: ${campaignName ?? 'Unavailable'}`
-									: 'Direct call'}
+									: call.retreaverUuid
+										? `Retreaver · ${call.retreaverUuid.slice(0, 8)}`
+										: 'Direct call'}
 							</Badge>
 						)}
 						<span className="font-mono text-sm tabular-nums text-muted-foreground">
