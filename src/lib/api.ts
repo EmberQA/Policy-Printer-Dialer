@@ -209,6 +209,8 @@ export interface DialerCampaign {
 	id: string;
 	org_id: string;
 	name: string;
+	description: string;
+	speed: 1 | 2 | 3 | 4;
 	default_form_id: string | null;
 	active: boolean;
 	created_at: string;

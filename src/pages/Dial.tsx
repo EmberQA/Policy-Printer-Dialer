@@ -14,7 +14,8 @@ import {
 	Radar,
 	RadioTower,
 	Wifi,
-	WifiOff
+	WifiOff,
+	Zap
 } from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
@@ -867,6 +868,40 @@ function DialSidebar({
 	);
 }
 
+const CAMPAIGN_SPEED_LABELS: Record<DialerCampaign['speed'], string> = {
+	1: 'Average',
+	2: 'Quick',
+	3: 'Fast',
+	4: 'Fastest'
+};
+
+function CampaignSpeedIndicator({speed}: {speed: DialerCampaign['speed']}) {
+	const label = CAMPAIGN_SPEED_LABELS[speed];
+
+	return (
+		<span
+			className="inline-flex shrink-0 items-center gap-1"
+			aria-label={`Speed: ${label}`}
+		>
+			<span className="inline-flex items-center" aria-hidden="true">
+				{Array.from({length: 4}, (_, index) => (
+					<Zap
+						key={index}
+						className={cn(
+							'size-3.5',
+							index < speed
+								? 'fill-primary text-primary'
+								: 'fill-muted-foreground/20 text-muted-foreground/20'
+						)}
+						strokeWidth={2.4}
+					/>
+				))}
+			</span>
+			<span className="font-medium text-foreground/75">{label}</span>
+		</span>
+	);
+}
+
 function CampaignMenu({
 	campaigns,
 	busy,
@@ -898,7 +933,7 @@ function CampaignMenu({
 					<ChevronDown className="size-4 opacity-60" />
 				</Button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align="end" className="w-80 p-3">
+			<DropdownMenuContent align="end" className="w-96 p-3">
 				<div className="space-y-1 px-1 pb-2">
 					<p className="text-sm font-medium">Campaigns</p>
 					<p className="text-xs leading-5 text-muted-foreground">
@@ -911,30 +946,34 @@ function CampaignMenu({
 						No campaigns are linked to you yet.
 					</p>
 				) : (
-					<div className="space-y-2">
+					<div className="space-y-1.5">
 						{campaigns.map((campaign) => (
 							<div
 								key={campaign.id}
-								className="flex items-center justify-between gap-3 rounded-md px-1 py-2"
+								className="flex items-start justify-between gap-3 rounded-md px-2 py-2.5 hover:bg-muted/60"
 							>
-								<div className="min-w-0">
+								<div className="min-w-0 flex-1">
 									<p className="truncate text-sm font-medium">
 										{campaign.name}
 									</p>
-									<p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
-										<span>
-											{campaign.ready ? 'Routing enabled' : 'Not routing'}
-										</span>
+									{campaign.description && (
+										<p className="mt-1 text-xs leading-4 text-muted-foreground">
+											{campaign.description}
+										</p>
+									)}
+									<div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+										<CampaignSpeedIndicator speed={campaign.speed} />
 										<span aria-hidden="true">·</span>
 										<span className="tabular-nums text-foreground/75">
 											{formatCampaignRemainingCalls(campaign)}
 										</span>
-									</p>
+									</div>
 								</div>
 								{busy === campaign.id ? (
-									<Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+									<Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
 								) : (
 									<Switch
+										className="mt-0.5"
 										checked={campaign.ready}
 										disabled={busy !== null || onCall}
 										onCheckedChange={(ready) =>
