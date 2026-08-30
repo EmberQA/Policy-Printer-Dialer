@@ -254,6 +254,7 @@ export default function Dial() {
 				from: '+15555550100',
 				callSid: debugCallSid!,
 				campaignId: null,
+				retreaverUuid: null,
 				muted: debugCallMuted,
 				held: debugCallHeld,
 				holdPending: false,
@@ -273,6 +274,33 @@ export default function Dial() {
 	if (workCall?.direction === 'inbound' && attributedCampaign) {
 		effectiveLeadCampaignId = attributedCampaign.id;
 	}
+	const effectiveCampaign = effectiveLeadCampaignId
+		? campaigns.find((campaign) => campaign.id === effectiveLeadCampaignId)
+		: undefined;
+	const campaignDisplayPhase = activeCall ? 'active' : 'wrap_up';
+
+	useEffect(() => {
+		if (!workCall) return;
+		console.info('[dialer][campaign] displayed', {
+			callSid: workCall.callSid || null,
+			clientCallSid: workCall.clientCallSid || null,
+			phase: campaignDisplayPhase,
+			callAttributedCampaignId: workCall.campaignId,
+			callAttributedCampaignName: attributedCampaign?.name ?? null,
+			manualCampaignId: leadCampaignId || null,
+			effectiveCampaignId: effectiveLeadCampaignId || null,
+			effectiveCampaignName: effectiveCampaign?.name ?? null
+		});
+	}, [
+		attributedCampaign?.name,
+		campaignDisplayPhase,
+		effectiveCampaign?.name,
+		effectiveLeadCampaignId,
+		leadCampaignId,
+		workCall?.callSid,
+		workCall?.campaignId,
+		workCall?.clientCallSid
+	]);
 
 	// Keep prior-history pull-up for agent-originated outbound calls only. Inbound
 	// calls always start a new lead: they do not run the returning-caller classifier,
@@ -311,6 +339,9 @@ export default function Dial() {
 		if (!wrapUpCall || callKey(wrapUpCall) !== nextCallKey) {
 			setCompletedWrapUpCallKey(null);
 			setDismissedCallerKey(null);
+			// A manual campaign pick is scoped to the call it was made for — an
+			// unattributed call must show the picker, not inherit the last pick.
+			setLeadCampaignId('');
 		}
 		setWrapUpCall(activeCall);
 	}, [activeCall, wrapUpCall]);
@@ -341,6 +372,7 @@ export default function Dial() {
 			if (res.available !== undefined) setConfirmedAvailable(res.available);
 			setWrapUpCall(null);
 			setCompletedWrapUpCallKey(null);
+			setLeadCampaignId('');
 		} catch (err) {
 			setError(readError(err, 'Could not release call'));
 			throw err;

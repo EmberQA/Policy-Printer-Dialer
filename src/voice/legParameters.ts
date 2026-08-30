@@ -33,7 +33,12 @@ const HEADER_TO_PARAM: Record<string, string> = {
 	'x-campaign-id': 'campaign_id',
 	'x-call-direction': 'call_direction',
 	'x-outbound-attempt-id': 'outbound_attempt_id',
-	'x-dialed-number': 'dialed_number'
+	'x-dialed-number': 'dialed_number',
+	// Retreaver stamps its call UUID on the INVITE when a buyer targets a SIP URI
+	// directly (ENG-213). Attribution only — never authorization: a missing UUID
+	// still answers. ⚠️ 'x-ph-retreaverkey' is deliberately NOT mapped: it is
+	// Retreaver's API key and must never be surfaced, logged, or persisted.
+	'x-ph-retreaveruuid': 'retreaver_uuid'
 };
 
 /** The keys any transport may produce. Twilio's <Parameter> names are already these. */

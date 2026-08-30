@@ -29,6 +29,9 @@ import {
 	getCurrentOutboundCall,
 	getVoiceProbeToken,
 	getVoiceToken,
+	postInboundCallAnswered,
+	postInboundCallEnded,
+	postInboundCallStart,
 	postVoiceFallback,
 	recordNetworkTest,
 	setOnCall,
@@ -86,6 +89,10 @@ export interface ActiveCall {
 	 * with music and silencing caller playback for the agent. */
 	held: boolean;
 	holdPending: boolean;
+	/** Retreaver call UUID from the SIP INVITE, present when the call arrived from
+	 * a Retreaver buyer pointed directly at the agent's SIP URI (ENG-213). Null on
+	 * TeXML-bridged, direct-DID, and outbound calls. */
+	retreaverUuid: string | null;
 	/** Epoch ms when the call connected — the UI derives the timer from this. */
 	startedAt: number;
 	/** 'inbound' (Retreaver-routed or a direct-dial callback) or 'outbound' (agent
@@ -203,6 +210,11 @@ export function useDevice({
 
 	const transportRef = useRef<VoiceTransport | null>(null);
 	const callRef = useRef<IncomingLeg | null>(null);
+	// Server-resolved campaign for a direct-SIP inbound leg, keyed by legId. The
+	// inboundStart response can land on either side of the accept event; this buffer
+	// is the pre-accept landing spot (accept reads it), the setActiveCall merge is
+	// the post-accept one. Entries are dropped when the leg clears.
+	const inboundCampaignByLegRef = useRef(new Map<string, string | null>());
 	const locallyEndedCallRef = useRef<IncomingLeg | null>(null);
 	const callerHangupNoticeIdRef = useRef(0);
 	const callerHangupNoticeTimerRef = useRef<number | null>(null);
@@ -1081,6 +1093,18 @@ export function useDevice({
 
 		/** Wire the per-call listeners + auto-answer. */
 		const onIncoming = (call: IncomingLeg) => {
+			// Pre-answer visibility into what the INVITE carried (ENG-213 direct-SIP
+			// verification). `params` is the normalized allowlist output, so secrets on
+			// unmapped headers (e.g. Retreaver's API key) can never appear here.
+			const inviteCampaignId = call.params.campaign_id?.trim() || null;
+			const inviteRetreaverUuid = call.params.retreaver_uuid?.trim() || null;
+			console.info('[dialer][sip] extracted headers', {
+				legId: call.legId || null,
+				parentCallSid: call.params.parent_call_sid?.trim() || null,
+				campaignIdFromInvite: inviteCampaignId,
+				retreaverUuid: inviteRetreaverUuid,
+				params: call.params
+			});
 			const outboundParams = readOutboundCallParameters(call.params);
 			const isPendingOutbound = matchesPendingOutbound(
 				pendingOutboundRef.current,
@@ -1126,6 +1150,61 @@ export function useDevice({
 			let acceptedDirection: ActiveCall['direction'] | null = null;
 			let terminalHandled = false;
 
+			// ENG-211: a Retreaver buyer pointed straight at our SIP URI reaches us with
+			// NO backend TeXML leg, so the browser reports the lifecycle itself. The
+			// absence of a parent SID IS the direct-SIP signature — a TeXML-bridged leg
+			// always carries X-Parent-Call-Sid, and firing these events for one would
+			// materialize a second dialer_calls row divorced from its recording.
+			const isDirectSipInbound =
+				!outboundParams.isExplicitOutbound &&
+				!call.params.parent_call_sid &&
+				!!call.legId;
+			if (isDirectSipInbound) {
+				const legId = call.legId as string;
+				void postInboundCallStart({
+					client_call_sid: legId,
+					retreaver_call_uuid: inviteRetreaverUuid,
+					caller_phone: call.from || null
+				})
+					.then((res) => {
+						console.info('[dialer][campaign] inboundStart response', {
+							legId,
+							statusCode: res.statusCode,
+							statusMessage: res.statusMessage,
+							campaignId: res.campaign_id ?? null
+						});
+						if (cancelled || !res.campaign_id) return;
+						// The direct INVITE has no X-Campaign-Id header; the server-resolved
+						// attribution fills the banner/lead form. Buffer first: against a
+						// fast backend this response beats the carrier-answer accept event,
+						// and the merge below only lands once activeCall exists for this leg.
+						inboundCampaignByLegRef.current.set(legId, res.campaign_id ?? null);
+						setActiveCall((current) =>
+							current && current.clientCallSid === legId && !current.campaignId
+								? {...current, campaignId: res.campaign_id ?? null}
+								: current
+						);
+					})
+					.catch(() => {
+						console.warn('[dialer][campaign] inboundStart request failed', {
+							legId
+						});
+					});
+			}
+			// Ended is the one event with a durable consumer on the other side (presence
+			// release + ended_at). One delayed retry; total loss is backstopped by the
+			// Retreaver end-of-call webhook stamping ended_at server-side.
+			const reportInboundEnded = (event: CallTerminalEvent | 'error') => {
+				if (!isDirectSipInbound) return;
+				const legId = call.legId as string;
+				console.info('[dialer][sip] ended', {legId, event});
+				void postInboundCallEnded(legId).catch(() => {
+					window.setTimeout(() => {
+						void postInboundCallEnded(legId).catch(() => undefined);
+					}, 2000);
+				});
+			};
+
 			call.on('accept', () => {
 				if (cancelled) return;
 				// Exact backend-supplied parent SID + direction identifies the outbound
@@ -1148,6 +1227,25 @@ export function useDevice({
 				// this call instead of materializing a second row — on both carriers,
 				// where it arrives as <Parameter> and as X-Parent-Call-Sid respectively.
 				const parentCallSid = call.params.parent_call_sid;
+				const bufferedCampaignId =
+					inboundCampaignByLegRef.current.get(call.legId || '') || null;
+				const acceptedCampaignId = isOutbound
+					? null
+					: inviteCampaignId || bufferedCampaignId;
+				const campaignSource = inviteCampaignId
+					? 'invite'
+					: bufferedCampaignId
+						? 'inboundStart'
+						: 'none';
+				if (!isOutbound) {
+					console.info('[dialer][campaign] accepted', {
+						legId: call.legId || null,
+						campaignIdFromInvite: inviteCampaignId,
+						campaignIdFromInboundStart: bufferedCampaignId,
+						finalCampaignId: acceptedCampaignId,
+						source: campaignSource
+					});
+				}
 				setActiveCall({
 					from: isOutbound
 						? outboundParams.dialedNumber ||
@@ -1161,9 +1259,10 @@ export function useDevice({
 						call.legId ||
 						'',
 					clientCallSid: call.legId || '',
-					campaignId: isOutbound
+					campaignId: acceptedCampaignId,
+					retreaverUuid: isOutbound
 						? null
-						: call.params.campaign_id?.trim() || null,
+						: inviteRetreaverUuid,
 					muted: false,
 					held: false,
 					holdPending: false,
@@ -1175,6 +1274,14 @@ export function useDevice({
 				// after wrap-up until they explicitly go ready again.
 				void setOnCall(true).catch(() => undefined);
 				void setPresence({status: 'paused'}).catch(() => undefined);
+				if (isDirectSipInbound && !isOutbound) {
+					// Stamps answered_at AND binds the presence slot to this exact leg —
+					// the bind is what keeps the terminal release / crash self-heal working
+					// regardless of how this races the setOnCall above.
+					void postInboundCallAnswered(call.legId as string).catch(
+						() => undefined
+					);
+				}
 				if (!isOutbound) {
 					// The carrier is already accepted and streaming both ways. This only
 					// overlays a local tone on the agent's selected output device.
@@ -1192,6 +1299,7 @@ export function useDevice({
 
 			const clearCall = () => {
 				if (cancelled) return;
+				inboundCampaignByLegRef.current.delete(call.legId || '');
 				answerToneRef.current?.stopTone();
 				void clearHoldAudio();
 				// Late terminal events from an older leg must not erase the newer call.
@@ -1213,6 +1321,7 @@ export function useDevice({
 			const finishCall = (event: CallTerminalEvent) => {
 				if (terminalHandled) return;
 				terminalHandled = true;
+				reportInboundEnded(event);
 				const locallyEnded = locallyEndedCallRef.current === call;
 				const direction =
 					acceptedDirection ??
@@ -1233,6 +1342,7 @@ export function useDevice({
 			call.on('error', (e?: unknown) => {
 				if (cancelled) return;
 				terminalHandled = true;
+				reportInboundEnded('error');
 				setError((e as {message?: string} | undefined)?.message || 'Call error');
 				clearCall();
 			});

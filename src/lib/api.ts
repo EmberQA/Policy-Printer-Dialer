@@ -498,6 +498,49 @@ export const setOnCall = (onCall: boolean): Promise<PresenceResponse> =>
 	qsPost('/policyPrinter/dialer/presence/onCall', {on_call: onCall});
 
 /* -------------------------------------------------------------------------- */
+/* Direct-SIP inbound lifecycle events (ENG-211)                              */
+/* -------------------------------------------------------------------------- */
+
+/** inboundStart response: the server-resolved campaign attribution for the call
+ *  (a direct SIP INVITE carries no X-Campaign-Id header). */
+export interface InboundCallStartResponse {
+	statusCode: string;
+	statusMessage: string;
+	campaign_id?: string | null;
+}
+
+/** A direct-SIP Retreaver call just landed (no TeXML webhook saw it). The backend
+ *  claims the ring slot, consumes the Retreaver attribution reservation, and
+ *  creates the dialer_calls row keyed by OUR browser leg id — which is what lead
+ *  and disposition saves already send as `twilio_call_sid`. Best-effort at every
+ *  call site: bookkeeping must never gate the already-ringing call. */
+export const postInboundCallStart = (input: {
+	client_call_sid: string;
+	retreaver_call_uuid: string | null;
+	caller_phone: string | null;
+}): Promise<InboundCallStartResponse> =>
+	qsPost('/policyPrinter/dialer/call/inboundStart', {...input});
+
+/** The browser accepted a direct-SIP leg: stamps answered_at and binds the
+ *  presence bridge slot to this exact leg (the crash self-heal keys off it). */
+export const postInboundCallAnswered = (
+	clientCallSid: string
+): Promise<{statusCode: string; statusMessage: string}> =>
+	qsPost('/policyPrinter/dialer/call/inboundAnswered', {
+		client_call_sid: clientCallSid
+	});
+
+/** A direct-SIP leg ended: stamps ended_at and releases the presence slot
+ *  (paused for wrap-up). Idempotent — safe to retry and to race the Retreaver
+ *  end-of-call webhook. */
+export const postInboundCallEnded = (
+	clientCallSid: string
+): Promise<{statusCode: string; statusMessage: string}> =>
+	qsPost('/policyPrinter/dialer/call/inboundEnded', {
+		client_call_sid: clientCallSid
+	});
+
+/* -------------------------------------------------------------------------- */
 /* Lead workflow — form bundle, save (Subplan 04)                             */
 /* -------------------------------------------------------------------------- */
 
