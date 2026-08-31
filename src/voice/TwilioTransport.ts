@@ -38,6 +38,9 @@ export class TwilioTransport implements VoiceTransport {
 		// We accept inbound calls immediately and provide our own post-answer
 		// agent-only chime. Prevent Twilio's pre-answer ringtone from racing it.
 		device.audio?.incoming(false);
+		// Call-ended audio is carrier-neutral now. Disable Twilio's built-in sound so
+		// Twilio and Telnyx agents hear one identical local chime instead of a duplicate.
+		device.audio?.disconnect(false);
 		this.device = device;
 		// Keep this listener ahead of register(), as it was in the direct Twilio
 		// implementation. Bluetooth devices can settle on a concrete input/output while
@@ -48,6 +51,7 @@ export class TwilioTransport implements VoiceTransport {
 
 		device.on('registered', () => {
 			device.audio?.incoming(false);
+			device.audio?.disconnect(false);
 			this.emitDeviceSelection();
 			this.statusCb?.('registered');
 		});

@@ -9,7 +9,8 @@ const sdk = vi.hoisted(() => {
 		speakerDevices = {get: () => this.selectedSpeakers};
 		private listeners = new Map<string, Listener[]>();
 
-		incoming(): void {}
+		incoming = vi.fn();
+		disconnect = vi.fn();
 
 		on(event: string, cb: Listener): void {
 			const listeners = this.listeners.get(event) ?? [];
@@ -91,5 +92,13 @@ describe('TwilioTransport device selection', () => {
 			'bluetooth-mic',
 			'bluetooth-speaker'
 		);
+	});
+
+	it('disables Twilio sounds replaced by carrier-neutral local tones', async () => {
+		const transport = new TwilioTransport({refreshToken: async () => 'fresh'});
+		await transport.register('token');
+
+		expect(sdk.FakeDevice.latest?.audio.incoming).toHaveBeenCalledWith(false);
+		expect(sdk.FakeDevice.latest?.audio.disconnect).toHaveBeenCalledWith(false);
 	});
 });

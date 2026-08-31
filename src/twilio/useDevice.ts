@@ -1335,6 +1335,9 @@ export function useDevice({
 				});
 				if (message) showCallerHangupNotice(message);
 				clearCall();
+				// `disconnect` means the leg reached active media. Pre-connect cancel/reject
+				// stays silent, matching the old Twilio SDK sound behavior.
+				if (event === 'disconnect') answerToneRef.current?.playDisconnect();
 			};
 			call.on('disconnect', () => finishCall('disconnect'));
 			call.on('cancel', () => finishCall('cancel'));

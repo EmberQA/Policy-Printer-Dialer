@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
 	ANSWER_TONE_DURATION_MS,
+	DISCONNECT_TONE_DURATION_MS,
 	InboundAnswerTone
 } from './inboundAnswerTone';
 
@@ -147,6 +148,27 @@ describe('InboundAnswerTone', () => {
 		// The silently armed output remains available for the next accepted call.
 		expect(audioInstances[0].pause).not.toHaveBeenCalled();
 		expect(silenceSource.stop).not.toHaveBeenCalled();
+	});
+
+	it('plays a short descending chime when a connected call ends', () => {
+		const tone = new InboundAnswerTone();
+		tone.arm('speaker-1');
+
+		tone.playDisconnect();
+
+		expect(oscillators).toHaveLength(4);
+		expect(oscillators[0].frequency.setValueAtTime).toHaveBeenCalledWith(
+			1046.5,
+			4
+		);
+		expect(oscillators[2].frequency.setValueAtTime).toHaveBeenCalledWith(
+			783.99,
+			4 + (DISCONNECT_TONE_DURATION_MS / 1000) * 0.42
+		);
+		expect(gains[3].gain.linearRampToValueAtTime).toHaveBeenCalledWith(
+			0,
+			4 + DISCONNECT_TONE_DURATION_MS / 1000
+		);
 	});
 
 	it('disposes the local graph without any Twilio media dependency', () => {

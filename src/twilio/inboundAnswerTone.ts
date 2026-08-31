@@ -1,12 +1,12 @@
-/** A one-second, agent-only answer tone.
+/** Agent-only call notification tones.
  *
  * The tone has its own Web Audio graph and HTMLAudioElement. It never touches the
  * Twilio call, microphone, remote speaker stream, mute state, or audio processors,
  * so accepted call audio continues streaming in both directions underneath it.
  *
  * arm() is called from the Ready-button gesture. The audio element then remains
- * silently active, allowing play() to raise a local tone after an inbound call is
- * accepted without depending on a second browser gesture.
+ * silently active, allowing call events to raise local tones without depending on a
+ * second browser gesture.
  */
 export class InboundAnswerTone {
 	private context: AudioContext | null = null;
@@ -65,6 +65,39 @@ export class InboundAnswerTone {
 	}
 
 	play(durationMs = ANSWER_TONE_DURATION_MS): void {
+		this.playChime({
+			durationMs,
+			notes: ANSWER_CHIME_NOTES,
+			noteDuration: ANSWER_CHIME_NOTE_DURATION,
+			fundamentalLevel: ANSWER_CHIME_FUNDAMENTAL_LEVEL,
+			harmonicLevel: ANSWER_CHIME_HARMONIC_LEVEL
+		});
+	}
+
+	/** Play a short descending chime after a connected call ends. */
+	playDisconnect(durationMs = DISCONNECT_TONE_DURATION_MS): void {
+		this.playChime({
+			durationMs,
+			notes: DISCONNECT_CHIME_NOTES,
+			noteDuration: DISCONNECT_CHIME_NOTE_DURATION,
+			fundamentalLevel: DISCONNECT_CHIME_FUNDAMENTAL_LEVEL,
+			harmonicLevel: DISCONNECT_CHIME_HARMONIC_LEVEL
+		});
+	}
+
+	private playChime({
+		durationMs,
+		notes,
+		noteDuration,
+		fundamentalLevel,
+		harmonicLevel
+	}: {
+		durationMs: number;
+		notes: ReadonlyArray<{frequency: number; offset: number}>;
+		noteDuration: number;
+		fundamentalLevel: number;
+		harmonicLevel: number;
+	}): void {
 		const context = this.context;
 		const destination = this.destination;
 		if (!context || !destination) return;
@@ -76,19 +109,18 @@ export class InboundAnswerTone {
 			const oscillators: OscillatorNode[] = [];
 			const gains: GainNode[] = [];
 
-			for (const note of ANSWER_CHIME_NOTES) {
+			for (const note of notes) {
 				const noteStart = startAt + durationSeconds * note.offset;
-				const noteEnd =
-					noteStart + durationSeconds * ANSWER_CHIME_NOTE_DURATION;
+				const noteEnd = noteStart + durationSeconds * noteDuration;
 				const layers = [
 					{
 						frequency: note.frequency,
-						level: ANSWER_CHIME_FUNDAMENTAL_LEVEL,
+						level: fundamentalLevel,
 						type: 'triangle' as OscillatorType
 					},
 					{
 						frequency: note.frequency * 2,
-						level: ANSWER_CHIME_HARMONIC_LEVEL,
+						level: harmonicLevel,
 						type: 'sine' as OscillatorType
 					}
 				];
@@ -183,6 +215,7 @@ export class InboundAnswerTone {
 }
 
 export const ANSWER_TONE_DURATION_MS = 1_000;
+export const DISCONNECT_TONE_DURATION_MS = 500;
 
 // A warm E5-G5-C6 major arpeggio, using the same musical character as hold audio.
 const ANSWER_CHIME_NOTES = [
@@ -195,3 +228,13 @@ const ANSWER_CHIME_ATTACK_SECONDS = 0.025;
 const ANSWER_CHIME_ZERO_RELEASE_SECONDS = 0.025;
 const ANSWER_CHIME_FUNDAMENTAL_LEVEL = 0.22;
 const ANSWER_CHIME_HARMONIC_LEVEL = 0.06;
+
+// A concise C6-G5 descent: audibly distinct from the rising answer arpeggio without
+// sounding like an alarm. It uses the already-armed output graph on both carriers.
+const DISCONNECT_CHIME_NOTES = [
+	{frequency: 1046.5, offset: 0},
+	{frequency: 783.99, offset: 0.42}
+] as const;
+const DISCONNECT_CHIME_NOTE_DURATION = 0.58;
+const DISCONNECT_CHIME_FUNDAMENTAL_LEVEL = 0.18;
+const DISCONNECT_CHIME_HARMONIC_LEVEL = 0.04;
