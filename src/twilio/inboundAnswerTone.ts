@@ -69,6 +69,7 @@ export class InboundAnswerTone {
 			durationMs,
 			notes: ANSWER_CHIME_NOTES,
 			noteDuration: ANSWER_CHIME_NOTE_DURATION,
+			zeroReleaseSeconds: ANSWER_CHIME_ZERO_RELEASE_SECONDS,
 			fundamentalLevel: ANSWER_CHIME_FUNDAMENTAL_LEVEL,
 			harmonicLevel: ANSWER_CHIME_HARMONIC_LEVEL
 		});
@@ -80,6 +81,7 @@ export class InboundAnswerTone {
 			durationMs,
 			notes: DISCONNECT_CHIME_NOTES,
 			noteDuration: DISCONNECT_CHIME_NOTE_DURATION,
+			zeroReleaseSeconds: DISCONNECT_CHIME_ZERO_RELEASE_SECONDS,
 			fundamentalLevel: DISCONNECT_CHIME_FUNDAMENTAL_LEVEL,
 			harmonicLevel: DISCONNECT_CHIME_HARMONIC_LEVEL
 		});
@@ -89,12 +91,14 @@ export class InboundAnswerTone {
 		durationMs,
 		notes,
 		noteDuration,
+		zeroReleaseSeconds,
 		fundamentalLevel,
 		harmonicLevel
 	}: {
 		durationMs: number;
 		notes: ReadonlyArray<{frequency: number; offset: number}>;
 		noteDuration: number;
+		zeroReleaseSeconds: number;
 		fundamentalLevel: number;
 		harmonicLevel: number;
 	}): void {
@@ -137,7 +141,7 @@ export class InboundAnswerTone {
 					// otherwise each stop can produce a tiny end click.
 					gain.gain.exponentialRampToValueAtTime(
 						0.0001,
-						noteEnd - ANSWER_CHIME_ZERO_RELEASE_SECONDS
+						noteEnd - zeroReleaseSeconds
 					);
 					gain.gain.linearRampToValueAtTime(0, noteEnd);
 					gain.connect(destination);
@@ -215,7 +219,7 @@ export class InboundAnswerTone {
 }
 
 export const ANSWER_TONE_DURATION_MS = 1_000;
-export const DISCONNECT_TONE_DURATION_MS = 500;
+export const DISCONNECT_TONE_DURATION_MS = 800;
 
 // A warm E5-G5-C6 major arpeggio, using the same musical character as hold audio.
 const ANSWER_CHIME_NOTES = [
@@ -236,5 +240,6 @@ const DISCONNECT_CHIME_NOTES = [
 	{frequency: 783.99, offset: 0.42}
 ] as const;
 const DISCONNECT_CHIME_NOTE_DURATION = 0.58;
+const DISCONNECT_CHIME_ZERO_RELEASE_SECONDS = 0.07;
 const DISCONNECT_CHIME_FUNDAMENTAL_LEVEL = 0.18;
 const DISCONNECT_CHIME_HARMONIC_LEVEL = 0.04;

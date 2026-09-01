@@ -165,8 +165,9 @@ describe('InboundAnswerTone', () => {
 			783.99,
 			4 + (DISCONNECT_TONE_DURATION_MS / 1000) * 0.42
 		);
-		expect(gains[3].gain.linearRampToValueAtTime).toHaveBeenCalledWith(
-			0,
+		const finalRelease = gains[3].gain.linearRampToValueAtTime.mock.calls[0];
+		expect(finalRelease[0]).toBe(0);
+		expect(finalRelease[1]).toBeCloseTo(
 			4 + DISCONNECT_TONE_DURATION_MS / 1000
 		);
 	});
