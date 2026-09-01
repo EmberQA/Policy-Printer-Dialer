@@ -25,6 +25,7 @@ import {
 // because a SECOND copy of this particular union is exactly how a transport and the
 // server's idea of a transport would quietly drift apart.
 import type {VoiceProvider} from '@/voice/VoiceTransport';
+import type {RankingProgressResponse} from '@/ranking/types';
 
 // Prod build (`vite build`) targets the deployed backend; dev (`vite`) targets
 // the LOCAL backend on :3000 (matches EmberQA's fetchWithAuth convention — 3001
@@ -138,6 +139,9 @@ export interface DialerProfileResponse {
 
 export const fetchDialerProfile = (): Promise<DialerProfileResponse> =>
 	qsPost('/policyPrinter/dialer/profile');
+
+export const fetchRankingProgress = (): Promise<RankingProgressResponse> =>
+	qsPost('/policyPrinter/ranking/progress');
 
 /* -------------------------------------------------------------------------- */
 /* Presence / heartbeat / campaigns (Subplan 02)                              */

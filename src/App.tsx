@@ -36,6 +36,8 @@ import {
 	isPlainBranding,
 	type DialerBranding
 } from '@/branding';
+import {useRankingProgress} from '@/ranking/useRankingProgress';
+import {CompactRankDisplay} from '@/ranking/CompactRankDisplay';
 
 type BootState =
 	| {phase: 'booting'}
@@ -428,6 +430,7 @@ function HeaderUserBlock({
 	onShowTraining: () => void;
 }) {
 	const {profile, provisioned, device} = useDialerSession();
+	const rankingProgress = useRankingProgress();
 	// `phone_number` is the agent's number on whichever carrier they are actually on.
 	// The fallback covers a response from a backend that predates it.
 	const callbackNumber =
@@ -436,6 +439,7 @@ function HeaderUserBlock({
 
 	return (
 		<div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+			{rankingProgress && <CompactRankDisplay progress={rankingProgress} />}
 			<span
 				className="hidden max-w-40 truncate text-xs font-medium text-muted-foreground sm:block"
 				title={`Logged in as ${userName}`}
