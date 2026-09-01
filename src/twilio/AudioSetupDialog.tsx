@@ -333,7 +333,7 @@ export function AudioSetupDialog({
 				<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
 				<DialogPrimitive.Content
 						className={cn(
-							'fixed left-1/2 top-1/2 z-50 grid w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-popover text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+							'fixed left-1/2 top-1/2 z-50 grid min-w-0 w-[calc(100vw-2rem)] grid-cols-[minmax(0,1fr)] -translate-x-1/2 -translate-y-1/2 overflow-x-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
 							required
 								? 'max-h-[calc(100vh-2rem)] max-w-3xl gap-6 overflow-y-auto p-7 sm:p-8'
 								: 'max-w-2xl gap-4 p-5'
@@ -403,7 +403,7 @@ export function AudioSetupDialog({
 						</div>
 					)}
 
-					<div className={cn('space-y-4', required && 'space-y-5')}>
+					<div className={cn('min-w-0 space-y-4', required && 'space-y-5')}>
 						<section
 							className={cn(
 								'min-w-0 space-y-3 rounded-md border p-3',
@@ -445,7 +445,7 @@ export function AudioSetupDialog({
 
 						<section
 							className={cn(
-								'space-y-3 rounded-md border p-3',
+								'min-w-0 space-y-3 rounded-md border p-3',
 								required && 'space-y-4 p-4'
 							)}
 						>
@@ -457,14 +457,14 @@ export function AudioSetupDialog({
 									loading={applying === 'output' || applying === 'speaker'}
 								/>
 							</div>
-							<div className="flex flex-col gap-2 sm:flex-row">
+							<div className="flex min-w-0 flex-col gap-2 sm:flex-row">
 								<Select
 									value={outputDeviceId}
 									onValueChange={changeOutputDevice}
 								>
 										<SelectTrigger
 											id="audio-output-device"
-											className="min-w-0 flex-1"
+											className="w-full min-w-0 flex-1 overflow-hidden"
 											disabled={applying !== null || echoActive}
 										>
 											<SelectValue
@@ -499,7 +499,7 @@ export function AudioSetupDialog({
 
 						<section
 							className={cn(
-								'space-y-3 rounded-md border p-3',
+								'min-w-0 space-y-3 rounded-md border p-3',
 								required && 'space-y-4 p-4'
 							)}
 						>

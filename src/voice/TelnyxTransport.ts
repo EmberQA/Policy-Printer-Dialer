@@ -42,6 +42,11 @@ import type {
 	VoiceTransportOptions
 } from './VoiceTransport';
 
+interface TelnyxTransportOptions extends VoiceTransportOptions {
+	inputDeviceId?: string;
+	outputDeviceId?: string;
+}
+
 /**
  * Token lifetime is checked on a SHORT TICK against the token's own expiry, rather than
  * scheduled as one long timer.
@@ -116,16 +121,15 @@ export class TelnyxTransport implements VoiceTransport {
 	private tokenExpiresAt: number | null = null;
 	/** A refresh is in flight — the tick and the call-end trigger must not overlap. */
 	private refreshing = false;
-	/**
-	 * Only the OUTPUT selection is mirrored here. The mic needs no local copy: the
-	 * `BaseCall` constructor reads `micId` and the session's audio constraints off the
-	 * client, so a device chosen while idle is inherited by the next inbound call.
-	 * The remote `<audio>` element is ours, so its sink is ours to reapply.
-	 */
+	/** Reapplied whenever token refresh constructs a replacement Telnyx client. */
+	private inputDeviceId = 'default';
 	private outputDeviceId = 'default';
 	private destroyed = false;
 
-	constructor(private readonly options: VoiceTransportOptions) {}
+	constructor(private readonly options: TelnyxTransportOptions) {
+		this.inputDeviceId = options.inputDeviceId ?? 'default';
+		this.outputDeviceId = options.outputDeviceId ?? 'default';
+	}
 
 	async register(token: string): Promise<void> {
 		this.statusCb?.('connecting');
@@ -156,6 +160,8 @@ export class TelnyxTransport implements VoiceTransport {
 		// The SDK plays remote audio into this element. It must exist before connect so
 		// an immediately-arriving call has somewhere to land.
 		client.remoteElement = this.ensureRemoteAudio();
+		client.micId = this.inputDeviceId;
+		client.speaker = this.outputDeviceId;
 		client.enableMicrophone();
 
 		client.on('telnyx.ready', () => this.statusCb?.('registered'));
@@ -377,6 +383,7 @@ export class TelnyxTransport implements VoiceTransport {
 		if (!client) throw new Error('Softphone audio is not ready yet.');
 		client.micId = deviceId;
 		await client.setAudioSettings({micId: deviceId});
+		this.inputDeviceId = deviceId;
 	}
 
 	async setOutputDevice(deviceId: string): Promise<void> {

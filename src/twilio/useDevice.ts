@@ -1362,9 +1362,13 @@ export function useDevice({
 				// resolve without a user gesture if permission was already granted;
 				// if the browser blocks it until a gesture, armAudio() (fired from
 				// the "Go ready" click) requests it again and surfaces any denial.
+				const selectedInputDeviceId = inputDeviceIdRef.current;
 				try {
 					const stream = await navigator.mediaDevices.getUserMedia({
-						audio: true
+						audio:
+							selectedInputDeviceId === 'default'
+								? true
+								: {deviceId: {exact: selectedInputDeviceId}}
 					});
 					stream.getTracks().forEach((t) => t.stop());
 				} catch (e) {
@@ -1402,7 +1406,9 @@ export function useDevice({
 						? new TelnyxTransport({
 								refreshToken: async () => (await fetchToken()).token,
 								onError: (message) => !cancelled && setError(message),
-								region: wizard.region ?? undefined
+								region: wizard.region ?? undefined,
+								inputDeviceId: inputDeviceIdRef.current,
+								outputDeviceId: outputDeviceIdRef.current
 							})
 						: new TwilioTransport({
 								refreshToken: async () => (await fetchToken()).token,
