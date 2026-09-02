@@ -35,7 +35,7 @@ describe('CompactRankDisplay', () => {
 		);
 		expect(html).toContain('Current rank Recruit 1');
 		expect(html).toContain('View rank system');
-		expect(html).toContain('XP progress to Recruit 2: 50 of 50');
+		expect(html).toContain('Printer Points progress to Recruit 2: 50 of 50');
 		expect(html).toContain('AI sales progress to Recruit 2: 0 of 1');
 		expect(html.match(/role="progressbar"/g)).toHaveLength(2);
 	});

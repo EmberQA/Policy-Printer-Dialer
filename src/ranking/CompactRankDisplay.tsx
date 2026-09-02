@@ -102,14 +102,14 @@ export function CompactRankDisplay({
 					{next ? (
 						<div className="space-y-2">
 							<ProgressBar
-								label="XP"
-								ariaLabel={`XP progress to ${next.title}`}
+								label="Printer Points"
+								ariaLabel={`Printer Points progress to ${next.title}`}
 								value={progress.xp_progress_percent}
 								current={progress.xp}
 								required={next.xp_required}
 							/>
 							<ProgressBar
-								label="SALES"
+								label="Sales"
 								ariaLabel={`AI sales progress to ${next.title}`}
 								value={progress.sales_progress_percent}
 								current={progress.ai_sales}
