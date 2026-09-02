@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {
 	Navigate,
 	NavLink,
@@ -8,7 +8,7 @@ import {
 	useLocation,
 	useNavigate
 } from 'react-router-dom';
-import {Check, Copy, HelpCircle, Phone, PhoneOff, X} from 'lucide-react';
+import {Check, Copy, HelpCircle, Phone, PhoneOff, Sparkles, X} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {runHandoff, HandoffResult} from '@/auth/handoff';
@@ -33,11 +33,15 @@ import {
 import {acknowledgeCreditNotification} from '@/lib/api';
 import {
 	getDialerBranding,
+	getRankSystemUrl,
 	isPlainBranding,
 	type DialerBranding
 } from '@/branding';
 import {useRankingProgress} from '@/ranking/useRankingProgress';
 import {CompactRankDisplay} from '@/ranking/CompactRankDisplay';
+import {RankPromotionOverlay} from '@/ranking/RankPromotionOverlay';
+import {isRankPromotionBlocked, rankIdentity} from '@/ranking/rankPromotion';
+import type {RankPromotion} from '@/ranking/types';
 
 type BootState =
 	| {phase: 'booting'}
@@ -203,15 +207,46 @@ function AuthenticatedDialerApp({
 	plainBranding: boolean;
 	branding: DialerBranding;
 }) {
+	const {progress: rankingProgress, promotion, dismissPromotion} =
+		useRankingProgress();
+	const [previewPromotion, setPreviewPromotion] =
+		useState<RankPromotion | null>(null);
 	const {
 		bootstrapped,
 		accessPaused,
 		device,
 		creditNotification,
 		onCall,
+		presence,
 		audioCheckComplete,
 		completeAudioCheck
 	} = useDialerSession();
+	const activePromotion = previewPromotion ?? promotion;
+	const promotionBlocked = isRankPromotionBlocked(onCall, presence?.status);
+	const showPromotion = Boolean(activePromotion) && !promotionBlocked;
+	const canPreviewPromotion =
+		import.meta.env.DEV && Boolean(rankingProgress?.next_rank);
+
+	const previewNextRank = useCallback(() => {
+		if (promotionBlocked || !rankingProgress?.next_rank) return;
+		setPreviewPromotion({
+			previous_rank: rankIdentity(rankingProgress.current_rank),
+			current_rank: rankIdentity(rankingProgress.next_rank)
+		});
+	}, [promotionBlocked, rankingProgress]);
+
+	const dismissActivePromotion = useCallback(() => {
+		if (previewPromotion) setPreviewPromotion(null);
+		else dismissPromotion();
+	}, [dismissPromotion, previewPromotion]);
+
+	const viewRankSystem = useCallback(() => {
+		window.open(getRankSystemUrl(branding), '_blank', 'noopener,noreferrer');
+	}, [branding]);
+
+	useEffect(() => {
+		if (promotionBlocked) setPreviewPromotion(null);
+	}, [promotionBlocked]);
 	const trainingStorageKey = `${TRAINING_HIDDEN_KEY_PREFIX}${userId}`;
 	const [dontShowTraining, setDontShowTraining] = useState(() =>
 		readTrainingPreference(trainingStorageKey)
@@ -287,9 +322,38 @@ function AuthenticatedDialerApp({
 
 	return (
 		<div className="min-h-screen bg-background">
+			{showPromotion && activePromotion && (
+				<RankPromotionOverlay
+					promotion={activePromotion}
+					onDismiss={dismissActivePromotion}
+				/>
+			)}
+			{canPreviewPromotion && !activePromotion && (
+				<button
+					type="button"
+					onClick={previewNextRank}
+					disabled={promotionBlocked}
+					title={promotionBlocked ? 'Pause calls to preview a rank up' : 'Preview the next rank-up animation'}
+					data-testid="preview-rank-promotion"
+					className="fixed bottom-4 left-4 z-50 flex items-center gap-2 rounded-full border border-cyan-300/80 bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xl shadow-cyan-500/20 outline-none hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-500 disabled:bg-slate-800 disabled:text-slate-400 disabled:opacity-70 disabled:shadow-none"
+				>
+					<Sparkles className="size-4 text-cyan-300" />
+					Preview rank up
+				</button>
+			)}
 			<header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-				<div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-1 sm:px-6">
-					<div className="flex min-w-0 flex-wrap items-center gap-4">
+				<div className="grid min-h-16 w-full grid-cols-[350px_minmax(0,1fr)_auto] items-center gap-6 px-4 py-1 sm:px-6">
+					{rankingProgress ? (
+						<div className="min-w-0 justify-self-start">
+							<CompactRankDisplay
+								progress={rankingProgress}
+								onViewRankSystem={viewRankSystem}
+							/>
+						</div>
+					) : (
+						<div />
+					)}
+					<div className="flex min-w-0 items-center justify-self-center gap-4">
 						{!plainBranding && (
 							<img
 								src={branding.logoUrl}
@@ -430,7 +494,6 @@ function HeaderUserBlock({
 	onShowTraining: () => void;
 }) {
 	const {profile, provisioned, device} = useDialerSession();
-	const rankingProgress = useRankingProgress();
 	// `phone_number` is the agent's number on whichever carrier they are actually on.
 	// The fallback covers a response from a backend that predates it.
 	const callbackNumber =
@@ -439,7 +502,6 @@ function HeaderUserBlock({
 
 	return (
 		<div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-			{rankingProgress && <CompactRankDisplay progress={rankingProgress} />}
 			<span
 				className="hidden max-w-40 truncate text-xs font-medium text-muted-foreground sm:block"
 				title={`Logged in as ${userName}`}

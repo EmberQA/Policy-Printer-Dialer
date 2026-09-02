@@ -30,8 +30,11 @@ const recruitOne: RankingProgress = {
 
 describe('CompactRankDisplay', () => {
 	it('renders both determinate gates when one gate is blocked', () => {
-		const html = renderToStaticMarkup(<CompactRankDisplay progress={recruitOne} />);
+		const html = renderToStaticMarkup(
+			<CompactRankDisplay progress={recruitOne} onViewRankSystem={() => undefined} />
+		);
 		expect(html).toContain('Current rank Recruit 1');
+		expect(html).toContain('View rank system');
 		expect(html).toContain('XP progress to Recruit 2: 50 of 50');
 		expect(html).toContain('AI sales progress to Recruit 2: 0 of 1');
 		expect(html.match(/role="progressbar"/g)).toHaveLength(2);
@@ -40,6 +43,7 @@ describe('CompactRankDisplay', () => {
 	it('renders the Policy Printer max-rank state without progress gates', () => {
 		const html = renderToStaticMarkup(
 			<CompactRankDisplay
+				onViewRankSystem={() => undefined}
 				progress={{
 					...recruitOne,
 					xp: 5000,

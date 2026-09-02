@@ -29,20 +29,25 @@ const BADGE_IMAGES: Record<PolicyPrinterRankKey, string> = {
 	policy_printer: policyPrinter
 };
 
+export const getRankBadgeSrc = (rankKey: PolicyPrinterRankKey): string =>
+	BADGE_IMAGES[rankKey];
+
 export function RankBadge({
 	rankKey,
 	title,
-	size = 40
+	size = 40,
+	className
 }: {
 	rankKey: PolicyPrinterRankKey;
 	title: string;
-	size?: number;
+	size?: number | string;
+	className?: string;
 }) {
 	return (
 		<img
-			src={BADGE_IMAGES[rankKey]}
+			src={getRankBadgeSrc(rankKey)}
 			alt={`${title} rank badge`}
-			className="shrink-0 object-contain"
+			className={`shrink-0 object-contain ${className ?? ''}`}
 			style={{width: size, height: size}}
 		/>
 	);

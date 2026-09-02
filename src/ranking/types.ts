@@ -37,5 +37,17 @@ export interface RankingProgress {
 export interface RankingProgressResponse {
 	statusCode: string;
 	statusMessage: string;
+	ranking_enabled?: boolean;
 	progress?: RankingProgress;
+}
+
+export interface RankIdentity {
+	key: PolicyPrinterRankKey;
+	title: string;
+	image_key: PolicyPrinterRankKey;
+}
+
+export interface RankPromotion {
+	previous_rank: RankIdentity;
+	current_rank: RankIdentity;
 }

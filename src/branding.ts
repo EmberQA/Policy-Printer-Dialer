@@ -20,6 +20,7 @@ export interface DialerBranding {
 	documentTitle: string;
 	logoUrl: string;
 	faviconUrl: string;
+	portalUrl: string;
 }
 
 const POLICY_PRINTER_BRANDING: DialerBranding = {
@@ -27,7 +28,8 @@ const POLICY_PRINTER_BRANDING: DialerBranding = {
 	appName: 'Policy Printer',
 	documentTitle: 'Dialer',
 	logoUrl: policyPrinterLogo,
-	faviconUrl: '/favicon.ico'
+	faviconUrl: '/favicon.ico',
+	portalUrl: 'https://app.policyprinter.io'
 };
 
 const DIALER_BRANDS: Record<string, DialerBranding> = {
@@ -37,7 +39,8 @@ const DIALER_BRANDS: Record<string, DialerBranding> = {
 		appName: 'L2 Infinite Insurance',
 		documentTitle: 'L2 Infinite Insurance Dialer',
 		logoUrl: l2InfiniteInsuranceLogo,
-		faviconUrl: '/l2-infinite-insurance-favicon.ico'
+		faviconUrl: '/l2-infinite-insurance-favicon.ico',
+		portalUrl: 'https://app.l2-infinite-insurance.link'
 	}
 };
 
@@ -102,6 +105,17 @@ export function isPlainBranding(): boolean {
 	} catch {
 		return requestedInUrl;
 	}
+}
+
+export function getRankSystemUrl(
+	branding: DialerBranding = getDialerBranding()
+): string {
+	const portalUrl = import.meta.env.PROD
+		? branding.portalUrl
+		: 'http://localhost:3001';
+	const url = new URL('/dashboard/leaderboard', portalUrl);
+	url.searchParams.set('rank-system', '1');
+	return url.toString();
 }
 
 export function applyDocumentBranding(

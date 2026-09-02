@@ -1,6 +1,7 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
 	getDialerBranding,
+	getRankSystemUrl,
 	L2_INFINITE_INSURANCE_DIALER_BRAND,
 	L2_INFINITE_INSURANCE_DIALER_HOST,
 	POLICY_PRINTER_DIALER_BRAND
@@ -94,5 +95,11 @@ describe('dialer branding', () => {
 		vi.stubGlobal('window', makeWindow('?dialer_brand=unknown'));
 
 		expect(getDialerBranding().key).toBe(POLICY_PRINTER_DIALER_BRAND);
+	});
+
+	it('opens the local leaderboard with the rank explainer requested in dev', () => {
+		expect(getRankSystemUrl()).toBe(
+			'http://localhost:3001/dashboard/leaderboard?rank-system=1'
+		);
 	});
 });
