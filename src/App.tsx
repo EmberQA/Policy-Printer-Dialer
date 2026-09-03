@@ -25,6 +25,7 @@ import Leads from '@/pages/Leads';
 import {LeadNotesProvider} from '@/leads/LeadNotesContext';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
+import {LicensedStatesMenu} from '@/licensedStates/LicensedStatesMenu';
 import {CreditNotificationDialog} from '@/components/CreditNotificationDialog';
 import {
 	CreditFlightAnimation,
@@ -502,6 +503,7 @@ function HeaderUserBlock({
 
 	return (
 		<div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+			<LicensedStatesMenu />
 			<span
 				className="hidden max-w-40 truncate text-xs font-medium text-muted-foreground sm:block"
 				title={`Logged in as ${userName}`}

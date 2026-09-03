@@ -161,6 +161,37 @@ export interface HotStatesResponse {
 export const fetchHotStates = (): Promise<HotStatesResponse> =>
 	qsPost('/policyPrinter/dialer/hotStates');
 
+/** One jurisdiction the licensing picker offers. `code` is the Retreaver geo value
+ *  (`us-fl`) the API stores; abbr/name are for display only. */
+export interface LicensedJurisdiction {
+	code: string;
+	abbr: string;
+	name: string;
+}
+
+/** The agent's own licensed states, plus the catalogue to render them against.
+ *
+ *  The catalogue is served rather than kept here on purpose: the backend derives it from
+ *  the same alias table it parses submissions with, so the picker can never offer a state
+ *  that a save would then silently drop. */
+export interface LicensedStatesResponse {
+	statusCode: string;
+	statusMessage: string;
+	states?: string[];
+	jurisdictions?: LicensedJurisdiction[];
+	configured?: boolean;
+}
+
+export const fetchLicensedStates = (): Promise<LicensedStatesResponse> =>
+	qsPost('/policyPrinter/dialer/licensedStates/get');
+
+/** Replace the agent's licensed states. At least one is required — the backend refuses
+ *  an empty list rather than storing one that could never reach Retreaver. */
+export const saveLicensedStates = (
+	states: string[]
+): Promise<LicensedStatesResponse> =>
+	qsPost('/policyPrinter/dialer/licensedStates/set', {states});
+
 /* -------------------------------------------------------------------------- */
 /* Presence / heartbeat / campaigns (Subplan 02)                              */
 /* -------------------------------------------------------------------------- */
