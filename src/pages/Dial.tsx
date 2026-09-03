@@ -87,9 +87,9 @@ export default function Dial() {
 	const presence = session.presence;
 	const setCampaigns = session.setCampaigns;
 	const setPresenceState = session.setPresence;
-	// Where this agent's own calls have been coming from (ENG-201). Polled, decorative,
+	// Where the org's calls have been coming from lately (ENG-201). Polled, decorative,
 	// and independent of the call machinery — a failure here never affects dialing.
-	const {states: hotStates, windowDays: hotStatesWindowDays} = useHotStates();
+	const {states: hotStates, windowHours: hotStatesWindowHours} = useHotStates();
 
 	const [busy, setBusy] = useState<'status' | string | null>(null);
 	const [pendingReadyStatus, setPendingReadyStatus] =
@@ -458,7 +458,7 @@ export default function Dial() {
 
 					<LeadNotesPanel />
 
-					<HotStatesCard states={hotStates} windowDays={hotStatesWindowDays} />
+					<HotStatesCard states={hotStates} windowHours={hotStatesWindowHours} />
 
 					{profile && provisioned && (
 						<>

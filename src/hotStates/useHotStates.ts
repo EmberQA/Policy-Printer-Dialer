@@ -1,5 +1,5 @@
 /**
- * ENG-201: poll the caller's own calls-per-state summary.
+ * ENG-201: poll the org-wide calls-per-state summary.
  *
  * Low frequency and idempotent, so this uses the plain `setInterval` shape that
  * ranking uses rather than the self-rescheduling backoff loop in useHeartbeat —
@@ -15,14 +15,14 @@ const HOT_STATES_POLL_MS = 10 * 60_000;
 
 export function useHotStates() {
 	const [states, setStates] = useState<HotStateCount[]>([]);
-	const [windowDays, setWindowDays] = useState<number | null>(null);
+	const [windowHours, setWindowHours] = useState<number | null>(null);
 
 	const refresh = useCallback(async () => {
 		try {
 			const response = await fetchHotStates();
 			if (response.statusCode !== 'SP100') return;
 			setStates(response.states ?? []);
-			setWindowDays(response.window_days ?? null);
+			setWindowHours(response.window_hours ?? null);
 		} catch {
 			// Hot states are decoration, never a blocker on taking calls. Keep the last
 			// successful value while the backend or network is temporarily unavailable.
@@ -42,5 +42,5 @@ export function useHotStates() {
 		};
 	}, [refresh]);
 
-	return {states, windowDays};
+	return {states, windowHours};
 }

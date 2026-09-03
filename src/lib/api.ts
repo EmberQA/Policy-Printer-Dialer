@@ -143,17 +143,17 @@ export const fetchDialerProfile = (): Promise<DialerProfileResponse> =>
 export const fetchRankingProgress = (): Promise<RankingProgressResponse> =>
 	qsPost('/policyPrinter/ranking/progress');
 
-/** One state the caller has been taking calls from, and how many. */
+/** One state the org has been taking calls from, and how many. */
 export interface HotStateCount {
 	state: string;
 	call_count: number;
 }
 
-/** The caller's OWN calls over the trailing window, hottest state first. */
+/** Every call the ORG took over the trailing window, hottest state first. */
 export interface HotStatesResponse {
 	statusCode: string;
 	statusMessage: string;
-	window_days?: number;
+	window_hours?: number;
 	states?: HotStateCount[];
 	total_calls?: number;
 }
