@@ -54,6 +54,8 @@ import {cn} from '@/lib/utils';
 import {normalizeDialInput} from '@/lib/phone';
 import {getUser} from '@/auth/session';
 import {CampaignAllowanceDisplay} from '@/components/CampaignAllowanceDisplay';
+import {HotStatesCard} from '@/hotStates/HotStatesCard';
+import {useHotStates} from '@/hotStates/useHotStates';
 
 /**
  * Dial page (Subplan 02 + 03) — presence, heartbeat, per-campaign ready toggles, and
@@ -85,6 +87,9 @@ export default function Dial() {
 	const presence = session.presence;
 	const setCampaigns = session.setCampaigns;
 	const setPresenceState = session.setPresence;
+	// Where the org's calls have been coming from lately (ENG-201). Polled, decorative,
+	// and independent of the call machinery — a failure here never affects dialing.
+	const {states: hotStates, windowHours: hotStatesWindowHours} = useHotStates();
 
 	const [busy, setBusy] = useState<'status' | string | null>(null);
 	const [pendingReadyStatus, setPendingReadyStatus] =
@@ -452,6 +457,8 @@ export default function Dial() {
 					)}
 
 					<LeadNotesPanel />
+
+					<HotStatesCard states={hotStates} windowHours={hotStatesWindowHours} />
 
 					{profile && provisioned && (
 						<>
