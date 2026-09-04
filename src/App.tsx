@@ -12,7 +12,6 @@ import {
 	Check,
 	Copy,
 	HelpCircle,
-	MapPinned,
 	Phone,
 	PhoneOff,
 	Sparkles,
@@ -509,22 +508,11 @@ function HeaderUserBlock({
 	const callbackNumber =
 		profile?.agent?.phone_number ?? profile?.agent?.twilio_phone_number;
 	const pingMs = device.activeCall ? device.twilioRttMs : device.apiPingMs;
-	const [statesOpen, setStatesOpen] = useState(false);
 
 	return (
 		<div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-			<Button
-				type="button"
-				variant="ghost"
-				size="icon"
-				className="size-7"
-				onClick={() => setStatesOpen(true)}
-				title="Adjust states"
-				aria-label="Adjust the states you are licensed in"
-			>
-				<MapPinned className="size-3.5" />
-			</Button>
-			<LicensedStatesDialog open={statesOpen} onOpenChange={setStatesOpen} />
+			{/* Keep the state snapshot loader mounted while the editing UI is hidden. */}
+			<LicensedStatesDialog open={false} onOpenChange={() => undefined} />
 			<span
 				className="hidden max-w-40 truncate text-xs font-medium text-muted-foreground sm:block"
 				title={`Logged in as ${userName}`}

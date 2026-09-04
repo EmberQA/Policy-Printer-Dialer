@@ -33,6 +33,7 @@ import {
 	setPresence,
 	type DialerCampaign,
 	type DialerPresence,
+	type HotStateCount,
 	type PresenceStatus
 } from '@/lib/api';
 import {
@@ -458,8 +459,6 @@ export default function Dial() {
 
 					<LeadNotesPanel />
 
-					<HotStatesCard states={hotStates} windowHours={hotStatesWindowHours} />
-
 					{profile && provisioned && (
 						<>
 							{/* Outbound-only prior-history strip. Inbound calls deliberately skip
@@ -595,7 +594,8 @@ export default function Dial() {
 					)}
 				</div>
 
-				{/* RIGHT — controls (Go Ready / Campaigns / Audio) + status recap. */}
+				{/* RIGHT — controls (Go Ready / Campaigns / Audio), status recap,
+				    then the hot-states ranking. */}
 				<DialSidebar
 					status={status}
 					busy={busy}
@@ -624,6 +624,8 @@ export default function Dial() {
 					onDialOut={onDialOut}
 					canDial={canDial}
 					dialPending={Boolean(device.outboundStarting)}
+					hotStates={hotStates}
+					hotStatesWindowHours={hotStatesWindowHours}
 				/>
 			</div>
 		</div>
@@ -731,7 +733,9 @@ function DialSidebar({
 	onDialInputChange,
 	onDialOut,
 	canDial,
-	dialPending
+	dialPending,
+	hotStates,
+	hotStatesWindowHours
 }: {
 	status: PresenceStatus;
 	busy: 'status' | string | null;
@@ -760,6 +764,8 @@ function DialSidebar({
 	onDialOut: () => void;
 	canDial: boolean;
 	dialPending: boolean;
+	hotStates: HotStateCount[];
+	hotStatesWindowHours: number | null;
 }) {
 	const systemMicMeter = useMicLevelMeter({
 		enabled: provisioned,
@@ -871,6 +877,8 @@ function DialSidebar({
 				provisioned={provisioned}
 				readyStatePending={readyStatePending}
 			/>
+
+			<HotStatesCard states={hotStates} windowHours={hotStatesWindowHours} />
 		</aside>
 	);
 }
