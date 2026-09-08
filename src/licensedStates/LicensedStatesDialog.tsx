@@ -1,7 +1,6 @@
 /**
- * ENG-220: loads the agent's licensed states when the shell mounts. The editing
- * dialog is currently hidden from the dialer header, but remains implemented here
- * so it can be restored without changing the collection path.
+ * ENG-220: loads the agent's licensed states when the shell mounts and lets the
+ * agent edit them from the dialer header.
  *
  * The list is the source of truth for every one of their Retreaver buyers — one per
  * campaign — so a save here changes which calls they receive on all of them. The backend
