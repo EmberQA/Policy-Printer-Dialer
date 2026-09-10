@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {
 	ChevronDown,
 	CircleAlert,
@@ -28,6 +28,7 @@ import {
 import {Separator} from '@/components/ui/separator';
 import {Switch} from '@/components/ui/switch';
 import {
+	listCampaignRemainingCalls,
 	setCampaignReady,
 	setOnCall,
 	setPresence,
@@ -40,6 +41,7 @@ import {
 	formatAllowanceCount,
 	resolveCampaignAllowance
 } from '@/lib/campaignAllowance';
+import {getReadyBalanceWarning} from '@/lib/readyBalanceWarning';
 import {Input} from '@/components/ui/input';
 import {useDialerSession} from '@/session/DialerSessionProvider';
 import {type ActiveCall} from '@/twilio/useDevice';
@@ -96,6 +98,9 @@ export default function Dial() {
 	const [pendingReadyStatus, setPendingReadyStatus] =
 		useState<PresenceStatus | null>(null);
 	const [readyRequestSettled, setReadyRequestSettled] = useState(false);
+	const [balanceWarning, setBalanceWarning] = useState<string | null>(null);
+	const readyBalanceRequest = useRef(0);
+	useEffect(() => () => { readyBalanceRequest.current += 1; }, []);
 	const [error, setError] = useState<string | null>(null);
 	const [debugIncomingCall, setDebugIncomingCall] = useState(false);
 	const [debugCallMuted, setDebugCallMuted] = useState(false);
@@ -182,6 +187,20 @@ export default function Dial() {
 		if (next === 'ready') {
 			void device.armAudio();
 		}
+		const balanceRequest = ++readyBalanceRequest.current;
+		setBalanceWarning(null);
+		if (next === 'ready') {
+			const selected = armedCampaigns.map(({id, name}) => ({id, name}));
+			// Best effort only: readiness never waits on or depends on Retreaver.
+			void listCampaignRemainingCalls()
+				.then((response) => {
+					if (readyBalanceRequest.current !== balanceRequest) return;
+					setBalanceWarning(getReadyBalanceWarning(response, selected));
+				})
+				.catch(() => {
+					// Network failures / HTTP 4xx or 5xx: skip the warning and continue.
+				});
+		}
 		setPendingReadyStatus(next);
 		setReadyRequestSettled(false);
 		setBusy('status');
@@ -196,6 +215,8 @@ export default function Dial() {
 				setReadyRequestSettled(true);
 			})
 			.catch((err) => {
+				readyBalanceRequest.current += 1;
+				setBalanceWarning(null);
 				setPendingReadyStatus(null);
 				setReadyRequestSettled(false);
 				setError(readError(err, 'Could not update presence'));
@@ -433,6 +454,13 @@ export default function Dial() {
 
 	return (
 		<div className="w-full">
+			{balanceWarning && (
+				<div role="alert" className="mb-4 flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+					<CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" />
+					<p className="flex-1">{balanceWarning} Your ready status is not blocked.</p>
+					<Button variant="ghost" size="sm" onClick={() => setBalanceWarning(null)}>Dismiss</Button>
+				</div>
+			)}
 			{showDebugCall && (
 				<DebugIncomingCallToggle
 					active={debugIncomingCall}
