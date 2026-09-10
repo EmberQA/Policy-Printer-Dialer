@@ -169,9 +169,9 @@ export function ActiveCallBanner({
 					</DropdownMenuContent>
 				</DropdownMenu>
 				<span
-					title={showHangupTimer
-						? 'For safety purposes, once a call connects, it cannot be ended for 6 seconds.'
-						: undefined}
+					className="group relative inline-flex"
+					tabIndex={showHangupTimer ? 0 : undefined}
+					aria-describedby={showHangupTimer ? 'hangup-safety-tooltip' : undefined}
 				>
 					<Button
 						variant="destructive"
@@ -188,6 +188,15 @@ export function ActiveCallBanner({
 						<PhoneOff className="size-4" />
 						{showHangupTimer ? `Hang up (${hangupRemaining}s)` : 'Hang up'}
 					</Button>
+					{showHangupTimer && (
+						<span
+							id="hangup-safety-tooltip"
+							role="tooltip"
+							className="pointer-events-none absolute right-0 bottom-full z-50 mb-2 w-64 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background opacity-0 shadow-md group-hover:opacity-100 group-focus-within:opacity-100"
+						>
+							For safety purposes, once a call connects, it cannot be ended for 6 seconds.
+						</span>
+					)}
 				</span>
 			</div>
 		</div>
