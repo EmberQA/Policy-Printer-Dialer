@@ -69,6 +69,7 @@ import {
 } from './outboundCallState';
 import {InboundAnswerTone} from './inboundAnswerTone';
 import {OutboundRingback} from './outboundRingback';
+import {outboundHangupRemainingSeconds} from './outboundHangup';
 
 export type {PendingOutboundCall} from './outboundCallState';
 
@@ -210,6 +211,12 @@ export function useDevice({
 
 	const transportRef = useRef<VoiceTransport | null>(null);
 	const callRef = useRef<IncomingLeg | null>(null);
+	const connectedCallTimingRef = useRef(
+		new WeakMap<IncomingLeg, {
+			direction: 'inbound' | 'outbound';
+			startedAt: number;
+		}>()
+	);
 	// Server-resolved campaign for a direct-SIP inbound leg, keyed by legId. The
 	// inboundStart response can land on either side of the accept event; this buffer
 	// is the pre-accept landing spot (accept reads it), the setActiveCall merge is
@@ -415,6 +422,8 @@ export function useDevice({
 	const hangup = useCallback(() => {
 		const call = callRef.current;
 		if (!call) return;
+		const timing = connectedCallTimingRef.current.get(call);
+		if (timing && outboundHangupRemainingSeconds(timing) > 0) return;
 		locallyEndedCallRef.current = call;
 		call.disconnect();
 	}, []);
@@ -1246,6 +1255,11 @@ export function useDevice({
 						source: campaignSource
 					});
 				}
+				const timing = {
+					startedAt: Date.now(),
+					direction: acceptedDirection
+				};
+				connectedCallTimingRef.current.set(call, timing);
 				setActiveCall({
 					from: isOutbound
 						? outboundParams.dialedNumber ||
@@ -1266,8 +1280,7 @@ export function useDevice({
 					muted: false,
 					held: false,
 					holdPending: false,
-					startedAt: Date.now(),
-					direction: isOutbound ? 'outbound' : 'inbound'
+					...timing
 				});
 				// Best-effort: tell the backend we're busy and no longer ready.
 				// on_call blocks routing immediately; paused keeps the agent unavailable

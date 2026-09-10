@@ -19,6 +19,7 @@ import {
 	DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import type {ActiveCall} from '@/twilio/useDevice';
+import {outboundHangupRemainingSeconds} from './outboundHangup';
 
 /**
  * Active-call banner (Subplan 03). Shows the caller number, a live call timer, and
@@ -40,6 +41,10 @@ export function ActiveCallBanner({
 }) {
 	const elapsed = useElapsedSeconds(call.startedAt);
 	const isOutbound = call.direction === 'outbound';
+	const hangupRemaining = outboundHangupRemainingSeconds(call);
+	const callKey = `${call.clientCallSid || call.callSid}:${call.startedAt}`;
+	const [blockedHangupCallKey, setBlockedHangupCallKey] = useState<string | null>(null);
+	const showHangupTimer = blockedHangupCallKey === callKey && hangupRemaining > 0;
 
 	return (
 		<div className="grid gap-3 rounded-lg border bg-card px-4 py-3 shadow-xs sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center">
@@ -163,10 +168,27 @@ export function ActiveCallBanner({
 						</DropdownMenuItem>
 					</DropdownMenuContent>
 				</DropdownMenu>
-				<Button variant="destructive" size="sm" onClick={onHangup}>
-					<PhoneOff className="size-4" />
-					Hang up
-				</Button>
+				<span
+					title={showHangupTimer
+						? 'For safety purposes, once a call connects, it cannot be ended for 6 seconds.'
+						: undefined}
+				>
+					<Button
+						variant="destructive"
+						size="sm"
+						disabled={showHangupTimer}
+						onClick={() => {
+							if (outboundHangupRemainingSeconds(call) > 0) {
+								setBlockedHangupCallKey(callKey);
+								return;
+							}
+							onHangup();
+						}}
+					>
+						<PhoneOff className="size-4" />
+						{showHangupTimer ? `Hang up (${hangupRemaining}s)` : 'Hang up'}
+					</Button>
+				</span>
 			</div>
 		</div>
 	);
