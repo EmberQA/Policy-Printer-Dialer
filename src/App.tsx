@@ -37,6 +37,7 @@ import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
 import {LicensedStatesDialog} from '@/licensedStates/LicensedStatesDialog';
 import {CreditNotificationDialog} from '@/components/CreditNotificationDialog';
+import {NewLeadBanner} from '@/outboundLeads/NewLeadBanner';
 import {
 	CreditFlightAnimation,
 	type CreditFlight
@@ -393,6 +394,7 @@ function AuthenticatedDialerApp({
 					/>
 				</div>
 			</header>
+			<NewLeadBanner />
 			<main className="px-4 py-6 sm:px-6">
 				<InboundCallAutoNav />
 				<DialerPageRoutes />
