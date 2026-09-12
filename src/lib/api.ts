@@ -488,14 +488,23 @@ export interface StartOutboundCallResponse {
  * duration. `to` may be any format the agent typed — the backend normalizes +
  * validates it (US/CA only). The persistent device/session layer owns pending-call
  * correlation and ringback around this request.
+ *
+ * `outboundLeadId` (ENG-234) ties the call to a purchased lead: the backend checks
+ * the lead is this agent's and that `to` is its number, and records the accepted
+ * attempt itself — the browser never counts calls.
  */
 export const startOutboundCall = (
 	to: string,
-	attemptId: string
+	attemptId: string,
+	outboundLeadId?: string | null
 ): Promise<StartOutboundCallResponse> =>
 	qsPost(
 		'/policyPrinter/dialer/call/start',
-		{to, attempt_id: attemptId},
+		{
+			to,
+			attempt_id: attemptId,
+			...(outboundLeadId ? {outbound_lead_id: outboundLeadId} : {})
+		},
 		{timeout: OUTBOUND_START_REQUEST_TIMEOUT_MS}
 	);
 
@@ -1056,3 +1065,144 @@ export const cancelLeadOrder = (
 	orderId: string
 ): Promise<LeadOrderMutationResponse> =>
 	qsPost('/policyPrinter/outboundLeads/order/cancel', {order_id: orderId});
+
+/* -------------------------------------------------------------------------- */
+/* Outbound leads — delivered leads (ENG-234 Subplan 05)                       */
+/* -------------------------------------------------------------------------- */
+
+/** Mirrors the backend's OutboundLeadStatus. `attempted` is stamped by the
+ *  backend on an accepted click-to-call start; `refunded` by an admin. */
+export type OutboundLeadStatus =
+	| 'new'
+	| 'attempted'
+	| 'contacted'
+	| 'no_answer'
+	| 'not_interested'
+	| 'sold'
+	| 'refunded';
+
+/** The outcomes an agent may set from the row's detail panel. */
+export const AGENT_SETTABLE_LEAD_STATUSES: readonly OutboundLeadStatus[] = [
+	'contacted',
+	'no_answer',
+	'not_interested',
+	'sold'
+];
+
+/** One row of policy_printer.outbound_leads as the agent sees it. */
+export interface OutboundLead {
+	id: string;
+	org_id: string;
+	offer_id: string;
+	vendor_id: string;
+	campaign_id: string;
+	purchase_order_id: string;
+	agent_id: string;
+	user_id: string;
+	/** What THIS lead cost (the order's price at delivery). */
+	price_cents: number;
+	ledger_entry_id: string | null;
+	first_name: string;
+	last_name: string;
+	/** E.164 */
+	phone: string;
+	email: string | null;
+	address: string | null;
+	city: string | null;
+	/** Canonical 'us-xx'. */
+	state: string;
+	state_raw: string | null;
+	zip: string;
+	/** 'YYYY-MM-DD' */
+	date_of_birth: string;
+	age: number;
+	coverage_type: LeadCoverageType;
+	coverage_amount: number | null;
+	trusted_form_url: string | null;
+	raw_payload: Record<string, unknown>;
+	status: OutboundLeadStatus;
+	agent_note: string | null;
+	acknowledged_at: string | null;
+	first_called_at: string | null;
+	last_called_at: string | null;
+	/** Accepted call starts against this lead (backend-counted). */
+	call_count: number;
+	refunded_at: string | null;
+	refund_ledger_entry_id: string | null;
+	refund_reason: string | null;
+	refunded_by: string | null;
+	assigned_at: string;
+	updated_at: string;
+}
+
+export interface PurchasedLeadsListResponse {
+	statusCode: string;
+	statusMessage: string;
+	leads?: OutboundLead[];
+	total?: number;
+	totalPages?: number;
+	currentPage?: number;
+	limit?: number;
+}
+
+export interface PurchasedLeadResponse {
+	statusCode: string;
+	statusMessage: string;
+	lead?: OutboundLead;
+}
+
+/** The slice the 30s pending poll returns — enough for the banner line. */
+export type PendingLeadSummary = Pick<
+	OutboundLead,
+	'id' | 'first_name' | 'last_name' | 'state' | 'coverage_type' | 'assigned_at'
+>;
+
+export interface PendingPurchasedLeadsResponse {
+	statusCode: string;
+	statusMessage: string;
+	count?: number;
+	leads?: PendingLeadSummary[];
+}
+
+export const listPurchasedLeads = (params: {
+	status?: OutboundLeadStatus;
+	page: number;
+	limit: number;
+}): Promise<PurchasedLeadsListResponse> =>
+	qsPost('/policyPrinter/outboundLeads/list', {...params});
+
+export const getPurchasedLead = (
+	leadId: string
+): Promise<PurchasedLeadResponse> =>
+	qsPost('/policyPrinter/outboundLeads/lead/get', {lead_id: leadId});
+
+/** `note` undefined leaves the saved note alone; '' clears it. */
+export const setPurchasedLeadStatus = (
+	leadId: string,
+	status: OutboundLeadStatus,
+	note?: string
+): Promise<PurchasedLeadResponse> =>
+	qsPost('/policyPrinter/outboundLeads/lead/setStatus', {
+		lead_id: leadId,
+		status,
+		...(note === undefined ? {} : {note})
+	});
+
+/** Unacknowledged leads for the new-lead banner. Hits the pre-RBAC liveness route
+ *  on its own ~30s timer, like the credit poll. Never an error envelope. */
+export const fetchPendingPurchasedLeads =
+	(): Promise<PendingPurchasedLeadsResponse> =>
+		qsPost('/policyPrinter/outboundLeads/pending');
+
+/** No ids = acknowledge everything pending (fired when the Leads tab opens). */
+export const acknowledgePurchasedLeads = (
+	leadIds?: string[]
+): Promise<{
+	statusCode: string;
+	statusMessage: string;
+	acknowledged?: number;
+}> =>
+	qsPost(
+		'/policyPrinter/outboundLeads/acknowledge',
+		leadIds ? {lead_ids: leadIds} : {}
+	);

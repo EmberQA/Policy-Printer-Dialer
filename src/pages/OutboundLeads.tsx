@@ -3,7 +3,9 @@
  *
  * Subplan 02: the purchase-order queue (create / edit / pause / cancel), oldest
  * first, with the price the next order would take and the wallet balance.
- * Subplan 05 adds the delivered-leads table and the new-lead banner below.
+ * Subplan 05: the delivered-leads table below the queue. Opening this page
+ * acknowledges every pending lead (which is what clears the new-lead banner);
+ * the table keeps its own fetch keyed by `refreshKey`.
  *
  * Distinct from /leads, which is the Activity tab over inbound CRM records.
  */
@@ -13,6 +15,7 @@ import {Loader2, Plus, RefreshCw} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {
+	acknowledgePurchasedLeads,
 	cancelLeadOrder,
 	fetchLeadOrder,
 	setLeadOrderPaused,
@@ -24,6 +27,8 @@ import {readError} from '@/lib/errors';
 import {cn} from '@/lib/utils';
 import {LeadOrderCard} from '@/outboundLeads/LeadOrderCard';
 import {LeadOrderDialog} from '@/outboundLeads/LeadOrderDialog';
+import {PurchasedLeadsTable} from '@/outboundLeads/PurchasedLeadsTable';
+import {requestNewLeadRefresh} from '@/outboundLeads/useNewLeadPoll';
 import {
 	buildDefaultLeadOrderInput,
 	formatDollars,
@@ -48,8 +53,11 @@ export default function OutboundLeads() {
 	/** Id of the order a pause/cancel is in flight for. */
 	const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
+	/** Bumped by Refresh so the leads table refetches with the orders. */
+	const [refreshKey, setRefreshKey] = useState(0);
 
 	const load = useCallback(async () => {
+		setRefreshKey((k) => k + 1);
 		setError(null);
 		try {
 			const res = await fetchLeadOrder();
@@ -78,6 +86,15 @@ export default function OutboundLeads() {
 	useEffect(() => {
 		void load();
 	}, [load]);
+
+	// Opening the tab is the acknowledgement: every pending lead is marked seen and
+	// the banner's poll is nudged so it clears immediately rather than on its
+	// next 30s tick. Best effort — a failure just leaves the banner up.
+	useEffect(() => {
+		acknowledgePurchasedLeads()
+			.catch(() => undefined)
+			.finally(() => requestNewLeadRefresh());
+	}, []);
 
 	const openCreate = () => {
 		if (!summary) return;
@@ -221,6 +238,11 @@ export default function OutboundLeads() {
 					))}
 				</div>
 			)}
+
+			<PurchasedLeadsTable
+				refreshKey={refreshKey}
+				jurisdictions={summary?.jurisdictions ?? []}
+			/>
 
 			{summary && dialog.open && dialogInitial && (
 				<LeadOrderDialog
