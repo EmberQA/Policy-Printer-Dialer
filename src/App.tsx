@@ -31,6 +31,7 @@ import {useTabLock} from '@/session/useTabLock';
 import Dial from '@/pages/Dial';
 import Crm from '@/pages/Crm';
 import Leads from '@/pages/Leads';
+import OutboundLeads from '@/pages/OutboundLeads';
 import {LeadNotesProvider} from '@/leads/LeadNotesContext';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
@@ -217,8 +218,11 @@ function AuthenticatedDialerApp({
 	plainBranding: boolean;
 	branding: DialerBranding;
 }) {
-	const {progress: rankingProgress, promotion, dismissPromotion} =
-		useRankingProgress();
+	const {
+		progress: rankingProgress,
+		promotion,
+		dismissPromotion
+	} = useRankingProgress();
 	const [previewPromotion, setPreviewPromotion] =
 		useState<RankPromotion | null>(null);
 	const {
@@ -343,7 +347,11 @@ function AuthenticatedDialerApp({
 					type="button"
 					onClick={previewNextRank}
 					disabled={promotionBlocked}
-					title={promotionBlocked ? 'Pause calls to preview a rank up' : 'Preview the next rank-up animation'}
+					title={
+						promotionBlocked
+							? 'Pause calls to preview a rank up'
+							: 'Preview the next rank-up animation'
+					}
 					data-testid="preview-rank-promotion"
 					className="fixed bottom-4 left-4 z-50 flex items-center gap-2 rounded-full border border-cyan-300/80 bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xl shadow-cyan-500/20 outline-none hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-500 disabled:bg-slate-800 disabled:text-slate-400 disabled:opacity-70 disabled:shadow-none"
 				>
@@ -376,6 +384,7 @@ function AuthenticatedDialerApp({
 							<NavTab to="/crm" label="CRM" />
 							<NavTab to="/callbacks" label="Callbacks" />
 							<NavTab to="/leads" label="Activity" />
+							<NavTab to="/outbound-leads" label="Leads" />
 						</nav>
 					</div>
 					<HeaderUserBlock
@@ -482,6 +491,7 @@ function DialerPageRoutes() {
 					element={<Crm key="callbacks" callbacksOnly />}
 				/>
 				<Route path="/leads" element={<Leads />} />
+				<Route path="/outbound-leads" element={<OutboundLeads />} />
 				<Route path="*" element={<Navigate to="/dial" replace />} />
 			</Routes>
 			{keepDialMounted && (

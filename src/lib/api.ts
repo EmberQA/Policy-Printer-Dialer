@@ -934,3 +934,125 @@ export const lookupReturningCaller = (
 	qsPost('/policyPrinter/dialer/lead/returningCaller', {
 		caller_phone: callerPhone
 	});
+
+/* -------------------------------------------------------------------------- */
+/* Outbound leads — purchase orders (ENG-234 Subplan 02)                      */
+/* -------------------------------------------------------------------------- */
+
+/** Mirrors the backend's LeadCoverageType — the vendor spec's values, verbatim. */
+export type LeadCoverageType = 'final_expense' | 'term_life';
+
+export type LeadPurchaseOrderStatus = 'active' | 'exhausted' | 'cancelled';
+
+/** One row of policy_printer.lead_purchase_orders. `unit_price_cents` is the price
+ *  this order was placed at and never changes; `states` are canonical 'us-xx'. */
+export interface LeadPurchaseOrder {
+	id: string;
+	org_id: string;
+	agent_id: string;
+	user_id: string;
+	campaign_id: string;
+	status: LeadPurchaseOrderStatus;
+	paused: boolean;
+	/** 'HH:MM:SS' as pg returns a time column. */
+	working_hours_start: string;
+	working_hours_end: string;
+	/** IANA name. */
+	timezone: string;
+	daily_cap: number;
+	max_cap: number;
+	states: string[];
+	coverage_types: LeadCoverageType[];
+	min_age: number | null;
+	max_age: number | null;
+	unit_price_cents: number;
+	delivered_count: number;
+	exhausted_at: string | null;
+	cancelled_at: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+/** What the form submits for create/update. Hours are 'HH:MM'; states may be
+ *  abbreviations or 'us-xx' — the backend normalises. */
+export interface LeadOrderInput {
+	working_hours_start: string;
+	working_hours_end: string;
+	timezone: string;
+	daily_cap: number;
+	max_cap: number;
+	states: string[];
+	coverage_types: LeadCoverageType[];
+	min_age: number | null;
+	max_age: number | null;
+}
+
+/** Licensed-vs-saved state difference for one order. Informational only. */
+export interface LeadOrderStateMismatch {
+	differs: boolean;
+	selected_not_saved: string[];
+	saved_not_selected: string[];
+}
+
+export interface LeadPurchaseOrderSummary {
+	order: LeadPurchaseOrder;
+	/** Delivered to THIS order since the 05:00 UTC lead-day boundary. */
+	today_count: number;
+	state_mismatch: LeadOrderStateMismatch;
+}
+
+/** Everything the Leads tab needs in one read. An existing order's price is ONLY
+ *  `order.unit_price_cents`; `new_order_price_cents` is what the NEXT order would
+ *  cost (null when the org has no default campaign, which also forces
+ *  `can_create_order` false). */
+export interface LeadOrderSummary {
+	orders: LeadPurchaseOrderSummary[];
+	new_order_price_cents: number | null;
+	balance_cents: number;
+	wallet_enabled: boolean;
+	can_create_order: boolean;
+	licensed_states: string[];
+	jurisdictions: LicensedJurisdiction[];
+}
+
+export type LeadOrderResponse = {
+	statusCode: string;
+	statusMessage: string;
+} & Partial<LeadOrderSummary>;
+
+export interface LeadOrderMutationResponse {
+	statusCode: string;
+	statusMessage: string;
+	order?: LeadPurchaseOrder;
+}
+
+export const fetchLeadOrder = (): Promise<LeadOrderResponse> =>
+	qsPost('/policyPrinter/outboundLeads/order/get');
+
+export const createLeadOrder = (
+	input: LeadOrderInput
+): Promise<LeadOrderMutationResponse> =>
+	qsPost('/policyPrinter/outboundLeads/order/create', {...input});
+
+export const updateLeadOrder = (
+	orderId: string,
+	input: LeadOrderInput
+): Promise<LeadOrderMutationResponse> =>
+	qsPost('/policyPrinter/outboundLeads/order/update', {
+		order_id: orderId,
+		...input
+	});
+
+export const setLeadOrderPaused = (
+	orderId: string,
+	paused: boolean
+): Promise<LeadOrderMutationResponse> =>
+	qsPost('/policyPrinter/outboundLeads/order/setPaused', {
+		order_id: orderId,
+		paused
+	});
+
+export const cancelLeadOrder = (
+	orderId: string
+): Promise<LeadOrderMutationResponse> =>
+	qsPost('/policyPrinter/outboundLeads/order/cancel', {order_id: orderId});
