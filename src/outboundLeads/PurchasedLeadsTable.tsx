@@ -9,7 +9,7 @@
  * touches `call_count` or the status.
  */
 
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {Inbox, Loader2, RefreshCw} from 'lucide-react';
 import {Button} from '@/components/ui/button';
@@ -30,6 +30,9 @@ import {
 	type OutboundLead,
 	type OutboundLeadStatus
 } from '@/lib/api';
+import {acknowledgePurchasedLeads} from '@/lib/api';
+import {requestNewLeadRefresh} from './useNewLeadPoll';
+import {mergeRefreshedLeads, unseenDisplayedLeadIds} from './leadRefresh';
 import {readError} from '@/lib/errors';
 import {normalizeDialInput} from '@/lib/phone';
 import {cn} from '@/lib/utils';
@@ -56,6 +59,9 @@ export function PurchasedLeadsTable({
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [expandedId, setExpandedId] = useState<string | null>(null);
+	const expandedRef = useRef(expandedId);
+	expandedRef.current = expandedId;
+	const acknowledgedIds = useRef(new Set<string>());
 
 	const {device, canDialBase} = useDialerSession();
 	const navigate = useNavigate();
@@ -77,7 +83,9 @@ export function PurchasedLeadsTable({
 				setError(res.statusMessage || 'Could not load your leads');
 				return;
 			}
-			setLeads(res.leads ?? []);
+			setLeads((current) =>
+				mergeRefreshedLeads(current, res.leads ?? [], expandedRef.current)
+			);
 			setTotal(res.total ?? 0);
 		} catch (err) {
 			setError(readError(err, 'Could not load your leads'));
@@ -89,6 +97,20 @@ export function PurchasedLeadsTable({
 	useEffect(() => {
 		void load();
 	}, [load, refreshKey]);
+
+	useEffect(() => {
+		if (loading || error || document.hidden) return;
+		const ids = unseenDisplayedLeadIds(leads, acknowledgedIds.current);
+		if (!ids.length) return;
+		ids.forEach((id) => acknowledgedIds.current.add(id));
+		void acknowledgePurchasedLeads(ids)
+			.then((result) => {
+				if (result.statusCode !== 'SP100')
+					throw new Error('Acknowledgment failed');
+				requestNewLeadRefresh();
+			})
+			.catch(() => ids.forEach((id) => acknowledgedIds.current.delete(id)));
+	}, [leads, loading, error]);
 
 	const onCall = (lead: OutboundLead) => {
 		const dest = normalizeDialInput(lead.phone);

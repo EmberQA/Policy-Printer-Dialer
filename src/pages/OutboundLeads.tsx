@@ -3,8 +3,8 @@
  *
  * Subplan 02: the purchase-order queue (create / edit / pause / cancel), oldest
  * first, with the price the next order would take and the wallet balance.
- * Subplan 05: the delivered-leads table below the queue. Opening this page
- * acknowledges every pending lead (which is what clears the new-lead banner);
+ * Subplan 05: the delivered-leads table below the queue. Displayed leads are
+ * acknowledged after loading;
  * the table keeps its own fetch keyed by `refreshKey`.
  *
  * Distinct from /leads, which is the Activity tab over inbound CRM records.
@@ -15,7 +15,6 @@ import {Loader2, Plus, RefreshCw} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {
-	acknowledgePurchasedLeads,
 	cancelLeadOrder,
 	fetchLeadOrder,
 	setLeadOrderPaused,
@@ -28,7 +27,7 @@ import {cn} from '@/lib/utils';
 import {LeadOrderCard} from '@/outboundLeads/LeadOrderCard';
 import {LeadOrderDialog} from '@/outboundLeads/LeadOrderDialog';
 import {PurchasedLeadsTable} from '@/outboundLeads/PurchasedLeadsTable';
-import {requestNewLeadRefresh} from '@/outboundLeads/useNewLeadPoll';
+import {subscribeLeadUpdates} from '@/outboundLeads/useNewLeadPoll';
 import {
 	buildDefaultLeadOrderInput,
 	formatDollars,
@@ -63,7 +62,6 @@ export default function OutboundLeads() {
 			const res = await fetchLeadOrder();
 			if (res.statusCode !== 'SP100') {
 				setError(res.statusMessage || 'Could not load your lead orders');
-				setSummary(null);
 				return;
 			}
 			setSummary({
@@ -77,7 +75,6 @@ export default function OutboundLeads() {
 			});
 		} catch (err) {
 			setError(readError(err, 'Could not load your lead orders'));
-			setSummary(null);
 		} finally {
 			setLoading(false);
 		}
@@ -87,14 +84,7 @@ export default function OutboundLeads() {
 		void load();
 	}, [load]);
 
-	// Opening the tab is the acknowledgement: every pending lead is marked seen and
-	// the banner's poll is nudged so it clears immediately rather than on its
-	// next 30s tick. Best effort — a failure just leaves the banner up.
-	useEffect(() => {
-		acknowledgePurchasedLeads()
-			.catch(() => undefined)
-			.finally(() => requestNewLeadRefresh());
-	}, []);
+	useEffect(() => subscribeLeadUpdates(() => void load()), [load]);
 
 	const openCreate = () => {
 		if (!summary) return;

@@ -202,7 +202,10 @@ export type PresenceStatus = 'ready' | 'paused';
 /** Twilio Device registration state the FE reports each heartbeat (Subplan 03
  *  wires the real value; until then the dialer reports 'offline'). */
 export type TwilioDeviceStatus =
-	'registered' | 'offline' | 'connecting' | 'error';
+	| 'registered'
+	| 'offline'
+	| 'connecting'
+	| 'error';
 
 /** Live presence row mirrored from the backend. */
 export interface DialerPresence {
@@ -509,7 +512,11 @@ export const startOutboundCall = (
 	);
 
 export type OutboundCallLifecycleState =
-	'idle' | 'starting' | 'ringing' | 'active' | 'terminal';
+	| 'idle'
+	| 'starting'
+	| 'ringing'
+	| 'active'
+	| 'terminal';
 
 export interface OutboundCallStatusResponse {
 	statusCode: string;
@@ -1157,7 +1164,14 @@ export type PendingLeadSummary = Pick<
 	'id' | 'first_name' | 'last_name' | 'state' | 'coverage_type' | 'assigned_at'
 >;
 
+export interface LeadFundingStatus {
+	balance_cents: number;
+	active_order_count: number;
+	blocked_orders: {order_id: string; unit_price_cents: number}[];
+}
+
 export interface PendingPurchasedLeadsResponse {
+	funding?: LeadFundingStatus | null;
 	statusCode: string;
 	statusMessage: string;
 	count?: number;
@@ -1194,7 +1208,7 @@ export const fetchPendingPurchasedLeads =
 	(): Promise<PendingPurchasedLeadsResponse> =>
 		qsPost('/policyPrinter/outboundLeads/pending');
 
-/** No ids = acknowledge everything pending (fired when the Leads tab opens). */
+/** Explicit ids acknowledge the displayed slice. Omitting ids is an explicit mark-all operation. */
 export const acknowledgePurchasedLeads = (
 	leadIds?: string[]
 ): Promise<{

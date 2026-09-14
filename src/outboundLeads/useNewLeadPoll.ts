@@ -12,12 +12,17 @@
  */
 
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {fetchPendingPurchasedLeads, type PendingLeadSummary} from '@/lib/api';
+import {
+	fetchPendingPurchasedLeads,
+	type LeadFundingStatus,
+	type PendingLeadSummary
+} from '@/lib/api';
 
 export const NEW_LEAD_POLL_INTERVAL_MS = 30_000;
 const NEW_LEAD_POLL_MAX_BACKOFF_MS = 120_000;
 
 export interface NewLeadPollState {
+	funding: LeadFundingStatus | null;
 	/** Total unacknowledged leads (not just the ones returned). */
 	count: number;
 	/** The newest pending lead, for the banner line. */
@@ -27,6 +32,14 @@ export interface NewLeadPollState {
 
 /* A tiny module-level channel so any screen (the Leads page after it
  * acknowledges) can nudge the single mounted poll without prop drilling. */
+const updateListeners = new Set<() => void>();
+export const subscribeLeadUpdates = (listener: () => void): (() => void) => {
+	updateListeners.add(listener);
+	return () => {
+		updateListeners.delete(listener);
+	};
+};
+
 const refreshListeners = new Set<() => void>();
 export const requestNewLeadRefresh = (): void => {
 	refreshListeners.forEach((fn) => fn());
@@ -36,12 +49,13 @@ export function useNewLeadPoll(enabled: boolean): NewLeadPollState {
 	const [state, setState] = useState<{
 		count: number;
 		latest: PendingLeadSummary | null;
-	}>({count: 0, latest: null});
+		funding: LeadFundingStatus | null;
+	}>({count: 0, latest: null, funding: null});
 	const pollRef = useRef<() => void>(() => undefined);
 
 	useEffect(() => {
 		if (!enabled) {
-			setState({count: 0, latest: null});
+			setState({count: 0, latest: null, funding: null});
 			pollRef.current = () => undefined;
 			return;
 		}
@@ -80,9 +94,15 @@ export function useNewLeadPoll(enabled: boolean): NewLeadPollState {
 			try {
 				const res = await fetchPendingPurchasedLeads();
 				if (cancelled) return;
+				if (res.statusCode !== 'SP100') throw new Error('Lead poll failed');
 				failureStreak = 0;
 				const leads = res.leads ?? [];
-				setState({count: res.count ?? leads.length, latest: leads[0] ?? null});
+				setState({
+					count: res.count ?? leads.length,
+					latest: leads[0] ?? null,
+					funding: res.funding ?? null
+				});
+				updateListeners.forEach((listener) => listener());
 			} catch {
 				if (cancelled) return;
 				// Keep the last known value on a transient failure; just back off.
@@ -113,5 +133,5 @@ export function useNewLeadPoll(enabled: boolean): NewLeadPollState {
 
 	const refresh = useCallback(() => pollRef.current(), []);
 
-	return {count: state.count, latest: state.latest, refresh};
+	return {...state, refresh};
 }
