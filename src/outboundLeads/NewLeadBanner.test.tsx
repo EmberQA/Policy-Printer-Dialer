@@ -11,7 +11,14 @@ const poll = vi.hoisted(() => ({
 }));
 vi.mock('./useNewLeadPoll', () => ({useNewLeadPoll: () => poll}));
 vi.mock('@/session/DialerSessionProvider', () => ({
-	useDialerSession: () => ({provisioned: true})
+	useDialerSession: () => ({
+		provisioned: true,
+		device: {outputDeviceId: 'default'}
+	})
+}));
+const noticeState = vi.hoisted(() => ({notice: null as any, dismiss: vi.fn()}));
+vi.mock('./useLeadArrivalNotice', () => ({
+	useLeadArrivalNotice: () => noticeState
 }));
 import {NewLeadBanner} from './NewLeadBanner';
 
@@ -46,3 +53,23 @@ describe('global low-funds warning', () => {
 		expect(render('/dial')).not.toContain('need funds');
 	});
 });
+
+it.each(['/dial', '/outbound-leads'])(
+	'shows the arrival notice even with no pending rows on %s',
+	(path) => {
+		noticeState.notice = {
+			lead: {
+				id: 'lead-1',
+				first_name: 'Jane',
+				last_name: 'Doe',
+				state: 'us-tx'
+			},
+			count: 1
+		};
+		const html = render(path);
+		expect(html).toContain('New lead:');
+		expect(html).toContain('Jane D.');
+		expect(html).toContain('Dismiss new lead notification');
+		noticeState.notice = null;
+	}
+);

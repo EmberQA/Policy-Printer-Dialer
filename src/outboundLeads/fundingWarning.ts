@@ -16,6 +16,6 @@ export function fundingWarning(
 		`Add at least ${formatDollars(shortfall)} to meet every order’s per-lead price. ` +
 		(blocked < funding.active_order_count
 			? 'Your other orders can still receive leads when eligible.'
-			: 'Lead delivery is waiting for funds.')
+			: 'New lead bids are waiting for funds. Leads already bid for can still arrive and be charged.')
 	);
 }

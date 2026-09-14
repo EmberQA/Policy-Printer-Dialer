@@ -133,9 +133,7 @@ export default function OutboundLeads() {
 				<div className="space-y-1">
 					<h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
 					<p className="text-sm text-muted-foreground">
-						Buy real-time leads to fill the gaps between inbound calls. We fill
-						your oldest eligible order first. Orders that cannot receive this
-						lead are skipped.
+						Buy real-time outbound leads.
 					</p>
 				</div>
 				<div className="flex items-center gap-2">
@@ -170,15 +168,6 @@ export default function OutboundLeads() {
 				</div>
 			</div>
 
-			{summary && summary.new_order_price_cents !== null && (
-				<p className="text-sm text-muted-foreground">
-					New orders are currently{' '}
-					<span className="font-medium text-foreground">
-						{formatDollars(summary.new_order_price_cents)} per lead
-					</span>
-					. Existing orders keep the price they were placed at.
-				</p>
-			)}
 			{summary && !summary.can_create_order && (
 				<p className="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-400/40 dark:bg-amber-950/40 dark:text-amber-200">
 					Lead pricing is not configured for your agency yet, so new orders

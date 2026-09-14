@@ -1,31 +1,37 @@
 /**
  * NewLeadBanner (ENG-234 Subplan 05) — a fixed, non-modal notice that a
  * purchased lead is waiting: "New lead: Jane D. (TX) — View". Never a dialog
- * (the agent may be mid-call). The lead notice is hidden on the Leads tab,
- * where displayed rows acknowledge themselves. Funding warnings remain visible.
+ * (the agent may be mid-call). The notice stays visible for ten seconds on every tab, even after rows
+ * acknowledge themselves. Funding warnings remain visible.
  */
 
 import {getDialerBranding} from '@/branding';
 import {fundingWarning} from './fundingWarning';
-import {Link, useLocation} from 'react-router-dom';
-import {Sparkles} from 'lucide-react';
+import {Link} from 'react-router-dom';
+import {Sparkles, X} from 'lucide-react';
 import {useDialerSession} from '@/session/DialerSessionProvider';
 import {leadShortLabel} from './leadDisplay';
 import {useNewLeadPoll} from './useNewLeadPoll';
+import {useLeadArrivalNotice} from './useLeadArrivalNotice';
+import {Button} from '@/components/ui/button';
 
 export const OUTBOUND_LEADS_PATH = '/outbound-leads';
 
 export function NewLeadBanner() {
-	const {provisioned} = useDialerSession();
-	const location = useLocation();
-	const onLeadsTab = location.pathname === OUTBOUND_LEADS_PATH;
+	const {provisioned, device} = useDialerSession();
 	const {count, latest, funding} = useNewLeadPoll(provisioned);
 
+	const {notice, dismiss} = useLeadArrivalNotice(
+		latest,
+		count,
+		provisioned,
+		device.outputDeviceId
+	);
 	if (!provisioned) return null;
 	const warning = fundingWarning(funding);
-	const showLead = !onLeadsTab && count > 0 && latest;
+	const showLead = notice !== null;
 
-	const others = count - 1;
+	const others = (notice?.count ?? 0) - 1;
 	return (
 		<>
 			{warning && (
@@ -64,7 +70,7 @@ export function NewLeadBanner() {
 					</div>
 					<div className="min-w-0 flex-1">
 						<p className="text-sm font-semibold">
-							New lead: {leadShortLabel(latest!)}
+							New lead: {leadShortLabel(notice!.lead)}
 						</p>
 						{others > 0 && (
 							<p className="text-xs text-muted-foreground">
@@ -74,10 +80,19 @@ export function NewLeadBanner() {
 					</div>
 					<Link
 						to={OUTBOUND_LEADS_PATH}
+						onClick={dismiss}
 						className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					>
 						View
 					</Link>
+					<Button
+						variant="ghost"
+						size="icon"
+						aria-label="Dismiss new lead notification"
+						onClick={dismiss}
+					>
+						<X className="size-4" />
+					</Button>
 				</div>
 			)}
 		</>

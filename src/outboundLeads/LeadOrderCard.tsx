@@ -192,8 +192,9 @@ export function LeadOrderCard({
 				{belowPrice && (
 					<p className="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-400/40 dark:bg-amber-950/40 dark:text-amber-200">
 						Your wallet balance ({formatDollars(balanceCents)}) is below this
-						order&apos;s price ({formatDollars(order.unit_price_cents)}). No
-						leads will be delivered to it until you top up.
+						order&apos;s price ({formatDollars(order.unit_price_cents)}). No new
+						bids will be placed for it until you top up. Leads already bid for
+						can still arrive and be charged.
 					</p>
 				)}
 				{state_mismatch.differs && (

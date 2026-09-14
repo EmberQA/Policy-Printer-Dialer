@@ -172,7 +172,8 @@ export function LeadOrderDialog({
 							<DialogPrimitive.Description className="text-sm text-muted-foreground">
 								Leads can be delivered and charged while you are offline during
 								these working hours. Each lead is billed to your wallet when it
-								arrives.
+								arrives. Leads already bid for may still arrive after you pause,
+								cancel, or reach a cap, and may take your wallet below zero.
 							</DialogPrimitive.Description>
 						</div>
 						<DialogPrimitive.Close asChild>
@@ -188,7 +189,8 @@ export function LeadOrderDialog({
 						</DialogPrimitive.Close>
 					</div>
 
-					<div className="min-h-0 space-y-6 overflow-y-auto pr-1">
+					{/* Keep 3px focus rings inside the scroll viewport without shifting field alignment. */}
+					<div className="-mx-1 min-h-0 space-y-6 overflow-y-auto scroll-py-1 px-1 py-1 [scrollbar-gutter:stable]">
 						{/* Working hours */}
 						<section className="space-y-3">
 							<h3 className="text-sm font-semibold">Working hours</h3>
@@ -220,7 +222,7 @@ export function LeadOrderDialog({
 								<span className="text-muted-foreground">Timezone:</span>
 								{showTzPicker ? (
 									<select
-										className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+										className="enabled:cursor-pointer disabled:cursor-not-allowed h-9 rounded-md border border-input bg-transparent px-2 text-sm"
 										value={form.timezone}
 										disabled={saving}
 										onChange={(e) => patch({timezone: e.target.value})}
@@ -239,7 +241,7 @@ export function LeadOrderDialog({
 										<span className="font-medium">{form.timezone}</span>
 										<button
 											type="button"
-											className="text-xs text-primary underline-offset-2 hover:underline"
+											className="enabled:cursor-pointer text-xs text-primary underline-offset-2 hover:underline"
 											onClick={() => setShowTzPicker(true)}
 											disabled={saving}
 										>
@@ -331,7 +333,7 @@ export function LeadOrderDialog({
 									return (
 										<label
 											key={jurisdiction.code}
-											className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-accent ${
+											className={`flex cursor-pointer has-[:disabled]:cursor-default items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-accent ${
 												checked
 													? 'border-primary/40 bg-accent/50 font-medium text-foreground'
 													: 'border-input bg-card text-muted-foreground'
@@ -342,7 +344,7 @@ export function LeadOrderDialog({
 												checked={checked}
 												disabled={saving}
 												onChange={() => toggleState(jurisdiction.code)}
-												className="size-4 accent-primary"
+												className="size-4 enabled:cursor-pointer disabled:cursor-default accent-primary"
 											/>
 											<span className="min-w-0 truncate">
 												{jurisdiction.name}
@@ -392,7 +394,7 @@ export function LeadOrderDialog({
 									return (
 										<label
 											key={option.value}
-											className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+											className={`flex cursor-pointer has-[:disabled]:cursor-default items-center gap-2 rounded-md border px-3 py-2 text-sm ${
 												checked
 													? 'border-primary/40 bg-accent/50 font-medium'
 													: 'border-input bg-card text-muted-foreground'
@@ -403,7 +405,7 @@ export function LeadOrderDialog({
 												checked={checked}
 												disabled={saving}
 												onChange={() => toggleCoverage(option.value)}
-												className="size-4 accent-primary"
+												className="size-4 enabled:cursor-pointer disabled:cursor-default accent-primary"
 											/>
 											{option.label}
 										</label>
@@ -500,8 +502,8 @@ export function LeadOrderDialog({
 								{priceCents !== null && summary.balance_cents < priceCents && (
 									<span className="text-amber-700 dark:text-amber-300">
 										{' '}
-										— below one lead&apos;s price, so no leads will be delivered
-										until you top up.
+										— below one lead&apos;s price. Top up to resume new bids;
+										leads already bid for can still be delivered and charged.
 									</span>
 								)}
 							</p>

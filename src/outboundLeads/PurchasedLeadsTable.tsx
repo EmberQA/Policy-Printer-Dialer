@@ -31,6 +31,7 @@ import {
 	type OutboundLeadStatus
 } from '@/lib/api';
 import {acknowledgePurchasedLeads} from '@/lib/api';
+import {publishLeadArrival} from './leadArrival';
 import {requestNewLeadRefresh} from './useNewLeadPoll';
 import {mergeRefreshedLeads, unseenDisplayedLeadIds} from './leadRefresh';
 import {readError} from '@/lib/errors';
@@ -102,6 +103,8 @@ export function PurchasedLeadsTable({
 		if (loading || error || document.hidden) return;
 		const ids = unseenDisplayedLeadIds(leads, acknowledgedIds.current);
 		if (!ids.length) return;
+		const newest = leads.find((lead) => ids.includes(lead.id));
+		if (newest) publishLeadArrival({lead: newest, count: ids.length});
 		ids.forEach((id) => acknowledgedIds.current.add(id));
 		void acknowledgePurchasedLeads(ids)
 			.then((result) => {
@@ -165,7 +168,7 @@ export function PurchasedLeadsTable({
 						</Label>
 						<select
 							id="purchased-leads-status"
-							className="flex h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							className="enabled:cursor-pointer flex h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 							value={status}
 							onChange={(e) => {
 								setStatus(e.target.value as OutboundLeadStatus | '');

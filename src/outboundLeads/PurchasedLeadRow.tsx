@@ -250,7 +250,7 @@ function LeadDetailPanel({
 					<Label htmlFor={`lead-status-${lead.id}`}>Outcome</Label>
 					<select
 						id={`lead-status-${lead.id}`}
-						className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+						className="enabled:cursor-pointer flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
 						value={status}
 						disabled={refunded || saving}
 						onChange={(e) => {
