@@ -24,6 +24,7 @@ import {
 import {Switch} from '@/components/ui/switch';
 import {Textarea} from '@/components/ui/textarea';
 import {cn} from '@/lib/utils';
+import {US_STATE_OPTIONS} from '@/lib/phone';
 
 export type LeadFormData = Record<string, unknown>;
 
@@ -124,8 +125,12 @@ function Control({
 	disabled?: boolean;
 }) {
 	const str = typeof value === 'string' ? value : '';
+	// Keep the schema and saved text values intact while offering state choices.
+	// Configured select fields continue to use their backend-approved options.
+	const isStateText = field.key === 'state' && field.type === 'text';
+	const selectOptions = isStateText ? US_STATE_OPTIONS : (field.options ?? []);
 
-	switch (field.type) {
+	switch (isStateText ? 'select' : field.type) {
 		case 'textarea':
 			return (
 				<Textarea
@@ -149,7 +154,12 @@ function Control({
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="__empty">Select…</SelectItem>
-						{(field.options ?? []).map((o) => (
+						{isStateText &&
+							str &&
+							!selectOptions.some((o) => o.value === str) && (
+								<SelectItem value={str}>{str}</SelectItem>
+							)}
+						{selectOptions.map((o) => (
 							<SelectItem key={o.value} value={o.value}>
 								{o.label}
 							</SelectItem>

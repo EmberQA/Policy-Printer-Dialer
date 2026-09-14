@@ -145,6 +145,14 @@ const US_JURISDICTION_NAMES: Readonly<Record<string, string>> = {
 	WY: 'Wyoming'
 };
 
+/** Dropdown values match the existing text-field state autofill format. */
+export const US_STATE_OPTIONS = Object.entries(US_JURISDICTION_NAMES)
+	.map(([code, name]) => ({
+		value: `${name} (${code})`,
+		label: `${name} (${code})`
+	}))
+	.sort((a, b) => a.label.localeCompare(b.label));
+
 const AREA_CODE_TO_US_JURISDICTION = new Map<string, string>(
 	Object.entries(AREA_CODES_BY_US_JURISDICTION).flatMap(([stateCode, codes]) =>
 		codes.split(' ').map((areaCode) => [areaCode, stateCode] as const)
