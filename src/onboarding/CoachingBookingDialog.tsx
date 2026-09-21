@@ -36,11 +36,13 @@ function loadCalendly(): Promise<CalendlyApi> {
 	return widgetScript;
 }
 
-/** Mounted only while required. Completion is the only user dismissal path. */
-export function CoachingBookingDialog({userName, onBooked}: {
+/** Completion is the only dismissal path, except in the dev-only preview. */
+export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 	userName: string;
 	onBooked: () => void;
+	onPreviewClose?: () => void;
 }) {
+	const closePreview = import.meta.env.DEV ? onPreviewClose : undefined;
 	const [container, setContainer] = useState<HTMLDivElement | null>(null);
 	const [attempt, setAttempt] = useState(0);
 	const [failed, setFailed] = useState(false);
@@ -74,16 +76,21 @@ export function CoachingBookingDialog({userName, onBooked}: {
 	}, [container, attempt, userName, onBooked]);
 
 	return (
-		<DialogPrimitive.Root open>
+		<DialogPrimitive.Root open onOpenChange={(open) => { if (!open) closePreview?.(); }}>
 			<DialogPrimitive.Portal>
 				<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
 				<DialogPrimitive.Content
-					onEscapeKeyDown={(event) => event.preventDefault()}
+					onEscapeKeyDown={(event) => { if (!closePreview) event.preventDefault(); }}
 					onInteractOutside={(event) => event.preventDefault()}
 					className="fixed left-1/2 top-1/2 z-50 flex max-h-[94dvh] w-[calc(100%-1rem)] max-w-5xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-y-auto rounded-xl border bg-popover text-popover-foreground shadow-2xl sm:w-[calc(100%-3rem)] lg:flex-row"
 				>
 					<div className="shrink-0 border-b bg-muted/40 p-5 sm:p-7 lg:w-80 lg:border-r lg:border-b-0">
 						<div className="mb-4 flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><CalendarDays className="size-6" /></div>
+						{closePreview && (
+							<Button variant="outline" size="sm" className="mb-4" onClick={closePreview}>
+								Close preview
+							</Button>
+						)}
 						<p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Your next step</p>
 						<DialogPrimitive.Title className="text-2xl font-semibold tracking-tight">Let’s build your success</DialogPrimitive.Title>
 						<DialogPrimitive.Description className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground" asChild>
