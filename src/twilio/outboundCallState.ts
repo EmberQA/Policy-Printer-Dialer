@@ -13,6 +13,9 @@ export interface StartingOutboundCall {
 	startedAt: number;
 	canceling: boolean;
 	reconciling: boolean;
+	/** ENG-234: the purchased lead this start was placed for, when any. Sent
+	 *  with the start request; the backend validates and records the attempt. */
+	outboundLeadId?: string | null;
 }
 
 export interface OutboundCallParameters {
