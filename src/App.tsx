@@ -35,6 +35,7 @@ import OutboundLeads from '@/pages/OutboundLeads';
 import Agents from '@/pages/Agents';
 import {LeadNotesProvider} from '@/leads/LeadNotesContext';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
+import {CoachingBookingDialog} from '@/onboarding/CoachingBookingDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
 import {LicensedStatesDialog} from '@/licensedStates/LicensedStatesDialog';
 import {CreditNotificationDialog} from '@/components/CreditNotificationDialog';
@@ -229,6 +230,8 @@ function AuthenticatedDialerApp({
 		useState<RankPromotion | null>(null);
 	const {
 		bootstrapped,
+		bookingRequired,
+		completeBooking,
 		accessPaused,
 		device,
 		creditNotification,
@@ -240,7 +243,8 @@ function AuthenticatedDialerApp({
 	} = useDialerSession();
 	const activePromotion = previewPromotion ?? promotion;
 	const promotionBlocked = isRankPromotionBlocked(onCall, presence?.status);
-	const showPromotion = Boolean(activePromotion) && !promotionBlocked;
+	const showPromotion =
+		Boolean(activePromotion) && !promotionBlocked && !bookingRequired;
 	const canPreviewPromotion =
 		import.meta.env.DEV && Boolean(rankingProgress?.next_rank);
 
@@ -274,11 +278,14 @@ function AuthenticatedDialerApp({
 	const creditFlightIdRef = useRef(0);
 	const audioCheckOpen =
 		bootstrapped && !accessPaused && !trainingOpen && !audioCheckComplete;
+	const coachingOpen =
+		bookingRequired && !trainingOpen && !audioCheckOpen && !onCall;
 	const pendingCredit = creditNotification;
 	const creditOpen = Boolean(
 		pendingCredit &&
 		hiddenCreditId !== pendingCredit.id &&
 		!trainingOpen &&
+		!bookingRequired &&
 		!audioCheckOpen &&
 		!onCall
 	);
@@ -402,6 +409,9 @@ function AuthenticatedDialerApp({
 				<InboundCallAutoNav />
 				<DialerPageRoutes />
 			</main>
+			{coachingOpen && (
+				<CoachingBookingDialog userName={userName} onBooked={completeBooking} />
+			)}
 			<TrainingVideoDialog
 				open={trainingOpen}
 				onOpenChange={setTrainingOpen}
