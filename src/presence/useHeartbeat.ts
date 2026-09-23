@@ -60,6 +60,8 @@ export interface HeartbeatState {
 	 * ⚠️ Transport selection only. Never rendered — see PresenceResponse.
 	 */
 	voiceProvider: VoiceProvider | null;
+	/** A supervisor is whispering to this agent (from the last beat). Null otherwise. */
+	whisper: {supervisorName: string} | null;
 }
 
 export interface UseHeartbeatOptions {
@@ -77,7 +79,8 @@ export function useHeartbeat({
 		available: null,
 		presence: null,
 		connected: false,
-		voiceProvider: null
+		voiceProvider: null,
+		whisper: null
 	});
 
 	// Session id is stable for the life of this hook instance (this tab).
@@ -127,7 +130,11 @@ export function useHeartbeat({
 					// older backend, or a beat the agent row could not be read for. Falling
 					// to null would read as "the carrier changed" downstream and rebuild
 					// the transport for no reason.
-					voiceProvider: res.voice_provider ?? prev.voiceProvider
+					voiceProvider: res.voice_provider ?? prev.voiceProvider,
+					whisper:
+						res.supervision?.role === 'whisper'
+							? {supervisorName: res.supervision.supervisor_name}
+							: null
 				}));
 			} catch {
 				if (cancelled) return;

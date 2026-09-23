@@ -31,12 +31,17 @@ export function ActiveCallBanner({
 	campaignName,
 	onMute,
 	onHold,
+	participantPhase,
+	whisperNotice,
 	onHangup
 }: {
 	call: ActiveCall;
 	campaignName: string | null;
 	onMute: (muted: boolean) => void;
 	onHold: (held: boolean) => Promise<void>;
+	participantPhase?: string;
+	/** A supervisor is whispering (only the agent hears them). Monitor shows nothing. */
+	whisperNotice?: {supervisorName: string} | null;
 	onHangup: () => void;
 }) {
 	const elapsed = useElapsedSeconds(call.startedAt);
@@ -59,7 +64,7 @@ export function ActiveCallBanner({
 				<div className="min-w-0">
 					<div className="flex flex-wrap items-center gap-2">
 						<Badge className="bg-success text-success-foreground">
-							{isOutbound ? 'Outbound call' : 'Active call'}
+							{participantPhase === 'merged' ? 'Three-way call' : participantPhase ? 'Original caller · on hold' : isOutbound ? 'Outbound call' : 'Active call'}
 						</Badge>
 						{!isOutbound && (
 							<Badge
@@ -78,6 +83,11 @@ export function ActiveCallBanner({
 						</span>
 					</div>
 					<div className="mt-1 truncate font-mono text-sm">{call.from}</div>
+					{whisperNotice && (
+						<div role="status" aria-live="polite" className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+							{whisperNotice.supervisorName} is speaking to you (the caller cannot hear them)
+						</div>
+					)}
 				</div>
 			</div>
 
@@ -154,7 +164,7 @@ export function ActiveCallBanner({
 							{call.muted ? 'Unmute' : 'Mute'}
 						</DropdownMenuItem>
 						<DropdownMenuItem
-							disabled={call.holdPending}
+							disabled={call.holdPending || !!participantPhase}
 							onSelect={() =>
 								void onHold(!call.held).catch(() => undefined)
 							}
@@ -186,7 +196,7 @@ export function ActiveCallBanner({
 						}}
 					>
 						<PhoneOff className="size-4" />
-						{showHangupTimer ? `Hang up (${hangupRemaining}s)` : 'Hang up'}
+						{showHangupTimer ? `Hang up (${hangupRemaining}s)` : participantPhase ? 'End all calls' : 'Hang up'}
 					</Button>
 					{showHangupTimer && (
 						<span

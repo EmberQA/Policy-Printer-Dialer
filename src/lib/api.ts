@@ -35,6 +35,9 @@ const API_BASE =
 	import.meta.env.VITE_API_BASE ??
 	(import.meta.env.PROD ? 'https://api.emberqa.com' : 'http://localhost:3000');
 
+/** The backend origin, for the few routes that live OUTSIDE /api/v1. */
+export const API_ORIGIN = API_BASE;
+
 export const api: AxiosInstance = axios.create({
 	baseURL: `${API_BASE}/api/v1`
 });
@@ -123,8 +126,13 @@ export interface DialerProfileResponse {
 	access_paused?: boolean;
 	provisioned?: boolean;
 	capabilities?: {
+		call_participant_version?: number;
 		outbound_lifecycle_version?: number;
+		supervision_version?: number;
 	};
+	/** Backend-decided: this caller has agents under them AND a seat that can receive
+	 *  a supervisor leg. Gates the Agents tab; per-agent buttons are gated per row. */
+	supervision?: {available: boolean};
 	agent?: {
 		id: string;
 		org_id: string;
@@ -247,6 +255,9 @@ export interface PresenceResponse {
 	statusMessage: string;
 	available?: 0 | 1;
 	presence?: DialerPresence | null;
+	/** Heartbeat only: a supervisor is WHISPERING to this agent right now (monitor is
+	 *  deliberately silent and never reported). */
+	supervision?: {role: 'whisper'; supervisor_name: string} | null;
 	/**
 	 * Which carrier the SERVER has this agent on. Only the heartbeat returns it, which
 	 * is why it is optional here — the other presence mutations share this envelope.
@@ -420,6 +431,17 @@ export interface VoiceTokenResponse {
 export const getVoiceToken = (): Promise<VoiceTokenResponse> =>
 	qsPost('/policyPrinter/dialer/voice/token');
 
+export const authorizeCallParticipant = (parentCallSid: string, attemptId: string, to: string): Promise<{
+	statusCode: string; statusMessage: string;
+	participant: {attempt_id: string; from: string; to: string};
+}> => qsPost('/policyPrinter/dialer/call/participant/start', {parent_call_sid: parentCallSid, attempt_id: attemptId, to});
+
+export const recordCallParticipant = (input: {
+	parent_call_sid: string; attempt_id: string; sequence: number;
+	status: 'dialing' | 'ringing' | 'private' | 'merged' | 'ending' | 'completed' | 'failed';
+	browser_call_id: string; telnyx_leg_id?: string; telnyx_session_id?: string;
+}): Promise<{statusCode: string; statusMessage: string}> => qsPost('/policyPrinter/dialer/call/participant/event', input);
+
 /* -------------------------------------------------------------------------- */
 /* The network wizard (ENG-159 Subplan 07)                                    */
 /*                                                                             */
@@ -565,8 +587,97 @@ const OUTBOUND_START_REQUEST_TIMEOUT_MS = 15_000;
 
 /** Signal call accept (true) / disconnect (false) → flips the on_call flag so
  *  mid-call availability is 0. Returns the recomputed availability/presence. */
-export const setOnCall = (onCall: boolean): Promise<PresenceResponse> =>
-	qsPost('/policyPrinter/dialer/presence/onCall', {on_call: onCall});
+export const setOnCall = (
+	onCall: boolean,
+	/** Carrier ids of the leg just accepted (Telnyx only). The backend matches a
+	 *  supervisor's Listen/Whisper against the session id. */
+	liveCall?: {sessionId?: string; legId?: string} | null
+): Promise<PresenceResponse> =>
+	qsPost('/policyPrinter/dialer/presence/onCall', {
+		on_call: onCall,
+		...(liveCall?.sessionId ? {telnyx_session_id: liveCall.sessionId} : {}),
+		...(liveCall?.legId ? {telnyx_leg_id: liveCall.legId} : {})
+	});
+
+/* -------------------------------------------------------------------------- */
+/* Supervision (monitor / whisper) — the Agents tab                            */
+/* -------------------------------------------------------------------------- */
+
+export type SupervisionRole = 'monitor' | 'whisper';
+export type SupervisionSessionStatus = 'reserved' | 'dialing' | 'active' | 'ended' | 'failed';
+
+export interface SupervisableAgent {
+	id: string;
+	user_id: string;
+	username: string | null;
+	first_name: string | null;
+	last_name: string | null;
+	status: PresenceStatus;
+	on_call: boolean;
+	live_state_changed_at: string;
+	last_heartbeat_at: string;
+	twilio_device_status: TwilioDeviceStatus | null;
+	armed_campaigns: string[];
+	/** A supervisor could join this agent's call right now. */
+	supervisable: boolean;
+	supervised_by: {
+		user_id: string;
+		first_name: string | null;
+		last_name: string | null;
+		role: SupervisionRole;
+	} | null;
+}
+
+export interface SupervisionSession {
+	id: string;
+	target_user_id: string;
+	target_agent_id: string;
+	supervisor_call_control_id: string | null;
+	role: SupervisionRole;
+	status: SupervisionSessionStatus;
+	started_at: string;
+	answered_at: string | null;
+	ended_at: string | null;
+}
+
+export interface SupervisableAgentsResponse {
+	statusCode: string;
+	statusMessage: string;
+	agents?: SupervisableAgent[];
+	supervisor?: {eligible: boolean; reason: string | null; message: string};
+	active_session?: SupervisionSession | null;
+}
+
+export const listSupervisableAgents = (): Promise<SupervisableAgentsResponse> =>
+	qsPost('/policyPrinter/dialer/supervision/agents/list');
+
+export const startSupervision = (input: {
+	session_id: string;
+	target_user_id: string;
+	role: SupervisionRole;
+}): Promise<{
+	statusCode: string;
+	statusMessage: string;
+	session?: SupervisionSession;
+	target?: {user_id: string; first_name: string | null; last_name: string | null};
+}> => qsPost('/policyPrinter/dialer/supervision/start', input, {timeout: 20_000});
+
+export const switchSupervisionRole = (
+	sessionId: string,
+	role: SupervisionRole
+): Promise<{statusCode: string; statusMessage: string; session?: SupervisionSession}> =>
+	qsPost('/policyPrinter/dialer/supervision/switchRole', {session_id: sessionId, role});
+
+export const stopSupervision = (
+	sessionId: string
+): Promise<{statusCode: string; statusMessage: string; session?: SupervisionSession}> =>
+	qsPost('/policyPrinter/dialer/supervision/stop', {session_id: sessionId});
+
+export const getCurrentSupervision = (): Promise<{
+	statusCode: string;
+	statusMessage: string;
+	session?: SupervisionSession | null;
+}> => qsPost('/policyPrinter/dialer/supervision/current');
 
 /* -------------------------------------------------------------------------- */
 /* Direct-SIP inbound lifecycle events (ENG-211)                              */
