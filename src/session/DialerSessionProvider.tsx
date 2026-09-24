@@ -38,10 +38,13 @@ import {useHeartbeat, type HeartbeatState} from '@/presence/useHeartbeat';
 import {useCreditNotification} from '@/presence/useCreditNotification';
 import type {CreditNotification} from '@/lib/api';
 import {readError} from '@/lib/errors';
+import {useCoachingBooking} from '@/onboarding/useCoachingBooking';
 
 export interface DialerSession {
 	// --- bootstrap / gating ---
 	profile: any;
+	bookingRequired: boolean;
+	completeBooking: () => void;
 	provisioned: boolean;
 	/** True when an admin has reversibly blocked this agent's new dialer loads. */
 	accessPaused: boolean;
@@ -112,12 +115,30 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		participantEnabled: Number(profile?.capabilities?.call_participant_version ?? 0) >= 1,
 		outboundLifecycleEnabled
 	});
+	const onCall =
+		Boolean(device.supervision) ||
+		Boolean(device.participant) ||
+		Boolean(device.activeCall) ||
+		Boolean(device.outboundStarting) ||
+		Boolean(device.pendingOutbound) ||
+		Boolean(presence?.on_call) ||
+		callUiBusy;
+	const {bookingRequired, completeBooking} = useCoachingBooking({
+		orgId: profile?.agent?.org_id ?? '',
+		userId: profile?.agent?.user_id ?? '',
+		enabled: provisioned,
+		onCall
+	});
 	const heartbeat = useHeartbeat({
 		enabled: provisioned,
 		// Keep backend-computed availability at zero until the user confirms that
-		// this tab's microphone and speaker work. The Device still registers so the
+		// this tab's microphone and speaker work, and while booking is required
+		// between calls. The Device stays registered so the
 		// setup dialog can apply real input/output selections before confirmation.
-		deviceStatus: audioCheckComplete ? device.deviceStatus : 'offline'
+		deviceStatus:
+			audioCheckComplete && (!bookingRequired || onCall)
+				? device.deviceStatus
+				: 'offline'
 	});
 	// Credit popups on their own slow poll (moved off the 5s heartbeat).
 	const {creditNotification} = useCreditNotification({enabled: provisioned});
@@ -228,15 +249,8 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		reportServerProvider(heartbeat.voiceProvider);
 	}, [heartbeat.voiceProvider, reportServerProvider]);
 
-	const onCall =
-		Boolean(device.supervision) ||
-		Boolean(device.participant) ||
-		Boolean(device.activeCall) ||
-		Boolean(device.outboundStarting) ||
-		Boolean(device.pendingOutbound) ||
-		Boolean(presence?.on_call) ||
-		callUiBusy;
 	const canDialBase =
+		!bookingRequired &&
 		audioCheckComplete &&
 		provisioned &&
 		outboundLifecycleEnabled &&
@@ -251,6 +265,8 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 	const value = useMemo<DialerSession>(
 		() => ({
 			profile,
+			bookingRequired,
+			completeBooking,
 			provisioned,
 			accessPaused,
 			bootstrapped: profile !== null,
@@ -272,6 +288,8 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		}),
 		[
 			profile,
+			bookingRequired,
+			completeBooking,
 			provisioned,
 			accessPaused,
 			bootError,

@@ -9,6 +9,7 @@ import {
 	useNavigate
 } from 'react-router-dom';
 import {
+	CalendarDays,
 	Check,
 	Copy,
 	HelpCircle,
@@ -35,6 +36,7 @@ import OutboundLeads from '@/pages/OutboundLeads';
 import Agents from '@/pages/Agents';
 import {LeadNotesProvider} from '@/leads/LeadNotesContext';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
+import {CoachingBookingDialog} from '@/onboarding/CoachingBookingDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
 import {LicensedStatesDialog} from '@/licensedStates/LicensedStatesDialog';
 import {CreditNotificationDialog} from '@/components/CreditNotificationDialog';
@@ -229,6 +231,8 @@ function AuthenticatedDialerApp({
 		useState<RankPromotion | null>(null);
 	const {
 		bootstrapped,
+		bookingRequired,
+		completeBooking,
 		accessPaused,
 		device,
 		creditNotification,
@@ -238,9 +242,13 @@ function AuthenticatedDialerApp({
 		completeAudioCheck,
 		supervisionAvailable
 	} = useDialerSession();
+	const [previewBooking, setPreviewBooking] = useState(false);
+	const previewBookingOpen = import.meta.env.DEV && previewBooking && !bookingRequired;
+	const closeBookingPreview = useCallback(() => setPreviewBooking(false), []);
 	const activePromotion = previewPromotion ?? promotion;
 	const promotionBlocked = isRankPromotionBlocked(onCall, presence?.status);
-	const showPromotion = Boolean(activePromotion) && !promotionBlocked;
+	const showPromotion =
+		Boolean(activePromotion) && !promotionBlocked && !bookingRequired && !previewBookingOpen;
 	const canPreviewPromotion =
 		import.meta.env.DEV && Boolean(rankingProgress?.next_rank);
 
@@ -262,8 +270,12 @@ function AuthenticatedDialerApp({
 	}, [branding]);
 
 	useEffect(() => {
-		if (promotionBlocked) setPreviewPromotion(null);
-	}, [promotionBlocked]);
+		if (promotionBlocked) {
+			setPreviewPromotion(null);
+			setPreviewBooking(false);
+		}
+		if (bookingRequired) setPreviewBooking(false);
+	}, [promotionBlocked, bookingRequired]);
 	const trainingStorageKey = `${TRAINING_HIDDEN_KEY_PREFIX}${userId}`;
 	const [dontShowTraining, setDontShowTraining] = useState(() =>
 		readTrainingPreference(trainingStorageKey)
@@ -274,11 +286,15 @@ function AuthenticatedDialerApp({
 	const creditFlightIdRef = useRef(0);
 	const audioCheckOpen =
 		bootstrapped && !accessPaused && !trainingOpen && !audioCheckComplete;
+	const coachingOpen =
+		(bookingRequired || previewBookingOpen) && !trainingOpen && !audioCheckOpen && !onCall;
 	const pendingCredit = creditNotification;
 	const creditOpen = Boolean(
 		pendingCredit &&
 		hiddenCreditId !== pendingCredit.id &&
 		!trainingOpen &&
+		!bookingRequired &&
+		!previewBookingOpen &&
 		!audioCheckOpen &&
 		!onCall
 	);
@@ -345,7 +361,7 @@ function AuthenticatedDialerApp({
 					onDismiss={dismissActivePromotion}
 				/>
 			)}
-			{canPreviewPromotion && !activePromotion && (
+			{canPreviewPromotion && !activePromotion && !coachingOpen && (
 				<button
 					type="button"
 					onClick={previewNextRank}
@@ -360,6 +376,19 @@ function AuthenticatedDialerApp({
 				>
 					<Sparkles className="size-4 text-cyan-300" />
 					Preview rank up
+				</button>
+			)}
+			{import.meta.env.DEV && !activePromotion && !coachingOpen && (
+				<button
+					type="button"
+					onClick={() => setPreviewBooking(true)}
+					disabled={promotionBlocked || trainingOpen || audioCheckOpen || bookingRequired}
+					title="Preview the client success booking popup (pause calls first)"
+					data-testid="preview-booking-popup"
+					className="fixed bottom-16 left-4 z-50 flex items-center gap-2 rounded-full border border-cyan-300/80 bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xl shadow-cyan-500/20 outline-none hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-500 disabled:bg-slate-800 disabled:text-slate-400 disabled:opacity-70 disabled:shadow-none"
+				>
+					<CalendarDays className="size-4 text-cyan-300" />
+					View book help popup
 				</button>
 			)}
 			<header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
@@ -402,6 +431,13 @@ function AuthenticatedDialerApp({
 				<InboundCallAutoNav />
 				<DialerPageRoutes />
 			</main>
+			{coachingOpen && (
+				<CoachingBookingDialog
+					userName={userName}
+					onBooked={previewBookingOpen ? closeBookingPreview : completeBooking}
+					onPreviewClose={previewBookingOpen ? closeBookingPreview : undefined}
+				/>
+			)}
 			<TrainingVideoDialog
 				open={trainingOpen}
 				onOpenChange={setTrainingOpen}

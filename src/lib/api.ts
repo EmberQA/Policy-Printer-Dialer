@@ -1364,3 +1364,14 @@ export const acknowledgePurchasedLeads = (
 		'/policyPrinter/outboundLeads/acknowledge',
 		leadIds ? {lead_ids: leadIds} : {}
 	);
+
+export interface CoachingStatus {
+	purchased_at: string | null;
+	/** Answered inbound calls since activation, capped at the threshold of 15. */
+	answered_calls: number;
+	server_time: string;
+}
+export const fetchCoachingStatus = (): Promise<{
+	statusCode: string;
+	coaching?: CoachingStatus | null;
+}> => qsPost('/policyPrinter/dialer/coaching/status');
