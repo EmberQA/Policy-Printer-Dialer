@@ -46,8 +46,8 @@ describe('lead order form defaults', () => {
 			max_cap: 20,
 			states: ['us-tx'],
 			coverage_types: ['final_expense', 'term_life'],
-			min_age: null,
-			max_age: null
+			min_age: 30,
+			max_age: 85
 		});
 		expect(input.timezone.length).toBeGreaterThan(0);
 	});

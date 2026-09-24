@@ -53,7 +53,7 @@ export const listTimeZones = (): string[] => {
 };
 
 /** A fresh order: 9–5 in the browser's zone, 5/day, 20 total, the agent's
- *  licensed states, both coverage types, no age filter. */
+ *  licensed states, both coverage types, ages 30–85. */
 export const buildDefaultLeadOrderInput = (
 	summary: Pick<LeadOrderSummary, 'licensed_states'>
 ): LeadOrderInput => ({
@@ -64,8 +64,8 @@ export const buildDefaultLeadOrderInput = (
 	max_cap: 20,
 	states: [...summary.licensed_states],
 	coverage_types: ['final_expense', 'term_life'],
-	min_age: null,
-	max_age: null
+	min_age: 30,
+	max_age: 85
 });
 
 /** pg returns 'HH:MM:SS'; <input type="time"> wants 'HH:MM'. */
