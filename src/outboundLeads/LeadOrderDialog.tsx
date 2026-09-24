@@ -10,7 +10,7 @@
  * was placed at (`order.unit_price_cents`) no matter what is edited here.
  */
 
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {Loader2, X} from 'lucide-react';
 import {Dialog as DialogPrimitive} from 'radix-ui';
 import {Button} from '@/components/ui/button';
@@ -25,6 +25,7 @@ import {
 	type LeadPurchaseOrder
 } from '@/lib/api';
 import {readError} from '@/lib/errors';
+import {LeadPurchasePolicyDialog} from './LeadPurchasePolicyDialog';
 import {
 	LEAD_COVERAGE_OPTIONS,
 	MAX_DAILY_CAP,
@@ -68,6 +69,8 @@ export function LeadOrderDialog({
 	const [form, setForm] = useState<LeadOrderInput>(initial);
 	const [showTzPicker, setShowTzPicker] = useState(false);
 	const [saving, setSaving] = useState(false);
+	const [showPolicy, setShowPolicy] = useState(false);
+	const placeOrderRef = useRef<HTMLButtonElement>(null);
 	const [error, setError] = useState<string | null>(null);
 
 	// Re-seed on every open so a cancelled edit never leaks into the next one.
@@ -75,6 +78,7 @@ export function LeadOrderDialog({
 		if (open) {
 			setForm(initial);
 			setShowTzPicker(false);
+			setShowPolicy(false);
 			setError(null);
 		}
 	}, [open, initial]);
@@ -132,6 +136,7 @@ export function LeadOrderDialog({
 			: null;
 
 	const save = async () => {
+		if (saving || (mode === 'create' && (!showPolicy || !summary.can_create_order))) return;
 		const problem = validateLeadOrderInputClient(form);
 		if (problem) {
 			setError(problem);
@@ -159,7 +164,7 @@ export function LeadOrderDialog({
 	return (
 		<DialogPrimitive.Root
 			open={open}
-			onOpenChange={(next) => !next && onClose()}
+			onOpenChange={(next) => !next && !saving && onClose()}
 		>
 			<DialogPrimitive.Portal>
 				<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
@@ -533,12 +538,19 @@ export function LeadOrderDialog({
 								<Button
 									type="button"
 									variant="success"
+									ref={placeOrderRef}
 									disabled={
 										saving ||
 										clientError !== null ||
 										(mode === 'create' && !summary.can_create_order)
 									}
-									onClick={save}
+									onClick={() => {
+										if (mode === 'edit') void save();
+										else {
+											setError(null);
+											setShowPolicy(true);
+										}
+									}}
 								>
 									{saving && <Loader2 className="size-4 animate-spin" />}
 									{saving
@@ -550,6 +562,16 @@ export function LeadOrderDialog({
 							</div>
 						</div>
 					</div>
+					{showPolicy && (
+						<LeadPurchasePolicyDialog
+							open={open}
+							saving={saving}
+							error={error}
+							onBack={() => {setShowPolicy(false); setError(null);}}
+							onConfirm={() => void save()}
+							onReturnFocus={() => placeOrderRef.current?.focus()}
+						/>
+					)}
 				</DialogPrimitive.Content>
 			</DialogPrimitive.Portal>
 		</DialogPrimitive.Root>
