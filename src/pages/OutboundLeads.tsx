@@ -7,11 +7,16 @@
  * acknowledged after loading;
  * the table keeps its own fetch keyed by `refreshKey`.
  *
+ * ENG-248: a won lead is texted to the agent, so a VERIFIED mobile number is
+ * required before a NEW order can be placed. The gate is enforced by the backend
+ * (`order/create`); here "New order" opens the number dialog instead when there
+ * is none, and a "Lead alerts" line shows the number with Edit / Enter code.
+ *
  * Distinct from /leads, which is the Activity tab over inbound CRM records.
  */
 
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import {Loader2, Plus, RefreshCw} from 'lucide-react';
+import {Loader2, MessageSquareText, Plus, RefreshCw} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {
@@ -27,12 +32,14 @@ import {cn} from '@/lib/utils';
 import {LeadOrderCard} from '@/outboundLeads/LeadOrderCard';
 import {LeadOrderDialog} from '@/outboundLeads/LeadOrderDialog';
 import {PurchasedLeadsTable} from '@/outboundLeads/PurchasedLeadsTable';
+import {SmsContactDialog} from '@/outboundLeads/SmsContactDialog';
 import {subscribeLeadUpdates} from '@/outboundLeads/useNewLeadPoll';
 import {
 	buildDefaultLeadOrderInput,
 	formatDollars,
 	orderToInput
 } from '@/outboundLeads/leadOrderForm';
+import {describeSmsContact, formatSmsPhone} from '@/outboundLeads/smsContact';
 
 type DialogState =
 	| {open: false}
@@ -54,6 +61,7 @@ export default function OutboundLeads() {
 	const [actionError, setActionError] = useState<string | null>(null);
 	/** Bumped by Refresh so the leads table refetches with the orders. */
 	const [refreshKey, setRefreshKey] = useState(0);
+	const [smsDialogOpen, setSmsDialogOpen] = useState(false);
 
 	const load = useCallback(async () => {
 		setRefreshKey((k) => k + 1);
@@ -71,7 +79,8 @@ export default function OutboundLeads() {
 				wallet_enabled: res.wallet_enabled ?? false,
 				can_create_order: res.can_create_order ?? false,
 				licensed_states: res.licensed_states ?? [],
-				jurisdictions: res.jurisdictions ?? []
+				jurisdictions: res.jurisdictions ?? [],
+				sms_contact: res.sms_contact ?? null
 			});
 		} catch (err) {
 			setError(readError(err, 'Could not load your lead orders'));
@@ -86,8 +95,16 @@ export default function OutboundLeads() {
 
 	useEffect(() => subscribeLeadUpdates(() => void load()), [load]);
 
+	const smsState = describeSmsContact(summary?.sms_contact);
+
 	const openCreate = () => {
 		if (!summary) return;
+		// No verified number ⇒ the backend would refuse the order anyway; ask for
+		// the number first and let the agent come back to New order.
+		if (smsState !== 'verified') {
+			setSmsDialogOpen(true);
+			return;
+		}
 		setDialog({
 			open: true,
 			mode: 'create',
@@ -175,6 +192,44 @@ export default function OutboundLeads() {
 				</p>
 			)}
 
+			{summary && smsState !== 'verified' && (
+				<div className="flex flex-col gap-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between dark:border-amber-400/40 dark:bg-amber-950/40 dark:text-amber-200">
+					<span>
+						{smsState === 'none'
+							? "Add a mobile number so we can text you each lead you win. It's required before placing an order."
+							: `Enter the code we texted ${formatSmsPhone(summary.sms_contact!.phone_number)} to finish setting up lead alerts. New orders wait until it's verified.`}
+					</span>
+					<Button
+						variant="outline"
+						size="sm"
+						className="shrink-0"
+						onClick={() => setSmsDialogOpen(true)}
+					>
+						<MessageSquareText className="size-4" />
+						{smsState === 'none' ? 'Add number' : 'Enter code'}
+					</Button>
+				</div>
+			)}
+
+			{summary && smsState === 'verified' && (
+				<p className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+					<MessageSquareText className="size-4" />
+					<span>
+						Lead alerts go to{' '}
+						<span className="font-medium text-foreground">
+							{formatSmsPhone(summary.sms_contact!.phone_number)}
+						</span>
+					</span>
+					<button
+						type="button"
+						className="underline-offset-2 hover:underline"
+						onClick={() => setSmsDialogOpen(true)}
+					>
+						Edit
+					</button>
+				</p>
+			)}
+
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			{actionError && <p className="text-sm text-destructive">{actionError}</p>}
 
@@ -222,6 +277,18 @@ export default function OutboundLeads() {
 				refreshKey={refreshKey}
 				jurisdictions={summary?.jurisdictions ?? []}
 			/>
+
+			{summary && (
+				<SmsContactDialog
+					open={smsDialogOpen}
+					contact={summary.sms_contact}
+					onClose={() => setSmsDialogOpen(false)}
+					onVerified={() => {
+						setSmsDialogOpen(false);
+						void load();
+					}}
+				/>
+			)}
 
 			{summary && dialog.open && dialogInitial && (
 				<LeadOrderDialog

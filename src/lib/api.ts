@@ -1026,10 +1026,43 @@ export interface LeadOrderSummary {
 	new_order_price_cents: number | null;
 	balance_cents: number;
 	wallet_enabled: boolean;
+	/** Pricing is configured. Independent of the SMS gate — see `sms_contact`. */
 	can_create_order: boolean;
 	licensed_states: string[];
 	jurisdictions: LicensedJurisdiction[];
+	/** The agent's lead-alert number, or null when none is on file (ENG-248). */
+	sms_contact: SmsContactSummary | null;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Outbound leads — lead-alert SMS contact (ENG-248)                           */
+/* -------------------------------------------------------------------------- */
+
+/** The number on file. Never carries the code. `verified` false = a code has been
+ *  texted (or an edit is pending) and must be entered before new orders. */
+export interface SmsContactSummary {
+	phone_number: string;
+	verified: boolean;
+	code_expires_at: string | null;
+}
+
+export interface SmsContactResponse {
+	statusCode: string;
+	statusMessage: string;
+	sms_contact?: SmsContactSummary | null;
+}
+
+/** Put a number on file and text it a code. Also "edit" (a new number clears
+ *  verification) and "resend" (same number, after a short cooldown). */
+export const startSmsVerification = (
+	phoneNumber: string
+): Promise<SmsContactResponse> =>
+	qsPost('/policyPrinter/outboundLeads/smsContact/start', {
+		phone_number: phoneNumber
+	});
+
+export const verifySmsCode = (code: string): Promise<SmsContactResponse> =>
+	qsPost('/policyPrinter/outboundLeads/smsContact/verify', {code});
 
 export type LeadOrderResponse = {
 	statusCode: string;
