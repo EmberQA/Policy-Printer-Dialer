@@ -183,7 +183,7 @@ export default function Agents() {
 	const canAct = device.canSupervise && !supervisorNotice && !pendingUserId;
 
 	return (
-		<div className="mx-auto w-full max-w-6xl space-y-4 p-4">
+		<div className="mx-auto w-full max-w-[1536px] space-y-4 p-4">
 			{supervision && (
 				<Card className="border-success/40">
 					<CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
@@ -289,7 +289,7 @@ export default function Agents() {
 									<TableHead>Time in status</TableHead>
 									<TableHead>Campaigns ready</TableHead>
 									<TableHead>Device</TableHead>
-									<TableHead className="text-right">Supervise</TableHead>
+									<TableHead className="sticky right-0 z-10 w-52 bg-card text-right">Supervise</TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -306,7 +306,7 @@ export default function Agents() {
 												: supervisorNotice ?? (device.canSupervise ? undefined : 'Your softphone is busy');
 									return (
 										<TableRow key={agent.id}>
-											<TableCell>
+											<TableCell className="min-w-40 max-w-64 whitespace-normal [overflow-wrap:anywhere]">
 												<div className="font-medium">{agentName(agent)}</div>
 												{agent.username && (
 													<div className="text-xs text-muted-foreground">{agent.username}</div>
@@ -337,11 +337,11 @@ export default function Agents() {
 											<TableCell className="font-mono text-sm tabular-nums">
 												{formatDuration(agent.live_state_changed_at, now)}
 											</TableCell>
-											<TableCell className="text-sm">
+											<TableCell className="min-w-40 max-w-80 whitespace-normal text-sm [overflow-wrap:anywhere]">
 												{agent.armed_campaigns.length ? agent.armed_campaigns.join(', ') : '—'}
 											</TableCell>
 											<TableCell className="text-sm">{deviceLabel(agent.twilio_device_status)}</TableCell>
-											<TableCell className="text-right">
+											<TableCell className="sticky right-0 z-10 w-52 bg-card text-right">
 												<div className="flex justify-end gap-2">
 													<Button
 														size="sm"
