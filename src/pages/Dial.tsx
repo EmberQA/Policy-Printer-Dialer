@@ -46,6 +46,7 @@ import {Input} from '@/components/ui/input';
 import {useDialerSession} from '@/session/DialerSessionProvider';
 import {type ActiveCall} from '@/twilio/useDevice';
 import {ActiveCallBanner} from '@/twilio/ActiveCallBanner';
+import {CallParticipantBanner} from '@/twilio/CallParticipantBanner';
 import {OutboundCallBanner} from '@/twilio/OutboundCallBanner';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {MicLevelMeter, useMicLevelMeter} from '@/twilio/MicLevelMeter';
@@ -375,6 +376,7 @@ export default function Dial() {
 	}, [activeCall, wrapUpCall]);
 
 	const releaseCallWrapUp = async () => {
+		if (device.participant) return;
 		if (!wrapUpCall) return;
 		setWrapUpReleasePending(true);
 		setError(null);
@@ -423,12 +425,13 @@ export default function Dial() {
 	const canDial =
 		provisioned &&
 		device.deviceStatus === 'registered' &&
-		!onCall &&
+		(!onCall || device.canAddParticipant) &&
+		!device.participant &&
 		normalizeDialInput(dialInput) !== null;
 
 	const onDialOut = async () => {
 		const to = normalizeDialInput(dialInput);
-		if (!to || device.outboundStarting) return;
+		if (!to || !canDial || device.outboundStarting) return;
 		setError(null);
 		try {
 			await device.startOutbound(to);
@@ -450,7 +453,7 @@ export default function Dial() {
 		}
 
 		void releaseCallWrapUp().catch(() => undefined);
-	}, [activeCall, completedWrapUpCallKey, wrapUpCall, wrapUpReleasePending]);
+	}, [activeCall, completedWrapUpCallKey, wrapUpCall, wrapUpReleasePending, device.participant]);
 
 	return (
 		<div className="w-full">
@@ -537,6 +540,8 @@ export default function Dial() {
 							{activeCall ? (
 								<ActiveCallBanner
 									call={activeCall}
+									participantPhase={device.participant?.phase}
+									whisperNotice={session.whisperNotice}
 									campaignName={
 										activeCall.campaignId
 											? campaigns.find(
@@ -577,6 +582,9 @@ export default function Dial() {
 							) : (
 								<IdleCallPanel available={displayAvailable} />
 							)}
+
+							{device.participant && <CallParticipantBanner participant={device.participant} onMerge={device.mergeParticipant} onEnd={device.endParticipant} />}
+							{device.participantNotice && !device.participant && <p role="status" className="text-sm text-muted-foreground">{device.participantNotice}</p>}
 
 							{/* Lead capture — held open after hangup until the call is dispositioned.
                   Inbound always creates a new lead; outbound may update prior history. */}
@@ -651,7 +659,8 @@ export default function Dial() {
 					onDialInputChange={setDialInput}
 					onDialOut={onDialOut}
 					canDial={canDial}
-					dialPending={Boolean(device.outboundStarting)}
+					dialPending={Boolean(device.outboundStarting) || ['preparing', 'dialing', 'ringing'].includes(device.participant?.phase ?? '')}
+					addingToCall={Boolean(device.activeCall)}
 					hotStates={hotStates}
 					hotStatesWindowHours={hotStatesWindowHours}
 				/>
@@ -761,6 +770,7 @@ function DialSidebar({
 	onDialInputChange,
 	onDialOut,
 	canDial,
+	addingToCall,
 	dialPending,
 	hotStates,
 	hotStatesWindowHours
@@ -792,6 +802,7 @@ function DialSidebar({
 	onDialOut: () => void;
 	canDial: boolean;
 	dialPending: boolean;
+	addingToCall: boolean;
 	hotStates: HotStateCount[];
 	hotStatesWindowHours: number | null;
 }) {
@@ -887,6 +898,7 @@ function DialSidebar({
 					onDial={onDialOut}
 					canDial={canDial}
 					pending={dialPending}
+					addingToCall={addingToCall}
 					deviceRegistered={deviceStatus === 'registered'}
 				/>
 			)}
@@ -1142,6 +1154,7 @@ function Dialpad({
 	onDial,
 	canDial,
 	pending,
+	addingToCall,
 	deviceRegistered
 }: {
 	value: string;
@@ -1149,6 +1162,7 @@ function Dialpad({
 	onDial: () => void;
 	canDial: boolean;
 	pending: boolean;
+	addingToCall: boolean;
 	deviceRegistered: boolean;
 }) {
 	const [open, setOpen] = useState(false);
@@ -1224,9 +1238,10 @@ function Dialpad({
 						) : (
 							<PhoneCall className="size-4" />
 						)}
-						{pending ? 'Calling…' : 'Call'}
+						{pending ? 'Calling…' : addingToCall ? 'Hold & call' : 'Call'}
 					</Button>
 
+					{addingToCall && <p className="text-center text-xs text-muted-foreground">Call another person privately, then merge when you're ready. Your current caller will hear hold music.</p>}
 					{!deviceRegistered ? (
 						<p className="text-center text-xs text-muted-foreground">
 							Softphone connecting… you can place a call once it's ready.

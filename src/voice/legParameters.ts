@@ -38,7 +38,13 @@ const HEADER_TO_PARAM: Record<string, string> = {
 	// directly (ENG-213). Attribution only — never authorization: a missing UUID
 	// still answers. ⚠️ 'x-ph-retreaverkey' is deliberately NOT mapped: it is
 	// Retreaver's API key and must never be surfaced, logged, or persisted.
-	'x-ph-retreaveruuid': 'retreaver_uuid'
+	'x-ph-retreaveruuid': 'retreaver_uuid',
+	// Supervision (monitor / whisper): the backend dials the supervisor's own browser
+	// with these on the INVITE. `TelnyxSupervision` claims a leg ONLY on an exact
+	// session-id match; a leg carrying a different session id is refused. Keep in
+	// lockstep with `dialSupervisorLeg` in the backend's `dialer/telnyx.ts`.
+	'x-supervision-session': 'supervision_session',
+	'x-supervision-role': 'supervision_role'
 };
 
 /** The keys any transport may produce. Twilio's <Parameter> names are already these. */

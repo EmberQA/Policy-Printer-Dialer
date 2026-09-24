@@ -32,6 +32,7 @@ import Dial from '@/pages/Dial';
 import Crm from '@/pages/Crm';
 import Leads from '@/pages/Leads';
 import OutboundLeads from '@/pages/OutboundLeads';
+import Agents from '@/pages/Agents';
 import {LeadNotesProvider} from '@/leads/LeadNotesContext';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
@@ -234,7 +235,8 @@ function AuthenticatedDialerApp({
 		onCall,
 		presence,
 		audioCheckComplete,
-		completeAudioCheck
+		completeAudioCheck,
+		supervisionAvailable
 	} = useDialerSession();
 	const activePromotion = previewPromotion ?? promotion;
 	const promotionBlocked = isRankPromotionBlocked(onCall, presence?.status);
@@ -386,6 +388,7 @@ function AuthenticatedDialerApp({
 							<NavTab to="/callbacks" label="Callbacks" />
 							<NavTab to="/leads" label="Activity" />
 							<NavTab to="/outbound-leads" label="Leads" />
+							{supervisionAvailable && <NavTab to="/agents" label="Agents" />}
 						</nav>
 					</div>
 					<HeaderUserBlock
@@ -475,7 +478,7 @@ function readTrainingPreference(storageKey: string): boolean {
  * the inactive route unmounts normally and returns to the usual fresh-load flow.
  */
 function DialerPageRoutes() {
-	const {onCall} = useDialerSession();
+	const {onCall, supervisionAvailable} = useDialerSession();
 	const location = useLocation();
 	// Use the router's matcher so URL variants it accepts (notably `/dial/`)
 	// mount the Calls UI too. NavLink already treated those variants as active,
@@ -494,6 +497,7 @@ function DialerPageRoutes() {
 				/>
 				<Route path="/leads" element={<Leads />} />
 				<Route path="/outbound-leads" element={<OutboundLeads />} />
+				{supervisionAvailable && <Route path="/agents" element={<Agents />} />}
 				<Route path="*" element={<Navigate to="/dial" replace />} />
 			</Routes>
 			{keepDialMounted && (

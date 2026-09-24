@@ -33,6 +33,48 @@ export type TransportStatus = 'registered' | 'connecting' | 'offline' | 'error';
 
 export type LegEvent = 'accept' | 'disconnect' | 'cancel' | 'reject' | 'error';
 
+export type ParticipantPhase = 'preparing' | 'dialing' | 'ringing' | 'private' | 'merging' | 'merged' | 'ending' | 'completed' | 'failed';
+export interface CallParticipantState {
+	attemptId: string;
+	to: string;
+	phase: ParticipantPhase;
+	message?: string;
+	connectedAt?: number;
+	legId?: string;
+	sessionId?: string;
+}
+export interface StartParticipant {
+	attemptId: string;
+	to: string;
+	authorize: () => Promise<{from: string; to: string}>;
+}
+
+/* ── Supervision (monitor / whisper) ──────────────────────────────────────────
+   The SUPERVISOR's browser receives a carrier-dialed leg that is bridged into
+   another agent's live call. It is never a customer call: it must not set
+   `activeCall`, post inbound lifecycle events, or play the answer tone. */
+export type SupervisionRole = 'monitor' | 'whisper';
+export type SupervisionPhase = 'expecting' | 'ringing' | 'active' | 'ending' | 'ended' | 'failed';
+export interface SupervisionState {
+	/** Client-generated before the backend dials; the exact-match key for the INVITE. */
+	sessionId: string;
+	role: SupervisionRole;
+	phase: SupervisionPhase;
+	message?: string;
+	connectedAt?: number;
+	/** Carrier ids of the leg that actually arrived (Stage 2 evidence + reconciliation). */
+	supervisorLeg?: {callControlId?: string; legId?: string; sessionId?: string};
+	/** Whether the claimed INVITE carried the X-Supervision-* headers. */
+	headersSeen: boolean;
+	/** Display name of the agent being supervised, for the banner. */
+	targetName?: string;
+}
+export interface ExpectSupervision {
+	sessionId: string;
+	role: SupervisionRole;
+	targetName?: string;
+}
+
 /**
  * One inbound leg at the browser. EVERY call the dialer handles arrives this way,
  * including outbound: the backend REST-originates the customer leg and bridges it back
@@ -70,6 +112,13 @@ export interface IncomingLeg {
 	on(event: LegEvent, cb: (payload?: unknown) => void): void;
 	/** Live round-trip time in ms, or null when unavailable. */
 	onRtt(cb: (ms: number | null) => void): void;
+	/**
+	 * Carrier-side ids of this leg, read at call time (they can populate after the
+	 * INVITE). Telnyx only; Twilio legs omit it. The SESSION id is what the backend
+	 * joins a supervisor's Listen/Whisper against — the browser leg never learns its
+	 * own control id (Stage 2 of plans/dialer_supervision).
+	 */
+	carrierIds?(): {sessionId?: string; legId?: string};
 }
 
 export interface VoiceTransportOptions {
@@ -122,6 +171,23 @@ export interface VoiceTransport {
 	 */
 	startHold(): Promise<void>;
 	stopHold(): Promise<void>;
+	/** Optional: a separate private SDK call, mixed locally only after Merge. */
+	startParticipant?(request: StartParticipant): Promise<void>;
+	mergeParticipant?(): Promise<void>;
+	endParticipant?(): Promise<void>;
+	onParticipantChange?(cb: (state: CallParticipantState) => void): void;
+	/**
+	 * Optional: supervision of another agent's call. `expectSupervision` MUST be called
+	 * before the backend is asked to dial, so the INVITE can never arrive unexpected.
+	 * `bindSupervisorLeg` hands over the carrier id the Dial response returned, for the
+	 * exact-match fallback when the INVITE carries no supervision headers.
+	 */
+	expectSupervision?(request: ExpectSupervision): void;
+	bindSupervisorLeg?(callControlId: string): void;
+	cancelSupervision?(): void;
+	setSupervisionRole?(role: SupervisionRole): void;
+	endSupervision?(): Promise<void>;
+	onSupervisionChange?(cb: (state: SupervisionState) => void): void;
 }
 
 /** Narrow Twilio's `Call.customParameters` without importing the SDK here. */

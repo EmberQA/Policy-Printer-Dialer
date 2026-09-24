@@ -79,6 +79,13 @@ export interface DialerSession {
 	 *  device registered && not on a call. Callers add normalizeDialInput + their own
 	 *  in-flight guard. */
 	canDialBase: boolean;
+
+	// --- supervision (monitor / whisper) ---
+	/** Backend-decided: this person has agents under them and a seat that can receive
+	 *  a supervisor leg. Shows the Agents tab. */
+	supervisionAvailable: boolean;
+	/** A supervisor is whispering to THIS agent right now (from the heartbeat). */
+	whisperNotice: {supervisorName: string} | null;
 }
 
 const DialerSessionContext = createContext<DialerSession | null>(null);
@@ -102,6 +109,7 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 	// provisioning (profile loads async → both start disabled, enable once known).
 	const device = useDevice({
 		enabled: provisioned,
+		participantEnabled: Number(profile?.capabilities?.call_participant_version ?? 0) >= 1,
 		outboundLifecycleEnabled
 	});
 	const heartbeat = useHeartbeat({
@@ -221,6 +229,8 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 	}, [heartbeat.voiceProvider, reportServerProvider]);
 
 	const onCall =
+		Boolean(device.supervision) ||
+		Boolean(device.participant) ||
 		Boolean(device.activeCall) ||
 		Boolean(device.outboundStarting) ||
 		Boolean(device.pendingOutbound) ||
@@ -232,6 +242,11 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		outboundLifecycleEnabled &&
 		device.deviceStatus === 'registered' &&
 		!onCall;
+	const supervisionAvailable =
+		provisioned &&
+		Number(profile?.capabilities?.supervision_version ?? 0) >= 1 &&
+		profile?.supervision?.available === true;
+	const whisperNotice = heartbeat.whisper;
 
 	const value = useMemo<DialerSession>(
 		() => ({
@@ -251,7 +266,9 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 			completeAudioCheck: () => setAudioCheckComplete(true),
 			onCall,
 			setCallUiBusy,
-			canDialBase
+			canDialBase,
+			supervisionAvailable,
+			whisperNotice
 		}),
 		[
 			profile,
@@ -265,7 +282,9 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 			creditNotification,
 			audioCheckComplete,
 			onCall,
-			canDialBase
+			canDialBase,
+			supervisionAvailable,
+			whisperNotice
 		]
 	);
 

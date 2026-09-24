@@ -25,8 +25,14 @@
 
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {
+	authorizeCallParticipant,
+	recordCallParticipant,
 	cancelOutboundCall,
 	getCurrentOutboundCall,
+	getCurrentSupervision,
+	startSupervision as startSupervisionApi,
+	stopSupervision as stopSupervisionApi,
+	switchSupervisionRole as switchSupervisionRoleApi,
 	getVoiceProbeToken,
 	getVoiceToken,
 	postInboundCallAnswered,
@@ -39,6 +45,7 @@ import {
 	startOutboundCall,
 	type TwilioDeviceStatus
 } from '@/lib/api';
+import {readError} from '@/lib/errors';
 import {TelnyxTransport} from '@/voice/TelnyxTransport';
 import {TwilioTransport} from '@/voice/TwilioTransport';
 import {runNetworkProbe} from '@/voice/networkProbe';
@@ -46,6 +53,9 @@ import {readWizardMarker, runNetworkWizard} from '@/voice/networkWizard';
 import {shouldRebuildTransport} from '@/voice/providerSync';
 import type {
 	IncomingLeg,
+	CallParticipantState,
+	SupervisionRole,
+	SupervisionState,
 	VoiceProvider,
 	VoiceTransport
 } from '@/voice/VoiceTransport';
@@ -102,6 +112,24 @@ export interface ActiveCall {
 }
 
 export interface UseDeviceState {
+	participant: CallParticipantState | null;
+	participantNotice: string | null;
+	canAddParticipant: boolean;
+	mergeParticipant: () => Promise<void>;
+	endParticipant: () => Promise<void>;
+	/**
+	 * Supervision of ANOTHER agent's call from this browser (monitor / whisper).
+	 * Non-null from Listen/Whisper until the leg ends; never sets `activeCall`.
+	 * `supervisionNotice` carries the last terminal message.
+	 */
+	supervision: SupervisionState | null;
+	supervisionNotice: string | null;
+	/** Transport supports it and this browser is idle (no call, no added leg, no dial). */
+	canSupervise: boolean;
+	/** expect (exact session id) → backend reserves + dials → bind the returned leg id. */
+	startSupervising: (target: {userId: string; name: string}, role: SupervisionRole) => Promise<void>;
+	stopSupervising: () => Promise<void>;
+	switchSupervisionRole: (role: SupervisionRole) => Promise<void>;
 	deviceStatus: TwilioDeviceStatus;
 	/** Non-null while a call is connected. */
 	activeCall: ActiveCall | null;
@@ -140,7 +168,7 @@ export interface UseDeviceState {
 	 *  `outboundLeadId` (ENG-234) ties the call to a purchased lead. */
 	startOutbound: (
 		toNumber: string,
-		options?: {outboundLeadId?: string | null}
+			options?: {outboundLeadId?: string | null}
 	) => Promise<void>;
 	/** Stop the exact pending parent leg. Safe against answer/callback races. */
 	cancelPendingOutbound: () => Promise<void>;
@@ -167,15 +195,24 @@ export interface UseDeviceOptions {
 	/** Backend capability gate. Inbound stays usable during a backend-first deploy,
 	 * but outbound must not start against the legacy partial contract. */
 	outboundLifecycleEnabled?: boolean;
+	participantEnabled?: boolean;
 }
 
 export function useDevice({
 	enabled = true,
-	outboundLifecycleEnabled = false
+	outboundLifecycleEnabled = false,
+	participantEnabled = false
 }: UseDeviceOptions = {}): UseDeviceState {
 	const [deviceStatus, setDeviceStatus] =
 		useState<TwilioDeviceStatus>('offline');
 	const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
+	const [participant, setParticipant] = useState<CallParticipantState | null>(null);
+	const [participantNotice, setParticipantNotice] = useState<string | null>(null);
+	const participantRef = useRef<CallParticipantState | null>(null);
+	const participantAudit = useRef<{parent: string; attemptId: string; sequence: number; requested: boolean; authorized: boolean} | null>(null);
+	const participantWrites = useRef<Promise<void>>(Promise.resolve());
+	const [supervision, setSupervision] = useState<SupervisionState | null>(null);
+	const [supervisionNotice, setSupervisionNotice] = useState<string | null>(null);
 	const [twilioRttMs, setTwilioRttMs] = useState<number | null>(null);
 	const [apiPingMs, setApiPingMs] = useState<number | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -332,6 +369,7 @@ export function useDevice({
 	}, []);
 
 	const setHold = useCallback(async (held: boolean): Promise<void> => {
+		if (participantRef.current) throw new Error('End the added call before changing hold.');
 		const call = callRef.current;
 		const transport = transportRef.current;
 		if (!call || !transport) {
@@ -522,6 +560,149 @@ export function useDevice({
 		ringback.start(outputDeviceIdRef.current);
 	}, []);
 
+	const onParticipantChange = useCallback((state: CallParticipantState) => {
+		const terminal = state.phase === 'completed' || state.phase === 'failed';
+		participantRef.current = terminal ? null : state;
+		setParticipant(terminal ? null : state);
+		if (!['preparing', 'dialing', 'ringing'].includes(state.phase)) stopRingback();
+		if (terminal) setParticipantNotice(state.message ?? 'Original call resumed.');
+		const owner = participantAudit.current;
+		if (!owner || !owner.requested || owner.attemptId !== state.attemptId || ['preparing', 'merging', 'ending'].includes(state.phase)) return;
+		const event = {
+			parent_call_sid: owner.parent, attempt_id: owner.attemptId, sequence: ++owner.sequence,
+			status: state.phase as Parameters<typeof recordCallParticipant>[0]['status'],
+			browser_call_id: state.attemptId, telnyx_leg_id: state.legId, telnyx_session_id: state.sessionId
+		};
+		participantWrites.current = participantWrites.current.catch(() => undefined).then(async () => {
+			const save = async () => {
+				const response = await recordCallParticipant(event);
+				// A denied authorization has no reservation to close.
+				if (response.statusCode !== 'SP100' && owner.authorized) throw new Error(response.statusMessage);
+			};
+			try { await save(); }
+			catch {
+				try { await save(); }
+				catch { setError('Call audio is unchanged, but the added-call status could not be saved.'); }
+			}
+		});
+	}, [stopRingback]);
+
+	const addParticipant = useCallback(async (to: string) => {
+		const transport = transportRef.current;
+		if (!participantEnabled || !transport?.startParticipant || !activeCall || participantRef.current ||
+			activeCall.held || activeCall.holdPending || activeCall.muted || holdTransitionRef.current) {
+			throw new Error('Resume and unmute the current call before adding a person.');
+		}
+		const attemptId = crypto.randomUUID();
+		const priorWrites = participantWrites.current;
+		const audit = {parent: activeCall.callSid, attemptId, sequence: 0, requested: false, authorized: false};
+		participantAudit.current = audit;
+		setParticipantNotice(null);
+		setError(null);
+		ensureRingback();
+		try {
+			await transport.startParticipant({attemptId, to, authorize: async () => {
+				await priorWrites;
+				audit.requested = true;
+				const result = await authorizeCallParticipant(activeCall.callSid, attemptId, to);
+				if (result.statusCode !== 'SP100' || !result.participant) throw new Error(result.statusMessage || 'Could not prepare the added call');
+				audit.authorized = true;
+				return result.participant;
+			}});
+		} catch (error) {
+			stopRingback();
+			throw error;
+		}
+	}, [activeCall, participantEnabled, ensureRingback, stopRingback]);
+
+	/** The session this browser started and has not yet stopped. */
+	const supervisionSessionRef = useRef<string | null>(null);
+ const cleanupSupervision = useCallback(async (sessionId: string) => {
+  const result = await stopSupervisionApi(sessionId);
+  if (result.statusCode !== 'SP100' && result.statusCode !== 'SP105') throw new Error(result.statusMessage || 'Could not stop supervising');
+  if (supervisionSessionRef.current === sessionId) {
+   supervisionSessionRef.current = null;
+   setSupervision(null);
+   setSupervisionNotice('Supervision ended.');
+  }
+ }, []);
+ const onSupervisionChange = useCallback((state: SupervisionState) => {
+  const terminal = state.phase === 'ended' || state.phase === 'failed';
+  if (terminal && supervisionSessionRef.current === state.sessionId) {
+   setSupervision({...state, phase: 'ending'});
+   void cleanupSupervision(state.sessionId).catch(error => {
+    setSupervisionNotice(readError(error, 'Cleanup failed. Retry Stop.'));
+   });
+  } else {
+   setSupervision(terminal ? null : state);
+   setSupervisionNotice(terminal ? state.message ?? 'Supervision ended.' : null);
+  }
+ }, [cleanupSupervision]);
+
+	const startSupervising = useCallback(async (target: {userId: string; name: string}, role: SupervisionRole) => {
+		const transport = transportRef.current;
+		if (!transport?.expectSupervision) throw new Error('Supervision is not available on this connection.');
+		if (activeCall || participantRef.current || outboundStartingRef.current || pendingOutboundRef.current || supervisionSessionRef.current) {
+			throw new Error('End your current call before supervising.');
+		}
+		const sessionId = crypto.randomUUID();
+		setSupervisionNotice(null);
+		setError(null);
+		// Arm the exact match BEFORE the backend can dial.
+		transport.expectSupervision({sessionId, role, targetName: target.name});
+		supervisionSessionRef.current = sessionId;
+		try {
+			const result = await startSupervisionApi({session_id: sessionId, target_user_id: target.userId, role});
+			if (result.statusCode !== 'SP100' || !result.session) throw new Error(result.statusMessage || 'Could not join the call');
+			if (supervisionSessionRef.current !== sessionId) {
+    await cleanupSupervision(sessionId);
+    return;
+   }
+   if (result.session.supervisor_call_control_id) transport.bindSupervisorLeg?.(result.session.supervisor_call_control_id);
+		} catch (error) {
+			// Start may have succeeded even when its response was lost. Keep the
+            // request id available for backend cleanup.
+            transport.cancelSupervision?.();
+            // A lost response can still mean Dial succeeded. Reconcile by our request id.
+            void cleanupSupervision(sessionId).catch(() => undefined);
+			throw new Error(readError(error, 'Could not join the call'));
+		}
+	}, [activeCall, cleanupSupervision]);
+
+ const stopSupervising = useCallback(async () => {
+  const sessionId = supervisionSessionRef.current;
+  let localError: unknown;
+  try { await transportRef.current?.endSupervision?.(); } catch (error) { localError = error; }
+  if (!sessionId) { if (localError) throw localError; return; }
+  try {
+   await cleanupSupervision(sessionId);
+   // Retry local cleanup after carrier termination if the first SDK attempt failed.
+   if (localError) await transportRef.current?.endSupervision?.();
+  } catch (error) {
+   supervisionSessionRef.current = sessionId;
+   setSupervision(current => current ? {...current, phase: 'ending'} : {sessionId, role: 'monitor', phase: 'ending', headersSeen: false});
+   setError(readError(error, 'Could not stop supervising. Retry Stop.'));
+   throw error;
+  }
+ }, [cleanupSupervision]);
+
+	const switchSupervisionRole = useCallback(async (role: SupervisionRole) => {
+		const sessionId = supervisionSessionRef.current;
+		if (!sessionId) return;
+		const result = await switchSupervisionRoleApi(sessionId, role);
+		if (result.statusCode !== 'SP100') throw new Error(result.statusMessage || 'Could not switch role');
+		transportRef.current?.setSupervisionRole?.(role);
+	}, []);
+
+	const mergeParticipant = useCallback(async () => {
+		try { await transportRef.current?.mergeParticipant?.(); }
+		catch (error) { setError(error instanceof Error ? error.message : 'Could not merge calls'); throw error; }
+	}, []);
+	const endParticipant = useCallback(async () => {
+		try { await transportRef.current?.endParticipant?.(); }
+		catch (error) { setError(error instanceof Error ? error.message : 'Could not end the added call'); throw error; }
+	}, []);
+
 	const clearOutboundAttempt = useCallback(() => {
 		// Invalidate any status request that started before this clear. Its response
 		// must not recreate a canceled/answered attempt or overwrite the next call.
@@ -628,6 +809,11 @@ export function useDevice({
 			toNumber: string,
 			options?: {outboundLeadId?: string | null}
 		): Promise<void> => {
+			if (participantRef.current) throw new Error('End the added call before dialing another person.');
+			if (callRef.current && !options?.outboundLeadId) {
+				await addParticipant(toNumber);
+				return;
+			}
 			if (!outboundLifecycleEnabled) {
 				throw new Error(
 					'Outbound calling is waiting for the required backend update.'
@@ -736,6 +922,7 @@ export function useDevice({
 			}
 		},
 		[
+			addParticipant,
 			armAudio,
 			clearOutboundAttempt,
 			ensureRingback,
@@ -1298,7 +1485,9 @@ export function useDevice({
 				// Best-effort: tell the backend we're busy and no longer ready.
 				// on_call blocks routing immediately; paused keeps the agent unavailable
 				// after wrap-up until they explicitly go ready again.
-				void setOnCall(true).catch(() => undefined);
+				// The carrier SESSION id is what a supervisor's Listen/Whisper is matched
+				// against (plans/dialer_supervision); Twilio legs report nothing extra.
+				void setOnCall(true, call.carrierIds?.() ?? null).catch(() => undefined);
 				void setPresence({status: 'paused'}).catch(() => undefined);
 				if (isDirectSipInbound && !isOutbound) {
 					// Stamps answered_at AND binds the presence slot to this exact leg —
@@ -1452,6 +1641,8 @@ export function useDevice({
 					if (statusError) setError(statusError);
 				});
 				transport.onIncoming(onIncoming);
+				transport.onParticipantChange?.(onParticipantChange);
+				transport.onSupervisionChange?.(onSupervisionChange);
 
 				// Twilio reports the device selection the SDK actually settled on; Telnyx
 				// has no equivalent event, and there its selection is only ever ours. This
@@ -1469,6 +1660,15 @@ export function useDevice({
 
 				await transport.register(token);
 				if (cancelled) return;
+				// A reloaded supervisor has lost the audio leg: close any session the
+				// backend still holds open so the reservation is released.
+				if (transportRef.current?.expectSupervision) {
+					void getCurrentSupervision()
+						.then((res) => {
+							if (!cancelled && res.session) void stopSupervisionApi(res.session.id).catch(() => undefined);
+						})
+						.catch(() => undefined);
+				}
 				void probeApi();
 				apiPingTimer = window.setInterval(
 					() => void probeApi(),
@@ -1523,6 +1723,8 @@ export function useDevice({
 			dismissCallerHangupNotice();
 		};
 	}, [
+		onParticipantChange,
+		onSupervisionChange,
 		clearOutboundAttempt,
 		clearHoldAudio,
 		dismissCallerHangupNotice,
@@ -1536,6 +1738,19 @@ export function useDevice({
 	]);
 
 	return {
+		participant,
+		participantNotice,
+		canAddParticipant: participantEnabled && !!transportRef.current?.startParticipant && !!activeCall &&
+			!participant && !activeCall.held && !activeCall.holdPending && !activeCall.muted,
+		mergeParticipant,
+		endParticipant,
+		supervision,
+		supervisionNotice,
+		canSupervise: !!transportRef.current?.expectSupervision && deviceStatus === 'registered' &&
+			!activeCall && !participant && !outboundStarting && !pendingOutbound && !supervision,
+		startSupervising,
+		stopSupervising,
+		switchSupervisionRole,
 		deviceStatus,
 		activeCall,
 		twilioRttMs,

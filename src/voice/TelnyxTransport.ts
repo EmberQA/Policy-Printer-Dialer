@@ -34,12 +34,19 @@ import {
 import { normalizeTelnyxHeaders } from './legParameters';
 import { readRttMs } from './rtcStats';
 import {TelnyxHoldController} from './telnyxHold';
+import {TelnyxConsultation} from './TelnyxConsultation';
+import {TelnyxSupervision} from './TelnyxSupervision';
 import type {
 	IncomingLeg,
 	LegEvent,
 	TransportStatus,
 	VoiceTransport,
-	VoiceTransportOptions
+	VoiceTransportOptions,
+	CallParticipantState,
+	StartParticipant,
+	ExpectSupervision,
+	SupervisionRole,
+	SupervisionState
 } from './VoiceTransport';
 
 interface TelnyxTransportOptions extends VoiceTransportOptions {
@@ -94,6 +101,13 @@ interface TelnyxCall {
 		customHeaders?: Array<{name?: string; value?: string}>;
 		remoteCallerNumber?: string;
 	};
+	/** Carrier-side ids of this leg. `telnyxCallControlId` is what another agent's
+	 *  supervisor would target; logged on accept during the supervision experiments. */
+	readonly telnyxIDs?: {
+		telnyxCallControlId?: string;
+		telnyxSessionId?: string;
+		telnyxLegId?: string;
+	};
 	answer(): void;
 	hangup(): Promise<void> | void;
 	muteAudio(): void;
@@ -102,6 +116,7 @@ interface TelnyxCall {
 	deaf(): void;
 	undeaf(): void;
 	readonly localStream: MediaStream | null;
+	readonly remoteStream: MediaStream | null;
 	readonly peer?: {instance?: RTCPeerConnection | null} | null;
 	setAudioInDevice(deviceId: string): Promise<void>;
 	setAudioOutDevice(deviceId: string): Promise<boolean>;
@@ -125,11 +140,44 @@ export class TelnyxTransport implements VoiceTransport {
 	private inputDeviceId = 'default';
 	private outputDeviceId = 'default';
 	private destroyed = false;
+	private consultation: TelnyxConsultation;
+	private participantCb: ((state: CallParticipantState) => void) | null = null;
+	private supervision: TelnyxSupervision;
+	private supervisionCb: ((state: SupervisionState) => void) | null = null;
 
 	constructor(private readonly options: TelnyxTransportOptions) {
 		this.inputDeviceId = options.inputDeviceId ?? 'default';
 		this.outputDeviceId = options.outputDeviceId ?? 'default';
+		this.supervision = new TelnyxSupervision({
+			changed: state => this.supervisionCb?.(state),
+			log: (step, data) => console.info('[dialer][supervision]', step, data)
+		});
+		this.consultation = new TelnyxConsultation({
+			primary: () => this.activeCall(),
+			canStart: () => !this.holdController && !this.activeCall()?.isAudioMuted && !this.destroyed,
+			outputDevice: () => this.outputDeviceId,
+			changed: state => this.participantCb?.(state),
+			dial: (to, from, remoteElement, id) => {
+				if (!this.client) throw new Error('Telnyx is not registered.');
+				return this.client.newCall({id, destinationNumber: to, callerNumber: from, remoteElement, micId: this.inputDeviceId});
+			}
+		});
 	}
+
+	onParticipantChange(cb: (state: CallParticipantState) => void): void { this.participantCb = cb; }
+	startParticipant(request: StartParticipant): Promise<void> { return this.consultation.start(request); }
+	mergeParticipant(): Promise<void> { return this.consultation.merge(); }
+	endParticipant(): Promise<void> { return this.consultation.end(); }
+
+	onSupervisionChange(cb: (state: SupervisionState) => void): void { this.supervisionCb = cb; }
+	expectSupervision(request: ExpectSupervision): void {
+		if (this.activeCall() || this.consultation.busy) throw new Error('End your current call before supervising.');
+		this.supervision.expect(request);
+	}
+	bindSupervisorLeg(callControlId: string): void { this.supervision.bindSupervisorLeg(callControlId); }
+	cancelSupervision(): void { this.supervision.cancel(); }
+	setSupervisionRole(role: SupervisionRole): void { this.supervision.setRole(role); }
+	endSupervision(): Promise<void> { return this.supervision.end(); }
 
 	async register(token: string): Promise<void> {
 		this.statusCb?.('connecting');
@@ -204,13 +252,16 @@ export class TelnyxTransport implements VoiceTransport {
 		if (payload?.type !== 'callUpdate' || !payload.call) return;
 
 		const call = payload.call;
+		// Supervision legs are claimed (or refused) before anything else can see them.
+		if (this.supervision?.onCall(call)) return;
+		if (this.consultation?.onCall(call)) return;
 		const existing = this.legs.get(call.id);
 
 		if (!existing) {
 			// Headers ride on the INVITE, so they are readable at 'ringing' — before we
 			// answer. Anything earlier (new/trying) carries no metadata yet.
 			if (!isNewIncomingState(call.state)) return;
-			const leg = new TelnyxLeg(call);
+			const leg = new TelnyxLeg(call, () => this.consultation?.busy ? this.consultation : null);
 			this.legs.set(call.id, leg);
 			this.incomingCb?.(leg);
 			return;
@@ -308,6 +359,8 @@ export class TelnyxTransport implements VoiceTransport {
 
 	destroy(): void {
 		this.destroyed = true;
+		this.supervision?.destroy();
+		this.consultation?.destroy();
 		if (this.refreshTimer !== null) window.clearInterval(this.refreshTimer);
 		this.refreshTimer = null;
 		void this.stopHold().catch(() => undefined);
@@ -349,6 +402,8 @@ export class TelnyxTransport implements VoiceTransport {
 	 * remember the choice either way, so the next call inherits it.
 	 */
 	async setInputDevice(deviceId: string): Promise<void> {
+		if (this.consultation?.busy) throw new Error('End the added call before switching audio devices.');
+		if (this.supervision?.busy) throw new Error('Stop supervising before switching audio devices.');
 		const call = this.activeCall();
 
 		// ⚠️ NEVER SWITCH THE LIVE SENDER WHILE THE CALL IS HELD. Hold works by
@@ -387,6 +442,8 @@ export class TelnyxTransport implements VoiceTransport {
 	}
 
 	async setOutputDevice(deviceId: string): Promise<void> {
+		if (this.consultation?.busy) throw new Error('End the added call before switching audio devices.');
+		if (this.supervision?.busy) throw new Error('Stop supervising before switching audio devices.');
 		this.outputDeviceId = deviceId;
 		const client = this.client;
 		if (!client) throw new Error('Softphone audio is not ready yet.');
@@ -400,6 +457,8 @@ export class TelnyxTransport implements VoiceTransport {
 	}
 
 	async startHold(): Promise<void> {
+		if (this.consultation?.busy) throw new Error('End the added call before changing hold.');
+		if (this.supervision?.busy) throw new Error('Stop supervising before changing hold.');
 		const call = this.activeCall();
 		if (!call) throw new Error('There is no active call to place on hold.');
 		if (this.holdController) return;
@@ -471,7 +530,7 @@ class TelnyxLeg implements IncomingLeg {
 	private rttTimer: number | null = null;
 	private terminalEmitted = false;
 
-	constructor(readonly call: TelnyxCall) {
+	constructor(readonly call: TelnyxCall, private readonly consultation: () => TelnyxConsultation | null = () => null) {
 		this.legId = call.id;
 		this.from = call.options?.remoteCallerNumber || null;
 		this.params = normalizeTelnyxHeaders(call.options?.customHeaders);
@@ -513,11 +572,15 @@ class TelnyxLeg implements IncomingLeg {
 	}
 
 	mute(muted: boolean): void {
+		const consultation = this.consultation();
+		if (consultation) { consultation.setMuted(muted); return; }
 		if (muted) this.call.muteAudio();
 		else this.call.unmuteAudio();
 	}
 
 	isMuted(): boolean {
+		const consultation = this.consultation();
+		if (consultation) return consultation.isMuted;
 		return this.call.isAudioMuted;
 	}
 
@@ -525,6 +588,14 @@ class TelnyxLeg implements IncomingLeg {
 		const existing = this.handlers.get(event);
 		if (existing) existing.push(cb);
 		else this.handlers.set(event, [cb]);
+	}
+
+	carrierIds(): {sessionId?: string; legId?: string} {
+		const ids = this.call.telnyxIDs;
+		return {
+			...(ids?.telnyxSessionId ? {sessionId: ids.telnyxSessionId} : {}),
+			...(ids?.telnyxLegId ? {legId: ids.telnyxLegId} : {})
+		};
 	}
 
 	/** No `sample` event here, so poll the peer connection the SDK already exposes. */
