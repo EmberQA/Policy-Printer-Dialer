@@ -41,6 +41,7 @@ import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
 import {LicensedStatesDialog} from '@/licensedStates/LicensedStatesDialog';
 import {CreditNotificationDialog} from '@/components/CreditNotificationDialog';
 import {NewLeadBanner} from '@/outboundLeads/NewLeadBanner';
+import {ReadyUnavailableBanner} from '@/presence/ReadyUnavailableBanner';
 import {
 	CreditFlightAnimation,
 	type CreditFlight
@@ -426,6 +427,7 @@ function AuthenticatedDialerApp({
 					/>
 				</div>
 			</header>
+			<ReadyUnavailableBanner />
 			<NewLeadBanner />
 			<main className="px-4 py-6 sm:px-6">
 				<InboundCallAutoNav />
