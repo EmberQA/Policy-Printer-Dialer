@@ -7,7 +7,7 @@ export function coachingRequired(status: CoachingStatus | null, now: number): bo
 	if (!status?.purchased_at) return false;
 	const age = now - Date.parse(status.purchased_at);
 	return Number.isFinite(age) && age >= 0 && age <= 14 * DAY_MS &&
-		(age >= 5 * DAY_MS || status.answered_calls >= 15);
+		status.answered_calls >= 20 && status.has_sale_in_first_20_calls === false;
 }
 
 export const bookingCookieName = (orgId: string, userId: string) =>

@@ -1367,8 +1367,10 @@ export const acknowledgePurchasedLeads = (
 
 export interface CoachingStatus {
 	purchased_at: string | null;
-	/** Answered inbound calls since activation, capped at the threshold of 15. */
+	/** Answered inbound calls since activation, capped at the threshold of 20. */
 	answered_calls: number;
+	/** AI-confirmed sale on one of the first 20 answered inbound calls. */
+	has_sale_in_first_20_calls: boolean;
 	server_time: string;
 }
 export const fetchCoachingStatus = (): Promise<{

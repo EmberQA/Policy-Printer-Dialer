@@ -50,8 +50,7 @@ export function useCoachingBooking({orgId, userId, enabled, onCall}: {
 		if (!enabled || booked || !current?.status.purchased_at || expired) return;
 		const purchase = Date.parse(current.status.purchased_at);
 		if (!Number.isFinite(purchase)) return;
-		const nextBoundary = serverNow < purchase + 5 * DAY_MS
-			? purchase + 5 * DAY_MS : purchase + 14 * DAY_MS + 1;
+		const nextBoundary = purchase + 14 * DAY_MS + 1;
 		const timer = setTimeout(() => setNow(Date.now()), Math.max(1, Math.min(30_000, nextBoundary - serverNow)));
 		return () => clearTimeout(timer);
 	}, [enabled, booked, current, expired, serverNow]);
