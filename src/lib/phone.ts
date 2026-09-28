@@ -179,13 +179,37 @@ export function stateFormValueFromPhone(
 ): string | null {
 	const state = inferUsStateFromPhone(raw);
 	if (!state) return null;
-	if (!options?.length) return `${state.name} (${state.code})`;
+	return stateFormValue(state, options);
+}
 
-	const matches = new Set([state.code.toLowerCase(), state.name.toLowerCase()]);
+/** Convert Retreaver's normalized two-letter caller state into the same form-safe
+ * value used by area-code inference. Invalid/unsupported codes are ignored. */
+export function stateFormValueFromCode(
+	raw: string,
+	options?: ReadonlyArray<{value: string; label: string}>
+): string | null {
+	const code = raw.trim().toUpperCase();
+	const name = US_JURISDICTION_NAMES[code];
+	if (!name) return null;
+	return stateFormValue({code, name}, options);
+}
+
+const stateFormValue = (
+	state: UsPhoneState,
+	options?: ReadonlyArray<{value: string; label: string}>
+): string | null => {
+	const formatted = `${state.name} (${state.code})`;
+	if (!options?.length) return formatted;
+
+	const matches = new Set([
+		state.code.toLowerCase(),
+		state.name.toLowerCase(),
+		formatted.toLowerCase()
+	]);
 	const option = options.find(
 		(candidate) =>
 			matches.has(candidate.value.trim().toLowerCase()) ||
 			matches.has(candidate.label.trim().toLowerCase())
 	);
 	return option?.value ?? null;
-}
+};
