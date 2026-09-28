@@ -34,7 +34,7 @@ import {
 	type DialerForm,
 	type ReturningCallerLead
 } from '@/lib/api';
-import {stateFormValueFromPhone} from '@/lib/phone';
+import {stateFormValueFromCode, stateFormValueFromPhone} from '@/lib/phone';
 import {FormRenderer, type LeadFormData} from './FormRenderer';
 import {DispositionSelect} from './DispositionSelect';
 import {useLeadNotes} from './LeadNotesContext';
@@ -63,6 +63,7 @@ export function LeadForm({
 }) {
 	const [form, setForm] = useState<DialerForm | null>(null);
 	const [dispositions, setDispositions] = useState<DialerDisposition[]>([]);
+	const [callerState, setCallerState] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -78,7 +79,10 @@ export function LeadForm({
 	const busy = saving || completingWithoutLead;
 	const {setNote} = useLeadNotes();
 
-	const initialFormData = (nextForm: DialerForm | null): LeadFormData => {
+	const initialFormData = (
+		nextForm: DialerForm | null,
+		retreaverCallerState: string | null
+	): LeadFormData => {
 		const priorAnswers = editLead?.form_data ?? {};
 		const priorFieldByLabel = new Map(
 			(editLead?.form_schema_snapshot ?? []).map((field) => [
@@ -115,17 +119,27 @@ export function LeadForm({
 			initialData[phoneField.key] = callerPhone;
 		}
 
-		// Infer only the exact `state` key. Preserve an existing returning-caller answer,
-		// and leave unresolvable/non-geographic numbers or incompatible option lists blank.
-		if (
-			stateField &&
-			callerPhone &&
-			!hasFormValue(initialData[stateField.key])
-		) {
-			const stateValue = stateFormValueFromPhone(
-				callerPhone,
-				stateField.options
-			);
+		// Autofill only the exact `state` key. A prior returning-caller answer wins,
+		// then Retreaver's routed state, then the caller-number area code fallback.
+		if (stateField && !hasFormValue(initialData[stateField.key])) {
+			const callStateValue = retreaverCallerState
+				? stateFormValueFromCode(retreaverCallerState, stateField.options)
+				: null;
+			const fallbackStateValue = callerPhone
+				? stateFormValueFromPhone(callerPhone, stateField.options)
+				: null;
+			const stateValue = callStateValue ?? fallbackStateValue;
+			if (import.meta.env.DEV) {
+				console.info('[dialer][lead] state autofill', {
+					source:
+						callStateValue !== null
+							? 'retreaver_call'
+							: fallbackStateValue !== null
+								? 'area_code_fallback'
+								: 'unavailable',
+					state: stateValue
+				});
+			}
 			if (stateValue !== null) initialData[stateField.key] = stateValue;
 		}
 
@@ -150,7 +164,7 @@ export function LeadForm({
 		let cancelled = false;
 		setLoading(true);
 		setLoadError(null);
-		getLeadFormBundle(campaignId)
+		getLeadFormBundle(campaignId, callSid)
 			.then((res) => {
 				if (cancelled) return;
 				if (res.statusCode !== 'SP100') {
@@ -159,11 +173,14 @@ export function LeadForm({
 				}
 				setForm(res.form ?? null);
 				setDispositions(res.dispositions ?? []);
+				setCallerState(res.caller_state ?? null);
 				// Edit-in-place seeds the prior lead's disposition; new leads start blank.
 				setDispositionKey(editLead?.disposition_id ?? null);
 				setSaveError(null);
 				setSavedLeadId(null);
-				setFormData(initialFormData(res.form ?? null));
+				setFormData(
+					initialFormData(res.form ?? null, res.caller_state ?? null)
+				);
 			})
 			.catch((err) => {
 				if (cancelled) return;
@@ -468,7 +485,7 @@ export function LeadForm({
 										setSaveError(null);
 										setSavedLeadId(null);
 										setDispositionKey(null);
-										setFormData(initialFormData(form));
+										setFormData(initialFormData(form, callerState));
 									}}
 								>
 									<RotateCcw className="size-4" />
