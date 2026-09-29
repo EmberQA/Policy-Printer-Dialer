@@ -12,6 +12,7 @@ import {
 	Loader2,
 	Pencil,
 	Phone,
+	Plus,
 	RefreshCw,
 	Save,
 	Search,
@@ -51,6 +52,7 @@ import {useDialerSession} from '@/session/DialerSessionProvider';
 import {getUser} from '@/auth/session';
 import {FormRenderer, type LeadFormData} from '@/leads/FormRenderer';
 import {getSavedDispositionFallback} from './crmDisposition';
+import {AddLeadDialog} from './AddLeadDialog';
 import {
 	buildLeadEditFormData,
 	deriveLeadName,
@@ -94,6 +96,7 @@ export default function Crm({
 		null
 	);
 	const [importOpen, setImportOpen] = useState(false);
+	const [addLeadOpen, setAddLeadOpen] = useState(false);
 	const [dialingId, setDialingId] = useState<string | null>(null);
 	const signedInUser = getUser();
 	const signedInUserId = signedInUser?.user_id ?? '';
@@ -198,10 +201,16 @@ export default function Crm({
 							: 'Your saved lead records, organized by contact instead of individual calls.'} */}
 					</p>
 				</div>
-				<div className="flex items-center gap-2">
+				<div className="flex flex-wrap items-center gap-2">
 					<Badge variant="outline">
 						{total + visibleImportedContacts.length} contacts
 					</Badge>
+					{!callbacksOnly && (
+						<Button size="sm" onClick={() => setAddLeadOpen(true)}>
+							<Plus className="size-4" />
+							Add lead
+						</Button>
+					)}
 					{!callbacksOnly && (
 						<Button
 							variant="outline"
@@ -360,6 +369,17 @@ export default function Crm({
 				</div>
 			)}
 
+			{addLeadOpen && !callbacksOnly && (
+				<AddLeadDialog
+					initialCampaignId={campaignId}
+					onClose={() => setAddLeadOpen(false)}
+					onSaved={(leadId) => {
+						setAddLeadOpen(false);
+						resetFilters();
+						setSelectedLeadId(leadId);
+					}}
+				/>
+			)}
 			<LeadRecordDialog
 				leadId={selectedLeadId}
 				onOpenChange={(open) => !open && setSelectedLeadId(null)}
