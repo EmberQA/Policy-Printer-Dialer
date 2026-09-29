@@ -35,6 +35,7 @@ import Leads from '@/pages/Leads';
 import OutboundLeads from '@/pages/OutboundLeads';
 import Agents from '@/pages/Agents';
 import {LeadNotesProvider} from '@/leads/LeadNotesContext';
+import {LeadFormBridgeProvider} from '@/leads/LeadFormBridgeContext';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {CoachingBookingDialog} from '@/onboarding/CoachingBookingDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
@@ -164,15 +165,17 @@ export default function App() {
 
 	return (
 		<DialerSessionProvider>
-			<LeadNotesProvider>
-				<AuthenticatedDialerApp
-					key={user?.user_id ?? 'unknown-user'}
-					userId={user?.user_id ?? 'unknown-user'}
-					userName={userName}
-					plainBranding={plainBranding}
-					branding={branding}
-				/>
-			</LeadNotesProvider>
+			<LeadFormBridgeProvider>
+				<LeadNotesProvider>
+					<AuthenticatedDialerApp
+						key={user?.user_id ?? 'unknown-user'}
+						userId={user?.user_id ?? 'unknown-user'}
+						userName={userName}
+						plainBranding={plainBranding}
+						branding={branding}
+					/>
+				</LeadNotesProvider>
+			</LeadFormBridgeProvider>
 		</DialerSessionProvider>
 	);
 }
