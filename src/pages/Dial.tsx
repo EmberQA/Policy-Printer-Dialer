@@ -51,7 +51,7 @@ import {OutboundCallBanner} from '@/twilio/OutboundCallBanner';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {MicLevelMeter, useMicLevelMeter} from '@/twilio/MicLevelMeter';
 import {LeadForm} from '@/leads/LeadForm';
-import {LeadNotesPanel} from '@/leads/LeadNotesContext';
+import {ScriptHost} from '@/script/ScriptPanel';
 import {ReturningCallerCard} from '@/leads/ReturningCallerCard';
 import {useReturningCaller} from '@/leads/useReturningCaller';
 import {cn} from '@/lib/utils';
@@ -87,6 +87,15 @@ export default function Dial() {
 	const userName = [user?.first_name, user?.last_name]
 		.filter(Boolean)
 		.join(' ');
+	// Call-script `source: 'agent'` vars (ENG-278). State and NPN aren't known to
+	// the dialer yet, so those render as a blank the agent fills in verbally.
+	const scriptAgentVars = useMemo(
+		() => ({
+			agent_name: userName || undefined,
+			agent_cell: profile?.agent?.phone_number ?? undefined
+		}),
+		[userName, profile?.agent?.phone_number]
+	);
 	const showDebugCall = userName === 'dialer-test user';
 	const presence = session.presence;
 	const setCampaigns = session.setCampaigns;
@@ -467,7 +476,7 @@ export default function Dial() {
 			{/* 1-3-1 layout: LEFT (notifications), CENTER (call core / lead form),
           RIGHT (controls + status). Fixed, roomy side columns and a flexible center;
           side-by-side at xl, stacked below (center first). */}
-			<div className="grid grid-cols-1 gap-8 xl:grid-cols-[22rem_minmax(0,1fr)_22rem] xl:items-start">
+			<div className="grid grid-cols-1 gap-8 xl:grid-cols-[30rem_minmax(0,1fr)_22rem] xl:items-start">
 				{/* LEFT — errors, prominent active-lead notes, then returning-caller pane. */}
 				<div className="order-2 flex flex-col items-stretch gap-4 xl:order-none">
 					{displayError && (
@@ -481,7 +490,9 @@ export default function Dial() {
 						</div>
 					)}
 
-					<LeadNotesPanel />
+					{/* Script | Notes tabs when the campaign has a call script (ENG-278);
+                  otherwise just the notes panel, as before. */}
+					<ScriptHost agentVars={scriptAgentVars} />
 
 					{profile && provisioned && (
 						<>
@@ -590,6 +601,7 @@ export default function Dial() {
 									onComplete={onWrapUpComplete}
 									showClear={false}
 									editLead={editLead}
+									publishToScript
 								/>
 							)}
 							{workCall && !effectiveLeadCampaignId && !wrapUpCompleted && (

@@ -33,7 +33,8 @@ export function FormRenderer({
 	value,
 	onChange,
 	disabled,
-	excludeKeys = []
+	excludeKeys = [],
+	onCommit
 }: {
 	schema: FormField[];
 	value: LeadFormData;
@@ -41,6 +42,13 @@ export function FormRenderer({
 	disabled?: boolean;
 	/** Fields rendered elsewhere while keeping the same parent form state. */
 	excludeKeys?: string[];
+	/**
+	 * A field's value is final: typed inputs fire on blur, pick-style controls
+	 * (select/radio/checkbox/switch) on change. `onChange` still fires on every
+	 * keystroke — this is the hook for consumers that must NOT react per
+	 * keystroke (the call script's form bindings, ENG-278).
+	 */
+	onCommit?: (key: string, fieldValue: unknown) => void;
 }) {
 	const activeFields = [...schema].filter((f) => f.active !== false);
 	const fields = activeFields
@@ -64,6 +72,7 @@ export function FormRenderer({
 					field={field}
 					value={value[field.key]}
 					onChange={(v) => onChange(field.key, v)}
+					onCommit={onCommit ? (v) => onCommit(field.key, v) : undefined}
 					disabled={disabled}
 				/>
 			))}
@@ -71,20 +80,33 @@ export function FormRenderer({
 	);
 }
 
+/** Controls whose every change is a deliberate pick (no typing in between). */
+const commitsOnChange = (field: FormField) =>
+	field.type === 'select' ||
+	field.type === 'radio' ||
+	field.type === 'checkbox' ||
+	field.type === 'boolean' ||
+	(field.key === 'state' && field.type === 'text');
+
 function Field({
 	field,
 	value,
 	onChange,
+	onCommit,
 	disabled
 }: {
 	field: FormField;
 	value: unknown;
 	onChange: (v: unknown) => void;
+	onCommit?: (v: unknown) => void;
 	disabled?: boolean;
 }) {
 	const id = `lf_${field.key}`;
+	const pick = commitsOnChange(field);
 	return (
 		<div
+			// React's onBlur bubbles (focusout), so this catches the input inside.
+			onBlur={onCommit && !pick ? () => onCommit(value) : undefined}
 			className={cn(
 				'space-y-2',
 				(field.type === 'textarea' || field.type === 'checkbox') &&
@@ -101,7 +123,14 @@ function Field({
 				field={field}
 				id={id}
 				value={value}
-				onChange={onChange}
+				onChange={
+					onCommit && pick
+						? (v) => {
+								onChange(v);
+								onCommit(v);
+							}
+						: onChange
+				}
 				disabled={disabled}
 			/>
 			{field.help && (

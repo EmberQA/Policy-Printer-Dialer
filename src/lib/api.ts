@@ -12,6 +12,7 @@
  * with an empty-ish JSON body (the backend reads authPayload server-side).
  */
 
+import type {DialerScript} from '@/script/types';
 import axios, {AxiosInstance, type AxiosRequestConfig} from 'axios';
 import {
 	getAccessToken,
@@ -279,6 +280,8 @@ export interface DialerCampaign {
 	description: string;
 	speed: 1 | 2 | 3 | 4;
 	default_form_id: string | null;
+	/** ENG-278 call script pin (served via the lead-form bundle). */
+	script_id?: string | null;
 	active: boolean;
 	created_at: string;
 	updated_at: string;
@@ -789,6 +792,8 @@ export interface LeadFormBundleResponse {
 	form?: DialerForm | null;
 	dispositions?: DialerDisposition[];
 	caller_state?: string | null;
+	/** ENG-278 — the campaign's published call script, or null when none. */
+	script?: DialerScript | null;
 }
 
 /** lead/save + lead/update response. */
