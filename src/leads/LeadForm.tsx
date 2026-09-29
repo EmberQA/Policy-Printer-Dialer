@@ -124,6 +124,14 @@ export function LeadForm({
 		);
 		const stateField = schema.find((field) => field.key === 'state');
 		const initialData: LeadFormData = editLead ? {...matchingPriorAnswers} : {};
+		// Always-on call notes (a plain `notes` key when the form has none).
+		if (
+			editLead &&
+			typeof priorAnswers.notes === 'string' &&
+			initialData.notes === undefined
+		) {
+			initialData.notes = priorAnswers.notes;
+		}
 
 		// The live caller number always wins for the current form's phone field.
 		if (phoneField && callerPhone) {

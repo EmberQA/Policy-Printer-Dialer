@@ -5,6 +5,7 @@
  * Enter, or a pick — and is what pushes the value OUT to the bound lead form.
  */
 
+import {useState} from 'react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
@@ -29,6 +30,7 @@ export function ScriptVarInput({
 }) {
 	const input = def.input ?? {kind: 'text' as const};
 	const str = value === undefined ? '' : String(value);
+	const [otherOpen, setOtherOpen] = useState(false);
 
 	if (input.kind === 'choice' || input.kind === 'boolean') {
 		const options =
@@ -38,27 +40,63 @@ export function ScriptVarInput({
 						{value: 'true', label: input.config?.true_label ?? 'Yes'},
 						{value: 'false', label: input.config?.false_label ?? 'No'}
 					];
+		// "Other" + a free-text answer when the script's choice sets allow_other.
+		const withOther = input.kind === 'choice' && !!input.config?.allow_other;
+		const isListed = options.some((o) => o.value === str);
+		const otherActive = withOther && (otherOpen || (str !== '' && !isListed));
 		return (
-			<div className="flex flex-wrap gap-2">
-				{options.map((o) => {
-					const selected = str === o.value;
-					return (
+			<div className="space-y-2">
+				<div className="flex flex-wrap gap-2">
+					{options.map((o) => {
+						const selected = str === o.value;
+						return (
+							<Button
+								key={o.value}
+								type="button"
+								size="sm"
+								variant={selected ? 'default' : 'outline'}
+								onClick={() => {
+									const v: ScriptVarValue =
+										input.kind === 'boolean' ? o.value === 'true' : o.value;
+									setOtherOpen(false);
+									onChange(v);
+									onCommit(v);
+								}}
+							>
+								{o.label}
+							</Button>
+						);
+					})}
+					{withOther && (
 						<Button
-							key={o.value}
 							type="button"
 							size="sm"
-							variant={selected ? 'default' : 'outline'}
+							variant={otherActive ? 'default' : 'outline'}
 							onClick={() => {
-								const v: ScriptVarValue =
-									input.kind === 'boolean' ? o.value === 'true' : o.value;
-								onChange(v);
-								onCommit(v);
+								setOtherOpen(true);
+								// Picking Other clears a listed answer; the text box holds the new one.
+								if (isListed) {
+									onChange('');
+									onCommit('');
+								}
 							}}
 						>
-							{o.label}
+							Other
 						</Button>
-					);
-				})}
+					)}
+				</div>
+				{otherActive && (
+					<Input
+						value={isListed ? '' : str}
+						placeholder="Their answer…"
+						autoFocus={otherOpen}
+						onChange={(e) => onChange(e.target.value)}
+						onBlur={(e) => onCommit(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === 'Enter') onCommit(e.currentTarget.value);
+						}}
+					/>
+				)}
 			</div>
 		);
 	}

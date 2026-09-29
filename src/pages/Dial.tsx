@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {
 	ChevronDown,
 	CircleAlert,
@@ -13,6 +13,7 @@ import {
 	Power,
 	Radar,
 	RadioTower,
+	ScrollText,
 	Wifi,
 	WifiOff,
 	Zap
@@ -51,7 +52,12 @@ import {OutboundCallBanner} from '@/twilio/OutboundCallBanner';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {MicLevelMeter, useMicLevelMeter} from '@/twilio/MicLevelMeter';
 import {LeadForm} from '@/leads/LeadForm';
+import {LeadNotesPanel} from '@/leads/LeadNotesContext';
 import {ScriptHost} from '@/script/ScriptPanel';
+import {ScriptPreviewPanel} from '@/script/ScriptPreviewPanel';
+import {useLeadFormBridge} from '@/leads/LeadFormBridgeContext';
+import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {ReturningCallerCard} from '@/leads/ReturningCallerCard';
 import {useReturningCaller} from '@/leads/useReturningCaller';
 import {cn} from '@/lib/utils';
@@ -110,8 +116,16 @@ export default function Dial() {
 	const [readyRequestSettled, setReadyRequestSettled] = useState(false);
 	const [balanceWarning, setBalanceWarning] = useState<string | null>(null);
 	const readyBalanceRequest = useRef(0);
-	useEffect(() => () => { readyBalanceRequest.current += 1; }, []);
+	useEffect(
+		() => () => {
+			readyBalanceRequest.current += 1;
+		},
+		[]
+	);
 	const [error, setError] = useState<string | null>(null);
+	// Campaign whose call script is open in the preview sheet (ENG-278).
+	const [scriptPreviewCampaign, setScriptPreviewCampaign] =
+		useState<DialerCampaign | null>(null);
 	const [debugIncomingCall, setDebugIncomingCall] = useState(false);
 	const [debugCallMuted, setDebugCallMuted] = useState(false);
 	const [debugCallHeld, setDebugCallHeld] = useState(false);
@@ -295,6 +309,11 @@ export default function Dial() {
 		: null;
 	const activeCall = device.activeCall ?? debugCall;
 	const workCall = activeCall ?? wrapUpCall;
+	// A real call always takes the left column: drop any open script preview.
+	const hasWorkCall = Boolean(workCall);
+	useEffect(() => {
+		if (hasWorkCall) setScriptPreviewCampaign(null);
+	}, [hasWorkCall]);
 	const wrapUpCallKey = workCall ? callKey(workCall) : null;
 	const attributedCampaign = workCall?.campaignId
 		? campaigns.find((campaign) => campaign.id === workCall.campaignId)
@@ -343,7 +362,7 @@ export default function Dial() {
 	const editLead =
 		workCall?.direction === 'outbound' && outboundHistory.data?.is_direct_dial
 			? (outboundHistory.data.most_recent_lead?.lead ?? null)
-		: null;
+			: null;
 	const wrapUpCompleted =
 		Boolean(wrapUpCallKey) && completedWrapUpCallKey === wrapUpCallKey;
 	const priorHistoryDismissed =
@@ -455,15 +474,39 @@ export default function Dial() {
 		}
 
 		void releaseCallWrapUp().catch(() => undefined);
-	}, [activeCall, completedWrapUpCallKey, wrapUpCall, wrapUpReleasePending, device.participant]);
+	}, [
+		activeCall,
+		completedWrapUpCallKey,
+		wrapUpCall,
+		wrapUpReleasePending,
+		device.participant
+	]);
+
+	// With a script up (preview or live) the script + form split the width;
+	// otherwise the call column sits centered on the page.
+	const {view: leadFormView} = useLeadFormBridge();
+	const scriptOpen =
+		Boolean(scriptPreviewCampaign && !workCall) ||
+		Boolean(leadFormView?.script);
 
 	return (
 		<div className="w-full">
 			{balanceWarning && (
-				<div role="alert" className="mb-4 flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+				<div
+					role="alert"
+					className="mb-4 flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm"
+				>
 					<CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" />
-					<p className="flex-1">{balanceWarning} Your ready status is not blocked.</p>
-					<Button variant="ghost" size="sm" onClick={() => setBalanceWarning(null)}>Dismiss</Button>
+					<p className="flex-1">
+						{balanceWarning} Your ready status is not blocked.
+					</p>
+					<Button
+						variant="ghost"
+						size="sm"
+						onClick={() => setBalanceWarning(null)}
+					>
+						Dismiss
+					</Button>
 				</div>
 			)}
 			{showDebugCall && (
@@ -473,12 +516,19 @@ export default function Dial() {
 				/>
 			)}
 
-			{/* 1-3-1 layout: LEFT (notifications), CENTER (call core / lead form),
-          RIGHT (controls + status). Fixed, roomy side columns and a flexible center;
-          side-by-side at xl, stacked below (center first). */}
-			<div className="grid grid-cols-1 gap-8 xl:grid-cols-[30rem_minmax(0,1fr)_22rem] xl:items-start">
+			{/* Controls toolbar across the top (dropdowns open over the page), then
+          two flex columns: LEFT (script / notes) and CENTER (call core / lead
+          form). Side-by-side at xl, stacked below (center first). */}
+			<div className="flex flex-col gap-8 xl:flex-row xl:flex-wrap xl:items-start xl:gap-x-3 xl:gap-y-3">
 				{/* LEFT — errors, prominent active-lead notes, then returning-caller pane. */}
-				<div className="order-2 flex flex-col items-stretch gap-4 xl:order-none">
+				<div
+					className={cn(
+						'order-2 flex flex-col items-stretch gap-4 empty:hidden xl:order-none',
+						scriptOpen
+							? 'xl:min-w-[30rem] xl:flex-[2_1_0%]'
+							: 'xl:w-[30rem] xl:flex-none'
+					)}
+				>
 					{displayError && (
 						<div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
 							{displayError}
@@ -491,8 +541,17 @@ export default function Dial() {
 					)}
 
 					{/* Script | Notes tabs when the campaign has a call script (ENG-278);
-                  otherwise just the notes panel, as before. */}
-					<ScriptHost agentVars={scriptAgentVars} />
+                  otherwise just the notes panel, as before. A script preview from
+                  the Campaigns menu shows here too, until a call starts. */}
+					{scriptPreviewCampaign && !workCall ? (
+						<ScriptPreviewPanel
+							campaign={scriptPreviewCampaign}
+							agentVars={scriptAgentVars}
+							onClose={() => setScriptPreviewCampaign(null)}
+						/>
+					) : (
+						<ScriptHost agentVars={scriptAgentVars} />
+					)}
 
 					{profile && provisioned && (
 						<>
@@ -501,21 +560,29 @@ export default function Dial() {
 							{workCall?.direction === 'outbound' &&
 								!wrapUpCompleted &&
 								!priorHistoryDismissed && (
-								<ReturningCallerCard
-									result={outboundHistory.data}
-									direction="outbound"
-									onDismiss={() => setDismissedCallerKey(wrapUpCallKey)}
-								/>
-							)}
+									<ReturningCallerCard
+										result={outboundHistory.data}
+										direction="outbound"
+										onDismiss={() => setDismissedCallerKey(wrapUpCallKey)}
+									/>
+								)}
 						</>
 					)}
 				</div>
 
-				{/* CENTER — the interactive call core (banners + lead form). Capped + centered
-            in its track so cards aren't stretched edge-to-edge on wide screens. */}
-				<div className="order-1 mx-auto flex w-full max-w-3xl flex-col gap-5 xl:order-none">
-					<div className="flex flex-wrap items-start justify-between gap-3">
+				{/* CENTER — the interactive call core (banners + lead form). */}
+				<div
+					className={cn(
+						'order-1 flex w-full flex-col gap-5 xl:order-none xl:min-w-0',
+						scriptOpen ? 'xl:flex-[3_1_0%]' : 'mx-auto max-w-3xl xl:flex-1'
+					)}
+				>
+					<div className="flex flex-wrap items-center gap-4">
 						<h1 className="text-2xl font-semibold tracking-tight">Calls</h1>
+						<CallsMicMeter
+							enabled={provisioned}
+							deviceId={device.inputDeviceId}
+						/>
 					</div>
 
 					{!session.bootstrapped && !displayError && (
@@ -548,9 +615,9 @@ export default function Dial() {
 									whisperNotice={session.whisperNotice}
 									campaignName={
 										activeCall.campaignId
-											? campaigns.find(
+											? (campaigns.find(
 													(campaign) => campaign.id === activeCall.campaignId
-											  )?.name ?? null
+												)?.name ?? null)
 											: null
 									}
 									onMute={device.activeCall ? device.mute : setDebugCallMuted}
@@ -587,22 +654,40 @@ export default function Dial() {
 								<IdleCallPanel available={displayAvailable} />
 							)}
 
-							{device.participant && <CallParticipantBanner participant={device.participant} onMerge={device.mergeParticipant} onEnd={device.endParticipant} />}
-							{device.participantNotice && !device.participant && <p role="status" className="text-sm text-muted-foreground">{device.participantNotice}</p>}
+							{device.participant && (
+								<CallParticipantBanner
+									participant={device.participant}
+									onMerge={device.mergeParticipant}
+									onEnd={device.endParticipant}
+								/>
+							)}
+							{device.participantNotice && !device.participant && (
+								<p role="status" className="text-sm text-muted-foreground">
+									{device.participantNotice}
+								</p>
+							)}
 
 							{/* Lead capture — held open after hangup until the call is dispositioned.
                   Inbound always creates a new lead; outbound may update prior history. */}
 							{workCall && effectiveLeadCampaignId && !wrapUpCompleted && (
-								<LeadForm
-									key={`${workCall.callSid || 'active-call'}:${editLead?.id ?? 'new'}`}
-									campaignId={effectiveLeadCampaignId}
-									callSid={workCall.callSid || null}
-									callerPhone={workCall.from}
-									onComplete={onWrapUpComplete}
-									showClear={false}
-									editLead={editLead}
-									publishToScript
-								/>
+								// Form, then notes below it (notes only when the form has a notes field).
+								<div className="flex flex-col gap-3">
+									<div className="min-w-0">
+										<LeadForm
+											key={`${workCall.callSid || 'active-call'}:${editLead?.id ?? 'new'}`}
+											campaignId={effectiveLeadCampaignId}
+											callSid={workCall.callSid || null}
+											callerPhone={workCall.from}
+											onComplete={onWrapUpComplete}
+											showClear={false}
+											editLead={editLead}
+											publishToScript
+										/>
+									</div>
+									<div className="min-w-0 empty:hidden">
+										<LeadNotesPanel />
+									</div>
+								</div>
 							)}
 							{workCall && !effectiveLeadCampaignId && !wrapUpCompleted && (
 								<Card className="shadow-xs">
@@ -616,13 +701,13 @@ export default function Dial() {
 										<div className="grid gap-2">
 											{(armedCampaigns.length ? armedCampaigns : campaigns).map(
 												(c) => (
-												<Button
-													key={c.id}
-													type="button"
-													variant="outline"
-													className="justify-start"
-													onClick={() => setLeadCampaignId(c.id)}
-												>
+													<Button
+														key={c.id}
+														type="button"
+														variant="outline"
+														className="justify-start"
+														onClick={() => setLeadCampaignId(c.id)}
+													>
 														{c.name}
 													</Button>
 												)
@@ -646,6 +731,7 @@ export default function Dial() {
 					onToggleReady={onToggleReady}
 					campaigns={campaigns}
 					onToggleCampaign={onToggleCampaign}
+					onPreviewScript={setScriptPreviewCampaign}
 					inputDeviceId={device.inputDeviceId}
 					outputDeviceId={device.outputDeviceId}
 					onInputDeviceChange={device.setInputDevice}
@@ -664,7 +750,12 @@ export default function Dial() {
 					onDialInputChange={setDialInput}
 					onDialOut={onDialOut}
 					canDial={canDial}
-					dialPending={Boolean(device.outboundStarting) || ['preparing', 'dialing', 'ringing'].includes(device.participant?.phase ?? '')}
+					dialPending={
+						Boolean(device.outboundStarting) ||
+						['preparing', 'dialing', 'ringing'].includes(
+							device.participant?.phase ?? ''
+						)
+					}
 					addingToCall={Boolean(device.activeCall)}
 					hotStates={hotStates}
 					hotStatesWindowHours={hotStatesWindowHours}
@@ -741,7 +832,7 @@ function DebugIncomingCallToggle({
 			size="sm"
 			onClick={onToggle}
 			aria-pressed={active}
-			className="fixed left-2 top-2 z-50 h-7 px-2 text-[11px] opacity-25 hover:opacity-100"
+			className="fixed bottom-28 right-4 z-50 h-7 px-2 text-[11px] opacity-25 hover:opacity-100"
 		>
 			{active ? 'End call' : 'Debug call'}
 		</Button>
@@ -757,6 +848,7 @@ function DialSidebar({
 	onToggleReady,
 	campaigns,
 	onToggleCampaign,
+	onPreviewScript,
 	inputDeviceId,
 	outputDeviceId,
 	onInputDeviceChange,
@@ -788,6 +880,7 @@ function DialSidebar({
 	onToggleReady: () => void;
 	campaigns: DialerCampaign[];
 	onToggleCampaign: (campaignId: string, ready: boolean) => void;
+	onPreviewScript: (campaign: DialerCampaign) => void;
 	inputDeviceId: string;
 	outputDeviceId: string;
 	onInputDeviceChange: (deviceId: string) => Promise<void>;
@@ -811,120 +904,174 @@ function DialSidebar({
 	hotStates: HotStateCount[];
 	hotStatesWindowHours: number | null;
 }) {
-	const systemMicMeter = useMicLevelMeter({
-		enabled: provisioned,
-		deviceId: inputDeviceId
-	});
 	const selectedCampaigns = campaigns.filter((campaign) => campaign.ready);
 	const showCampaignAllowancePopup =
 		selectedCampaigns.length > 0 && status !== 'ready' && busy !== 'status';
 
-	return (
-		<aside className="order-3 flex w-full flex-col gap-3 xl:order-none">
-			<Card className="shadow-xs">
-				<CardContent className="space-y-3 p-4">
-					{/* <div className="space-y-1">
-            <p className="text-sm font-medium">Controls </p>
-            <p className="text-xs leading-5 text-muted-foreground">
-              Set readiness and choose which campaigns can reach you.
-            </p>
-          </div> */}
-					<div className="grid gap-2">
-						<div className="group/ready relative">
-							<Button
-								className="w-full"
-								variant={status === 'ready' ? 'outline' : 'success'}
-								onClick={onToggleReady}
-								aria-describedby={
-									showCampaignAllowancePopup
-										? 'campaign-allowance-popup'
-										: undefined
-								}
-								disabled={
-									busy !== null ||
-									onCall ||
-									!provisioned ||
-									(status !== 'ready' && !canGoReady)
-								}
-							>
-								{busy === 'status' ? (
-									<Loader2 className="size-4 animate-spin" />
-								) : (
-									<Power className="size-4" />
-								)}
-								{busy === 'status'
-									? 'Saving…'
-									: status === 'ready'
-										? 'Pause Calls'
-										: 'Go Ready'}
-							</Button>
+	const readyControl = (
+		<div className="group/ready relative min-w-36 flex-1">
+			<Button
+				className="w-full"
+				variant={status === 'ready' ? 'outline' : 'success'}
+				onClick={onToggleReady}
+				aria-describedby={
+					showCampaignAllowancePopup ? 'campaign-allowance-popup' : undefined
+				}
+				disabled={
+					busy !== null ||
+					onCall ||
+					!provisioned ||
+					(status !== 'ready' && !canGoReady)
+				}
+			>
+				{busy === 'status' ? (
+					<Loader2 className="size-4 animate-spin" />
+				) : (
+					<Power className="size-4" />
+				)}
+				{busy === 'status'
+					? 'Saving…'
+					: status === 'ready'
+						? 'Pause Calls'
+						: 'Go Ready'}
+			</Button>
 
-							{showCampaignAllowancePopup && (
-								<div
-									id="campaign-allowance-popup"
-									role="tooltip"
-									className="pointer-events-none absolute right-full top-1/2 z-50 mr-2 w-72 max-w-[calc(100vw-2rem)] -translate-y-1/2 translate-x-1 rounded-lg border bg-popover p-3 text-popover-foreground opacity-0 shadow-lg transition duration-150 group-focus-within/ready:translate-x-0 group-focus-within/ready:opacity-100 group-hover/ready:translate-x-0 group-hover/ready:opacity-100"
-								>
-									<CampaignAllowanceDisplay campaigns={selectedCampaigns} />
-									<span className="absolute left-full top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-r border-t bg-popover" />
-								</div>
-							)}
-						</div>
-						<CampaignMenu
-							campaigns={campaigns}
-							busy={busy}
-							onCall={onCall}
-							onToggleCampaign={onToggleCampaign}
-						/>
-						<AudioSetupDialog
-							inputDeviceId={inputDeviceId}
-							outputDeviceId={outputDeviceId}
-							onInputDeviceChange={onInputDeviceChange}
-							onOutputDeviceChange={onOutputDeviceChange}
-						/>
-						<div
-							className="flex items-center gap-2 px-3 py-1"
-							title="Live microphone level"
-						>
-							<Mic className="size-4 shrink-0 text-muted-foreground" />
-							<MicLevelMeter
-								segments={systemMicMeter.segments}
-								className="min-w-0 flex-1"
-							/>
-						</div>
-					</div>
-				</CardContent>
-			</Card>
-
-			{showOutboundDialer && (
-				<Dialpad
-					value={dialInput}
-					onChange={onDialInputChange}
-					onDial={onDialOut}
-					canDial={canDial}
-					pending={dialPending}
-					addingToCall={addingToCall}
-					deviceRegistered={deviceStatus === 'registered'}
-				/>
+			{showCampaignAllowancePopup && (
+				<div
+					id="campaign-allowance-popup"
+					role="tooltip"
+					className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-lg border bg-popover p-3 text-popover-foreground opacity-0 shadow-lg transition duration-150 group-focus-within/ready:opacity-100 group-hover/ready:opacity-100"
+				>
+					<CampaignAllowanceDisplay campaigns={selectedCampaigns} />
+				</div>
 			)}
+		</div>
+	);
 
-			<StatusPreview
-				available={available}
-				connected={connected}
-				status={status}
-				deviceStatus={deviceStatus}
-				networkChecking={networkChecking}
-				armedCount={armedCount}
-				campaignCount={campaignCount}
-				anyArmed={anyArmed}
-				onCall={onCall}
-				presence={presence}
-				provisioned={provisioned}
-				readyStatePending={readyStatePending}
-			/>
-
-			<HotStatesCard states={hotStates} windowHours={hotStatesWindowHours} />
+	return (
+		<aside className="order-first flex w-full basis-full flex-wrap items-center gap-2 rounded-lg border bg-card p-2 shadow-xs">
+			{readyControl}
+			<div className="min-w-36 flex-1">
+				<CampaignMenu
+					campaigns={campaigns}
+					busy={busy}
+					onCall={onCall}
+					onToggleCampaign={onToggleCampaign}
+					onPreviewScript={onPreviewScript}
+				/>
+			</div>
+			<div className="min-w-36 flex-1">
+				<AudioSetupDialog
+					inputDeviceId={inputDeviceId}
+					outputDeviceId={outputDeviceId}
+					onInputDeviceChange={onInputDeviceChange}
+					onOutputDeviceChange={onOutputDeviceChange}
+				/>
+			</div>
+			{showOutboundDialer && (
+				<ToolbarPopover
+					label="Outbound Dialer"
+					icon={<PhoneOutgoing className="size-4" />}
+					className="w-80"
+				>
+					<Dialpad
+						value={dialInput}
+						onChange={onDialInputChange}
+						onDial={onDialOut}
+						canDial={canDial}
+						pending={dialPending}
+						addingToCall={addingToCall}
+						deviceRegistered={deviceStatus === 'registered'}
+					/>
+				</ToolbarPopover>
+			)}
+			<ToolbarPopover
+				label="Current Status"
+				trailing={
+					<AvailabilityBadge
+						available={available}
+						connected={connected}
+						onCall={onCall}
+						pending={readyStatePending}
+					/>
+				}
+				className="w-96"
+			>
+				<StatusPreview
+					available={available}
+					connected={connected}
+					status={status}
+					deviceStatus={deviceStatus}
+					networkChecking={networkChecking}
+					armedCount={armedCount}
+					campaignCount={campaignCount}
+					anyArmed={anyArmed}
+					onCall={onCall}
+					presence={presence}
+					provisioned={provisioned}
+					readyStatePending={readyStatePending}
+				/>
+			</ToolbarPopover>
+			{hotStates.length > 0 && (
+				<ToolbarPopover label="Hot States 🔥" className="w-80 p-0">
+					<HotStatesCard
+						states={hotStates}
+						windowHours={hotStatesWindowHours}
+					/>
+				</ToolbarPopover>
+			)}
 		</aside>
+	);
+}
+
+/** Live mic level beside the Calls heading while the controls are a toolbar. */
+function CallsMicMeter({
+	enabled,
+	deviceId
+}: {
+	enabled: boolean;
+	deviceId: string;
+}) {
+	const meter = useMicLevelMeter({enabled, deviceId});
+	return (
+		<div
+			className="flex w-56 items-center gap-2 self-center"
+			title="Live microphone level"
+		>
+			<Mic className="size-4 shrink-0 text-muted-foreground" />
+			<MicLevelMeter segments={meter.segments} className="min-w-0 flex-1" />
+		</div>
+	);
+}
+
+/** A top-toolbar button whose panel drops down over the page (script mode). */
+function ToolbarPopover({
+	label,
+	icon,
+	trailing,
+	className,
+	children
+}: {
+	label: string;
+	icon?: ReactNode;
+	trailing?: ReactNode;
+	className?: string;
+	children: ReactNode;
+}) {
+	return (
+		<Popover>
+			<PopoverTrigger asChild>
+				<Button variant="outline" className="min-w-36 flex-1 justify-between">
+					{icon}
+					<span className="mr-auto truncate">{label}</span>
+					{trailing}
+					<ChevronDown className="size-4 opacity-60" />
+				</Button>
+			</PopoverTrigger>
+			<PopoverContent align="end" className={className}>
+				{children}
+			</PopoverContent>
+		</Popover>
 	);
 }
 
@@ -966,17 +1113,21 @@ function CampaignMenu({
 	campaigns,
 	busy,
 	onCall,
-	onToggleCampaign
+	onToggleCampaign,
+	onPreviewScript
 }: {
 	campaigns: DialerCampaign[];
 	busy: 'status' | string | null;
 	onCall: boolean;
 	onToggleCampaign: (campaignId: string, ready: boolean) => void;
+	onPreviewScript: (campaign: DialerCampaign) => void;
 }) {
 	const readyCount = campaigns.filter((c) => c.ready).length;
+	// Controlled so opening a script preview closes the menu first.
+	const [open, setOpen] = useState(false);
 
 	return (
-		<DropdownMenu>
+		<DropdownMenu open={open} onOpenChange={setOpen}>
 			<DropdownMenuTrigger asChild>
 				<Button
 					variant="outline"
@@ -1029,6 +1180,26 @@ function CampaignMenu({
 										</span>
 									</div>
 								</div>
+								{campaign.script_id && (
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<Button
+												type="button"
+												variant="ghost"
+												size="icon"
+												className="-my-1 size-7 shrink-0 text-muted-foreground"
+												aria-label={`Preview script for ${campaign.name}`}
+												onClick={() => {
+													setOpen(false);
+													onPreviewScript(campaign);
+												}}
+											>
+												<ScrollText className="size-4" />
+											</Button>
+										</TooltipTrigger>
+										<TooltipContent side="left">Preview script</TooltipContent>
+									</Tooltip>
+								)}
 								{busy === campaign.id ? (
 									<Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
 								) : (
@@ -1170,95 +1341,76 @@ function Dialpad({
 	addingToCall: boolean;
 	deviceRegistered: boolean;
 }) {
-	const [open, setOpen] = useState(false);
 	const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
 	const preview = normalizeDialInput(value);
 
 	return (
-		<Card className="shadow-xs">
-			<CardHeader className={cn('pb-3', !open && 'pb-4')}>
-				<CardTitle className="flex items-center justify-between gap-3 text-base">
-					<button
-						type="button"
-						onClick={() => setOpen((current) => !current)}
-						className="inline-flex min-w-0 items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-						aria-expanded={open}
-					>
-						<PhoneOutgoing className="size-4 shrink-0 text-muted-foreground" />
-						<span className="truncate">Outbound Dialer</span>
-						<ChevronDown
-							className={cn(
-								'size-4 shrink-0 text-muted-foreground transition-transform',
-								open && 'rotate-180'
-							)}
-						/>
-					</button>
-				</CardTitle>
-			</CardHeader>
-			{open && (
-				<CardContent className="space-y-4">
-					<div className="flex items-center gap-2">
-						<Input
-							value={value}
-							inputMode="tel"
-							placeholder="(555) 123-4567"
-							className="h-12 font-mono text-lg"
-							onChange={(e) => onChange(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === 'Enter' && canDial) onDial();
-							}}
-						/>
-						<Button
-							variant="ghost"
-							size="icon"
-							aria-label="Delete last digit"
-							disabled={!value}
-							onClick={() => onChange(value.slice(0, -1))}
-						>
-							<Delete className="size-4" />
-						</Button>
-					</div>
+		<div className="space-y-4">
+			<div className="flex items-center gap-2">
+				<Input
+					value={value}
+					inputMode="tel"
+					placeholder="(555) 123-4567"
+					className="h-12 font-mono text-lg"
+					onChange={(e) => onChange(e.target.value)}
+					onKeyDown={(e) => {
+						if (e.key === 'Enter' && canDial) onDial();
+					}}
+				/>
+				<Button
+					variant="ghost"
+					size="icon"
+					aria-label="Delete last digit"
+					disabled={!value}
+					onClick={() => onChange(value.slice(0, -1))}
+				>
+					<Delete className="size-4" />
+				</Button>
+			</div>
 
-					<div className="grid grid-cols-3 gap-2.5">
-						{keys.map((k) => (
-							<Button
-								key={k}
-								variant="outline"
-								className="h-14 text-xl font-medium"
-								onClick={() => onChange(value + k)}
-							>
-								{k}
-							</Button>
-						))}
-					</div>
-
+			<div className="grid grid-cols-3 gap-2.5">
+				{keys.map((k) => (
 					<Button
-						variant="success"
-						className="h-12 w-full text-base"
-						disabled={!canDial}
-						onClick={onDial}
+						key={k}
+						variant="outline"
+						className="h-14 text-xl font-medium"
+						onClick={() => onChange(value + k)}
 					>
-						{pending ? (
-							<Loader2 className="size-4 animate-spin" />
-						) : (
-							<PhoneCall className="size-4" />
-						)}
-						{pending ? 'Calling…' : addingToCall ? 'Hold & call' : 'Call'}
+						{k}
 					</Button>
+				))}
+			</div>
 
-					{addingToCall && <p className="text-center text-xs text-muted-foreground">Call another person privately, then merge when you're ready. Your current caller will hear hold music.</p>}
-					{!deviceRegistered ? (
-						<p className="text-center text-xs text-muted-foreground">
-							Softphone connecting… you can place a call once it's ready.
-						</p>
-					) : value && !preview ? (
-						<p className="text-center text-xs text-muted-foreground">
-							Enter a valid US or Canada number.
-						</p>
-					) : null}
-				</CardContent>
+			<Button
+				variant="success"
+				className="h-12 w-full text-base"
+				disabled={!canDial}
+				onClick={onDial}
+			>
+				{pending ? (
+					<Loader2 className="size-4 animate-spin" />
+				) : (
+					<PhoneCall className="size-4" />
+				)}
+				{pending ? 'Calling…' : addingToCall ? 'Hold & call' : 'Call'}
+			</Button>
+
+			{addingToCall && (
+				<p className="text-center text-xs text-muted-foreground">
+					Call another person privately, then merge when you're ready. Your
+					current caller will hear hold music.
+				</p>
 			)}
-		</Card>
+			{!deviceRegistered ? (
+				<p className="text-center text-xs text-muted-foreground">
+					Softphone connecting… you can place a call once it's ready.
+				</p>
+			) : value && !preview ? (
+				<p className="text-center text-xs text-muted-foreground">
+					Enter a valid US or Canada number.
+				</p>
+			) : null}
+		</div>
 	);
 }
 
@@ -1289,7 +1441,6 @@ function StatusPreview({
 	provisioned: boolean;
 	readyStatePending: boolean;
 }) {
-	const [open, setOpen] = useState(true);
 	const deviceRegistered = deviceStatus === 'registered';
 	const isAvailable = available === 1;
 	const availabilityHelper = !provisioned
@@ -1299,124 +1450,90 @@ function StatusPreview({
 			: reasonNotAvailable(presence, anyArmed, connected, deviceStatus, onCall);
 
 	return (
-		<Card className="w-full shadow-xs">
-			<CardHeader className={cn('pb-3', !open && 'pb-4')}>
-				<CardTitle className="flex items-center justify-between gap-3 text-base">
-					<button
-						type="button"
-						onClick={() => setOpen((current) => !current)}
-						className="inline-flex min-w-0 items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-						aria-expanded={open}
-					>
-						<span className="truncate">Current Status</span>
-						<ChevronDown
-							className={cn(
-								'size-4 shrink-0 text-muted-foreground transition-transform',
-								open && 'rotate-180'
-							)}
-						/>
-					</button>
-					<AvailabilityBadge
-						available={available}
-						connected={connected}
-						onCall={onCall}
-						pending={readyStatePending}
-					/>
-				</CardTitle>
-			</CardHeader>
-			{open && (
-				<CardContent className="space-y-4">
-					<StatusRow
-						icon={onCall ? PhoneCall : isAvailable ? CircleCheck : CircleAlert}
-						label="Availability"
-						value={
-							onCall ? 'On Call' : isAvailable ? 'Available' : 'Unavailable'
-						}
-						helper={availabilityHelper}
-						tone={onCall ? 'warning' : isAvailable ? 'success' : 'destructive'}
-					/>
-					<StatusRow
-						icon={onCall ? PhoneCall : readyStatePending ? Loader2 : Power}
-						label="Ready State"
-						value={onCall ? 'On Call' : status === 'ready' ? 'Ready' : 'Paused'}
-						helper={
-							onCall
-								? 'Currently on a call.'
-								: status === 'ready'
-									? 'You are marked ready to accept calls.'
-									: 'Click Go Ready when you are ready for calls.'
-						}
-						tone={
-							onCall
-								? 'warning'
-								: status === 'ready'
-									? 'success'
-									: 'destructive'
-						}
-						pending={!onCall && readyStatePending}
-					/>
-					{/*
-					 * ENG-159 Subplan 07. While the wizard runs, the softphone is
-					 * deliberately not built yet, so this row would otherwise read
-					 * "Not registered" in red for a second or two of every boot —
-					 * alarming, and about a state that is entirely normal.
-					 *
-					 * ⚠️ THE ONE STRING THIS FEATURE OWNS. It names no carrier, no
-					 * "Primary"/"Fallback", and never says a switch happened: the agent has
-					 * no action to take on any of it, so the only thing surfacing it could
-					 * produce is a support ticket about a system that is working correctly.
-					 */}
-					<StatusRow
-						icon={networkChecking ? Loader2 : deviceRegistered ? Wifi : WifiOff}
-						label="Phone Registration"
-						value={
-							networkChecking
-								? 'Checking'
-								: deviceRegistered
-									? 'Registered'
-									: deviceStatus
-						}
-						helper={
-							networkChecking
-								? 'Finding the best connection…'
-								: deviceRegistered
-									? 'Device registered with the phone network.'
-									: 'Not registered with the phone network.'
-						}
-						tone={
-							networkChecking
-								? 'warning'
-								: deviceRegistered
-									? 'success'
-									: 'destructive'
-						}
-						pending={networkChecking}
-					/>
-					<StatusRow
-						icon={RadioTower}
-						label="Call Network"
-						value={connected ? 'Connected' : 'Reconnecting'}
-							helper={
-							connected
-								? 'Device connected to the call network.'
-								: 'Device not connected to the call network.'
-						}
-						tone={connected ? 'success' : 'destructive'}
-					/>
-					<StatusRow
-						icon={ListChecks}
-						label="Campaign Routing"
-						value={`${armedCount} of ${campaignCount}`}
-						helper={
-							armedCount > 0
-								? `Active on ${armedCount} campaign${armedCount === 1 ? '' : 's'}.`
-								: 'Turn on at least one campaign to take calls.'
-						}
-						tone={armedCount > 0 ? 'success' : 'destructive'}
-					/>
-				</CardContent>
-			)}
-		</Card>
+		<div className="space-y-4">
+			<StatusRow
+				icon={onCall ? PhoneCall : isAvailable ? CircleCheck : CircleAlert}
+				label="Availability"
+				value={onCall ? 'On Call' : isAvailable ? 'Available' : 'Unavailable'}
+				helper={availabilityHelper}
+				tone={onCall ? 'warning' : isAvailable ? 'success' : 'destructive'}
+			/>
+			<StatusRow
+				icon={onCall ? PhoneCall : readyStatePending ? Loader2 : Power}
+				label="Ready State"
+				value={onCall ? 'On Call' : status === 'ready' ? 'Ready' : 'Paused'}
+				helper={
+					onCall
+						? 'Currently on a call.'
+						: status === 'ready'
+							? 'You are marked ready to accept calls.'
+							: 'Click Go Ready when you are ready for calls.'
+				}
+				tone={
+					onCall ? 'warning' : status === 'ready' ? 'success' : 'destructive'
+				}
+				pending={!onCall && readyStatePending}
+			/>
+			{/*
+			 * ENG-159 Subplan 07. While the wizard runs, the softphone is
+			 * deliberately not built yet, so this row would otherwise read
+			 * "Not registered" in red for a second or two of every boot —
+			 * alarming, and about a state that is entirely normal.
+			 *
+			 * ⚠️ THE ONE STRING THIS FEATURE OWNS. It names no carrier, no
+			 * "Primary"/"Fallback", and never says a switch happened: the agent has
+			 * no action to take on any of it, so the only thing surfacing it could
+			 * produce is a support ticket about a system that is working correctly.
+			 */}
+			<StatusRow
+				icon={networkChecking ? Loader2 : deviceRegistered ? Wifi : WifiOff}
+				label="Phone Registration"
+				value={
+					networkChecking
+						? 'Checking'
+						: deviceRegistered
+							? 'Registered'
+							: deviceStatus
+				}
+				helper={
+					networkChecking
+						? 'Finding the best connection…'
+						: deviceRegistered
+							? 'Device registered with the phone network.'
+							: 'Not registered with the phone network.'
+				}
+				tone={
+					networkChecking
+						? 'warning'
+						: deviceRegistered
+							? 'success'
+							: 'destructive'
+				}
+				pending={networkChecking}
+			/>
+			<StatusRow
+				icon={RadioTower}
+				label="Call Network"
+				value={connected ? 'Connected' : 'Reconnecting'}
+				helper={
+					connected
+						? 'Device connected to the call network.'
+						: 'Device not connected to the call network.'
+				}
+				tone={connected ? 'success' : 'destructive'}
+			/>
+			<StatusRow
+				icon={ListChecks}
+				label="Campaign Routing"
+				value={`${armedCount} of ${campaignCount}`}
+				helper={
+					armedCount > 0
+						? `Active on ${armedCount} campaign${armedCount === 1 ? '' : 's'}.`
+						: 'Turn on at least one campaign to take calls.'
+				}
+				tone={armedCount > 0 ? 'success' : 'destructive'}
+			/>
+		</div>
 	);
 }
 
