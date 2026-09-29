@@ -36,6 +36,7 @@ import { readRttMs } from './rtcStats';
 import {TelnyxHoldController} from './telnyxHold';
 import {TelnyxConsultation} from './TelnyxConsultation';
 import {TelnyxSupervision} from './TelnyxSupervision';
+import {TelnyxMicrophone, stopMicrophoneStream} from './TelnyxMicrophone';
 import type {
 	IncomingLeg,
 	LegEvent,
@@ -97,7 +98,11 @@ const RTT_POLL_MS = 1_000;
 interface TelnyxCall {
 	id: string;
 	state: string;
-	options?: {
+	options: {
+		localStream?: MediaStream;
+		audio?: boolean;
+		receiveOnlyAudio?: boolean;
+		micId?: string;
 		customHeaders?: Array<{name?: string; value?: string}>;
 		remoteCallerNumber?: string;
 	};
@@ -118,7 +123,6 @@ interface TelnyxCall {
 	readonly localStream: MediaStream | null;
 	readonly remoteStream: MediaStream | null;
 	readonly peer?: {instance?: RTCPeerConnection | null} | null;
-	setAudioInDevice(deviceId: string): Promise<void>;
 	setAudioOutDevice(deviceId: string): Promise<boolean>;
 }
 
@@ -138,6 +142,8 @@ export class TelnyxTransport implements VoiceTransport {
 	private refreshing = false;
 	/** Reapplied whenever token refresh constructs a replacement Telnyx client. */
 	private inputDeviceId = 'default';
+	private microphone: TelnyxMicrophone;
+	private inputSwitches = 0;
 	private outputDeviceId = 'default';
 	private destroyed = false;
 	private consultation: TelnyxConsultation;
@@ -148,18 +154,31 @@ export class TelnyxTransport implements VoiceTransport {
 	constructor(private readonly options: TelnyxTransportOptions) {
 		this.inputDeviceId = options.inputDeviceId ?? 'default';
 		this.outputDeviceId = options.outputDeviceId ?? 'default';
+		this.microphone = new TelnyxMicrophone(this.inputDeviceId, () => {
+			this.options.onError?.('Your selected microphone disconnected. Reconnect it and select it in Audio Setup.');
+		});
 		this.supervision = new TelnyxSupervision({
+			prepareAudio: call => {
+				if (!call.options) throw new Error('Call audio is not ready.');
+				call.options.localStream = this.microphone.clone();
+			},
 			changed: state => this.supervisionCb?.(state),
 			log: (step, data) => console.info('[dialer][supervision]', step, data)
 		});
 		this.consultation = new TelnyxConsultation({
 			primary: () => this.activeCall(),
-			canStart: () => !this.holdController && !this.activeCall()?.isAudioMuted && !this.destroyed,
+			canStart: () => !this.inputSwitches && !this.holdController && !this.activeCall()?.isAudioMuted && !this.destroyed,
 			outputDevice: () => this.outputDeviceId,
 			changed: state => this.participantCb?.(state),
 			dial: (to, from, remoteElement, id) => {
 				if (!this.client) throw new Error('Telnyx is not registered.');
-				return this.client.newCall({id, destinationNumber: to, callerNumber: from, remoteElement, micId: this.inputDeviceId});
+				const localStream = this.microphone.clone();
+				try {
+					return this.client.newCall({id, destinationNumber: to, callerNumber: from, remoteElement, micId: this.inputDeviceId, localStream});
+				} catch (error) {
+					stopMicrophoneStream(localStream);
+					throw error;
+				}
 			}
 		});
 	}
@@ -171,6 +190,7 @@ export class TelnyxTransport implements VoiceTransport {
 
 	onSupervisionChange(cb: (state: SupervisionState) => void): void { this.supervisionCb = cb; }
 	expectSupervision(request: ExpectSupervision): void {
+		if (this.inputSwitches) throw new Error('Wait for the microphone change to finish.');
 		if (this.activeCall() || this.consultation.busy) throw new Error('End your current call before supervising.');
 		this.supervision.expect(request);
 	}
@@ -181,6 +201,9 @@ export class TelnyxTransport implements VoiceTransport {
 
 	async register(token: string): Promise<void> {
 		this.statusCb?.('connecting');
+		try { await this.microphone.ensure(); }
+		catch { this.options.onError?.('Could not open your selected microphone. Select it in Audio Setup before taking calls.'); }
+		if (this.destroyed) return;
 		this.client = await this.buildClient(token);
 		this.rememberTokenExpiry(token);
 		this.startRefreshTicker();
@@ -252,6 +275,17 @@ export class TelnyxTransport implements VoiceTransport {
 		if (payload?.type !== 'callUpdate' || !payload.call) return;
 
 		const call = payload.call;
+		// The SDK answers recovered legs itself, after synchronously announcing this
+		// state. Give the replacement leg a clone before it can reacquire a default mic.
+		if (call.state === 'recovering' && !call.options.localStream) {
+			try { call.options.localStream = this.microphone.clone(); }
+			catch (error) {
+				// Make peer initialization fail instead of allowing SDK capture/fallback.
+				call.options.audio = false;
+				call.options.receiveOnlyAudio = false;
+				this.options.onError?.(error instanceof Error ? error.message : 'Could not restore your microphone.');
+			}
+		}
 		// Supervision legs are claimed (or refused) before anything else can see them.
 		if (this.supervision?.onCall(call)) return;
 		if (this.consultation?.onCall(call)) return;
@@ -261,12 +295,24 @@ export class TelnyxTransport implements VoiceTransport {
 			// Headers ride on the INVITE, so they are readable at 'ringing' — before we
 			// answer. Anything earlier (new/trying) carries no metadata yet.
 			if (!isNewIncomingState(call.state)) return;
-			const leg = new TelnyxLeg(call, () => this.consultation?.busy ? this.consultation : null);
+			const leg = new TelnyxLeg(call, () => this.consultation?.busy ? this.consultation : null, () => {
+				try {
+					// Supplying localStream bypasses the SDK's default-device probing/fallback.
+					call.options.localStream = this.microphone.clone();
+					call.answer();
+				} catch (error) {
+					stopMicrophoneStream(call.options.localStream);
+					this.options.onError?.(error instanceof Error ? error.message : 'Could not open your selected microphone.');
+					leg.emit('error');
+					void call.hangup();
+				}
+			});
 			this.legs.set(call.id, leg);
 			this.incomingCb?.(leg);
 			return;
 		}
 
+		existing.call = call;
 		const transition = legStateTransition(call.state, existing.everActive);
 		if (transition.kind === 'event') {
 			if (transition.event === 'accept') existing.markActive();
@@ -359,6 +405,7 @@ export class TelnyxTransport implements VoiceTransport {
 
 	destroy(): void {
 		this.destroyed = true;
+		this.microphone.destroy();
 		this.supervision?.destroy();
 		this.consultation?.destroy();
 		if (this.refreshTimer !== null) window.clearInterval(this.refreshTimer);
@@ -389,6 +436,7 @@ export class TelnyxTransport implements VoiceTransport {
 	 * `play()` inside the click gesture — no private fields, no shared AudioContext.
 	 */
 	async armAudio(): Promise<void> {
+		await this.microphone.ensure();
 		try {
 			await this.ensureRemoteAudio().play();
 		} catch {
@@ -396,49 +444,52 @@ export class TelnyxTransport implements VoiceTransport {
 		}
 	}
 
-	/**
-	 * Device selection is per-CALL on Telnyx but our settings UI is reachable outside a
-	 * call, so route to the client when idle and to the live call when active — and
-	 * remember the choice either way, so the next call inherits it.
-	 */
+	/** Acquire first; only commit the preference after the live call accepts it. */
 	async setInputDevice(deviceId: string): Promise<void> {
-		if (this.consultation?.busy) throw new Error('End the added call before switching audio devices.');
-		if (this.supervision?.busy) throw new Error('Stop supervising before switching audio devices.');
-		const call = this.activeCall();
-
-		// ⚠️ NEVER SWITCH THE LIVE SENDER WHILE THE CALL IS HELD. Hold works by
-		// `replaceTrack(musicTrack)` on the call's audio sender — and `setAudioInDevice`
-		// replaces the track on that same sender. Calling it here would swap the hold
-		// music back out for the agent's LIVE MICROPHONE: the caller, who was just put on
-		// hold, starts hearing the room, while the agent (still `deaf()`) cannot hear them
-		// and has no idea it happened. Hand the new device to the hold controller instead,
-		// so the music keeps playing and Resume restores the microphone they just chose.
-		if (call && this.holdController) {
-			await this.holdController.setHeldInputDevice(deviceId);
-			await this.persistInputPreference(deviceId);
-			return;
+		if (!this.client) throw new Error('Softphone audio is not ready yet.');
+		if (this.consultation.busy) throw new Error('End the added call before switching audio devices.');
+		if (this.supervision.busy) throw new Error('Stop supervising before switching audio devices.');
+		this.inputSwitches++;
+		try {
+			await this.switchInputDevice(deviceId);
+		} finally {
+			this.inputSwitches--;
 		}
-
-		if (call) {
-			await call.setAudioInDevice(deviceId);
-			// AND persist it on the client. Without this the change applies to the current
-			// call only: the SDK builds each new call from the client's own `micId`, so the
-			// next inbound silently reverts to the previous device while the settings UI
-			// still shows the one the agent picked.
-			await this.persistInputPreference(deviceId);
-			return;
-		}
-
-		await this.persistInputPreference(deviceId);
 	}
 
-	/** The client-level microphone preference every future SDK-created call inherits. */
-	private async persistInputPreference(deviceId: string): Promise<void> {
-		const client = this.client;
-		if (!client) throw new Error('Softphone audio is not ready yet.');
-		client.micId = deviceId;
-		await client.setAudioSettings({micId: deviceId});
+	private async switchInputDevice(deviceId: string): Promise<void> {
+		await this.microphone.select(deviceId, async source => {
+			// Recheck after capture: a call may have arrived while permission was pending.
+			if (this.consultation.busy) throw new Error('End the added call before switching audio devices.');
+			if (this.supervision.busy) throw new Error('Stop supervising before switching audio devices.');
+			const call = this.activeCall();
+			if (!call && this.legs.size) throw new Error('Wait for the call to connect before switching microphones.');
+			if (!call) return;
+			const next = source.clone();
+			try {
+				const track = next.getAudioTracks()[0];
+				track.enabled = !call.isAudioMuted;
+				if (this.holdController) {
+					// Update Resume's saved track; the caller must keep hearing hold music.
+					this.holdController.setHeldInputTrack(track);
+				} else {
+					const sender = call.peer?.instance?.getSenders().find(sender => sender.track?.kind === 'audio');
+					if (!sender) throw new Error('Could not reach the call microphone.');
+					await sender.replaceTrack(track);
+				}
+				if (this.destroyed || isTerminalState(call.state) || this.activeCall() !== call) throw new Error('The call has ended or reconnected. Select your microphone again.');
+				track.enabled = !call.isAudioMuted;
+				const previous = call.localStream;
+				call.options.localStream = next;
+				call.options.micId = deviceId;
+				stopMicrophoneStream(previous);
+			} catch (error) {
+				stopMicrophoneStream(next);
+				throw error;
+			}
+		});
 		this.inputDeviceId = deviceId;
+		if (this.client) this.client.micId = deviceId;
 	}
 
 	async setOutputDevice(deviceId: string): Promise<void> {
@@ -457,6 +508,7 @@ export class TelnyxTransport implements VoiceTransport {
 	}
 
 	async startHold(): Promise<void> {
+		if (this.inputSwitches) throw new Error('Wait for the microphone change to finish.');
 		if (this.consultation?.busy) throw new Error('End the added call before changing hold.');
 		if (this.supervision?.busy) throw new Error('Stop supervising before changing hold.');
 		const call = this.activeCall();
@@ -529,8 +581,9 @@ class TelnyxLeg implements IncomingLeg {
 	private handlers = new Map<LegEvent, Array<(payload?: unknown) => void>>();
 	private rttTimer: number | null = null;
 	private terminalEmitted = false;
+	private answerStarted = false;
 
-	constructor(readonly call: TelnyxCall, private readonly consultation: () => TelnyxConsultation | null = () => null) {
+	constructor(public call: TelnyxCall, private readonly consultation: () => TelnyxConsultation | null, private readonly answer: () => void) {
 		this.legId = call.id;
 		this.from = call.options?.remoteCallerNumber || null;
 		this.params = normalizeTelnyxHeaders(call.options?.customHeaders);
@@ -552,7 +605,9 @@ class TelnyxLeg implements IncomingLeg {
 	}
 
 	accept(): void {
-		this.call.answer();
+		if (this.answerStarted || isTerminalState(this.call.state)) return;
+		this.answerStarted = true;
+		this.answer();
 	}
 
 	/** No SIP-level reject; hanging up is the equivalent refusal. */

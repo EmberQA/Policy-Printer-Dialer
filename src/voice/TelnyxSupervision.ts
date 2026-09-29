@@ -37,6 +37,7 @@ export interface SupervisionCall {
 	cause?: string;
 	sipCode?: string | number;
 	options?: {
+		localStream?: MediaStream;
 		customHeaders?: Array<{name?: string; value?: string}>;
 		remoteCallerNumber?: string;
 	};
@@ -75,6 +76,7 @@ export class TelnyxSupervision {
 	constructor(
 		private readonly host: {
 			changed(state: SupervisionState): void;
+			prepareAudio?(call: SupervisionCall): void;
 			log?(step: string, data: Record<string, unknown>): void;
 		}
 	) {}
@@ -263,7 +265,15 @@ export class TelnyxSupervision {
 		});
 		this.emit(s);
 		this.refuseParked(s);
-		call.answer();
+		try {
+			this.host.prepareAudio?.(call);
+			call.answer();
+		} catch (error) {
+			call.options?.localStream?.getTracks().forEach(track => track.stop());
+			this.finish(s, 'failed', error instanceof Error ? error.message : 'Could not open your selected microphone.');
+			void call.hangup();
+			return;
+		}
 		// The SDK may already report `active` on the same object after answer().
 		this.track(s, call);
 	}

@@ -83,16 +83,9 @@ export class TelnyxHoldController {
 	 * who believes they are on hold. Swap the SAVED track instead — the music plays on,
 	 * and Resume brings back the device the agent actually chose.
 	 */
-	async setHeldInputDevice(deviceId: string): Promise<void> {
-		if (!this.music) return;
-		const stream = await navigator.mediaDevices.getUserMedia({
-			audio: deviceId === 'default' ? true : {deviceId: {exact: deviceId}}
-		});
-		const track = stream.getAudioTracks()[0] ?? null;
-		if (!track) return;
-		// Release the device we were holding for the resume, or it stays open (and, on
-		// some platforms, keeps the microphone's in-use indicator lit).
-		this.originalTrack?.stop();
+	setHeldInputTrack(track: MediaStreamTrack): void {
+		if (!this.music || !this.sender) throw new Error('Wait for the hold change to finish.');
+		// The transport owns stream replacement and releases the previous call stream.
 		this.originalTrack = track;
 	}
 

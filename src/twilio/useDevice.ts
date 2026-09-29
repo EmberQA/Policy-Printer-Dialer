@@ -477,6 +477,7 @@ export function useDevice({
 				throw new Error('Softphone audio is not ready yet.');
 			}
 			await transport.setInputDevice(deviceId);
+			setError(null);
 			inputDeviceIdRef.current = deviceId;
 			setInputDeviceId(deviceId);
 		},
@@ -541,8 +542,11 @@ export function useDevice({
 		// call has sound without a second click.
 		try {
 			await transportRef.current?.armAudio();
-		} catch {
-			/* non-fatal: mic is granted; playback may still resume on accept */
+		} catch (error) {
+			// Telnyx retains its actual call microphone here. A permission-only probe
+			// succeeding above does not mean that retained capture succeeded too.
+			setError(micErrorMessage(error));
+			return false;
 		}
 
 		return true;
