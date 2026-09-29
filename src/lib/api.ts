@@ -786,6 +786,7 @@ export interface LeadFormBundleResponse {
 	statusMessage: string;
 	form?: DialerForm | null;
 	dispositions?: DialerDisposition[];
+	caller_state?: string | null;
 }
 
 /** lead/save + lead/update response. */
@@ -804,9 +805,13 @@ export interface SaveCallDispositionResponse {
 
 /** Fetch the active form + dispositions for the selected campaign. */
 export const getLeadFormBundle = (
-	campaignId: string
+	campaignId: string,
+	callSid?: string | null
 ): Promise<LeadFormBundleResponse> =>
-	qsPost('/policyPrinter/dialer/leadForm/get', {campaign_id: campaignId});
+	qsPost('/policyPrinter/dialer/leadForm/get', {
+		campaign_id: campaignId,
+		twilio_call_sid: callSid ?? null
+	});
 
 /** Persist the selected outcome directly on a call without creating a lead. */
 export const saveCallDisposition = (payload: {
