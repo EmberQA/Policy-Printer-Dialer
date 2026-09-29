@@ -53,7 +53,7 @@ export function LeadNotesPanel() {
 	if (!note) return null;
 	const id = `active-lead-${note.key}`;
 	return (
-		<Card className="xl:sticky xl:top-28 shadow-xs">
+		<Card className="shadow-xs">
 			<CardHeader className="pb-3">
 				<CardTitle>{note.label || 'Notes'}</CardTitle>
 				<p className="text-sm leading-5 text-muted-foreground">

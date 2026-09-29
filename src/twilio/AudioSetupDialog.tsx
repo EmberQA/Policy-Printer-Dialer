@@ -72,8 +72,9 @@ export function AudioSetupDialog({
 	const [echoStarted, setEchoStarted] = useState(false);
 	const [echoFailed, setEchoFailed] = useState(false);
 	const [echoConfirmationReady, setEchoConfirmationReady] = useState(false);
-	const [echoProgress, setEchoProgress] =
-		useState<RecordedEchoProgress | null>(null);
+	const [echoProgress, setEchoProgress] = useState<RecordedEchoProgress | null>(
+		null
+	);
 	const echoPlaybackRef = useRef<RecordedEcho | null>(null);
 	const echoConfirmationTimerRef = useRef<number | null>(null);
 	const open = controlledOpen ?? internalOpen;
@@ -332,11 +333,11 @@ export function AudioSetupDialog({
 			<DialogPrimitive.Portal>
 				<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
 				<DialogPrimitive.Content
-						className={cn(
-							'fixed left-1/2 top-1/2 z-50 grid min-w-0 w-[calc(100vw-2rem)] grid-cols-[minmax(0,1fr)] -translate-x-1/2 -translate-y-1/2 overflow-x-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
-							required
-								? 'max-h-[calc(100vh-2rem)] max-w-3xl gap-6 overflow-y-auto p-7 sm:p-8'
-								: 'max-w-2xl gap-4 p-5'
+					className={cn(
+						'fixed left-1/2 top-1/2 z-50 grid min-w-0 w-[calc(100vw-2rem)] grid-cols-[minmax(0,1fr)] -translate-x-1/2 -translate-y-1/2 overflow-x-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+						required
+							? 'max-h-[calc(100vh-2rem)] max-w-3xl gap-6 overflow-y-auto p-7 sm:p-8'
+							: 'max-w-2xl gap-4 p-5'
 					)}
 					onEscapeKeyDown={
 						required ? (event) => event.preventDefault() : undefined
@@ -382,7 +383,22 @@ export function AudioSetupDialog({
 								)}
 								Refresh
 							</Button>
-						) : (
+						) : null}
+						{required && import.meta.env.DEV && (
+							// Dev only: skip the required check (counts as passed).
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon"
+								className="size-8 shrink-0"
+								aria-label="Skip audio check (dev)"
+								title="Skip audio check (dev only)"
+								onClick={completeRequiredTest}
+							>
+								<X className="size-4" />
+							</Button>
+						)}
+						{required ? null : (
 							<DialogPrimitive.Close asChild>
 								<Button
 									type="button"
@@ -418,16 +434,16 @@ export function AudioSetupDialog({
 									loading={applying === 'input'}
 								/>
 							</div>
-								<Select value={inputDeviceId} onValueChange={changeInputDevice}>
-									<SelectTrigger
-										id="audio-input-device"
-										className="w-full min-w-0"
-										disabled={applying !== null || echoActive}
-									>
-										<SelectValue
-											placeholder="Select microphone"
-											className="min-w-0 flex-1 truncate text-left"
-										/>
+							<Select value={inputDeviceId} onValueChange={changeInputDevice}>
+								<SelectTrigger
+									id="audio-input-device"
+									className="w-full min-w-0"
+									disabled={applying !== null || echoActive}
+								>
+									<SelectValue
+										placeholder="Select microphone"
+										className="min-w-0 flex-1 truncate text-left"
+									/>
 								</SelectTrigger>
 								<SelectContent>
 									{inputOptions.map((device) => (
@@ -462,15 +478,15 @@ export function AudioSetupDialog({
 									value={outputDeviceId}
 									onValueChange={changeOutputDevice}
 								>
-										<SelectTrigger
-											id="audio-output-device"
-											className="w-full min-w-0 flex-1 overflow-hidden"
-											disabled={applying !== null || echoActive}
-										>
-											<SelectValue
-												placeholder="Select speaker"
-												className="min-w-0 flex-1 truncate text-left"
-											/>
+									<SelectTrigger
+										id="audio-output-device"
+										className="w-full min-w-0 flex-1 overflow-hidden"
+										disabled={applying !== null || echoActive}
+									>
+										<SelectValue
+											placeholder="Select speaker"
+											className="min-w-0 flex-1 truncate text-left"
+										/>
 									</SelectTrigger>
 									<SelectContent>
 										{outputOptions.map((device) => (
@@ -483,9 +499,9 @@ export function AudioSetupDialog({
 								<Button
 									type="button"
 									variant="secondary"
-										onClick={testSpeaker}
-										disabled={applying !== null || echoActive}
-										className="shrink-0 sm:w-32"
+									onClick={testSpeaker}
+									disabled={applying !== null || echoActive}
+									className="shrink-0 sm:w-32"
 								>
 									{applying === 'speaker' ? (
 										<Loader2 className="size-4 animate-spin" />
@@ -507,7 +523,9 @@ export function AudioSetupDialog({
 								<AudioLines className="size-4 text-muted-foreground" />
 								<p className="text-sm font-medium">Echo Test</p>
 								<DeviceStatus
-									status={echoActive ? 'Active' : echoStarted ? 'Complete' : 'Idle'}
+									status={
+										echoActive ? 'Active' : echoStarted ? 'Complete' : 'Idle'
+									}
 									loading={applying === 'echo'}
 								/>
 							</div>
@@ -527,12 +545,14 @@ export function AudioSetupDialog({
 									) : (
 										<Mic className="size-4" />
 									)}
-									{echoActive ? 'Stop' : echoStarted || echoFailed ? 'Test again' : 'Start'}
+									{echoActive
+										? 'Stop'
+										: echoStarted || echoFailed
+											? 'Test again'
+											: 'Start'}
 								</Button>
 							</div>
-							{echoProgress && (
-								<EchoProgressBar progress={echoProgress} />
-							)}
+							{echoProgress && <EchoProgressBar progress={echoProgress} />}
 							{silentPlaybackEscapeVisible && (
 								<Button
 									type="button"

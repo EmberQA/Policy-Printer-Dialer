@@ -34,11 +34,15 @@ export interface ScriptHeading {
 export interface ScriptText {
 	text: string;
 	variants?: string[];
+	/** Lines said after the caller answers (say → wait → say). */
+	then?: string[];
 }
 
 export interface ScriptInstruction {
 	text: string;
 	tone?: 'info' | 'warn';
+	/** Above or below what the agent says. Default: warn above, info below. */
+	position?: 'before' | 'after';
 }
 
 /* Actions ------------------------------------------------------------------ */
@@ -64,6 +68,23 @@ export type ScriptAction = {
 
 /* Routing ------------------------------------------------------------------ */
 
+/**
+ * A common objection / trigger offered right on a step, as a button next to its
+ * field ("If they want a review of what they already have → “I already have
+ * insurance”"). Clicking it first writes `fill` into the step's field (so the
+ * step counts as answered), then opens the objection; when that finishes, the
+ * call carries on past this step.
+ */
+export interface ScriptInterrupt {
+	id: string;
+	/** What the caller said, as the agent sees it on the button. */
+	label: string;
+	/** The OBJECTION / TRIGGER heading to open. */
+	heading_id: ScriptNodeId;
+	/** Capture steps only: the answer written into the step's field. */
+	fill?: string;
+}
+
 export type ScriptTarget =
 	| {kind: 'node'; node_id: ScriptNodeId}
 	| {kind: 'heading'; heading_id: ScriptNodeId}
@@ -78,6 +99,10 @@ export interface ScriptChoice {
 	actions?: ScriptAction[];
 	target: ScriptTarget;
 	max_uses?: number;
+	/** The answer the call continues on. When an objection / trigger raised
+	 * from this question finishes, the call picks up along this answer's
+	 * route. Without one, the question is asked again. At most one per step. */
+	main?: boolean;
 }
 
 export interface ScriptNextRouting {
@@ -98,6 +123,9 @@ export interface ScriptCaptureData {
 }
 export interface ScriptChecklistItem extends ScriptCaptureData {
 	id: string;
+	/** Fine to leave blank (e.g. apartment / unit): the checklist counts as done
+	 * without it, and its box can be ticked by hand. Can't be `required`. */
+	optional?: boolean;
 	say: ScriptText;
 }
 export interface ScriptChecklistData {
@@ -119,6 +147,8 @@ export interface ScriptStepCommon {
 	instructions?: ScriptInstruction[];
 	on_enter?: ScriptAction[];
 	requires?: ScriptVarKey[];
+	/** Common objections / triggers offered right on this step (see ScriptInterrupt). */
+	interrupts?: ScriptInterrupt[];
 }
 export type ScriptStepOf<T extends ScriptStepType> = ScriptStepCommon & {
 	type: T;
@@ -141,6 +171,8 @@ export interface ScriptInputRegistry {
 	date: Record<string, never>;
 	choice: {
 		options: Array<{value: string; label: string}>;
+		/** Adds an "Other" button with a free-text answer (the var stores the text). */
+		allow_other?: boolean;
 		allow_other?: boolean;
 	};
 	boolean: {true_label?: string; false_label?: string};
@@ -220,4 +252,14 @@ export interface ScriptSession {
 	ended: boolean;
 	tags: string[];
 	path: Array<{node_id: ScriptNodeId; choice_id?: string}>;
+	/** Steps finished — left by Next / an answer (see engine isStepDone for
+	 * the tracked rules). Decides where an objection hands back to. */
+	done: Record<ScriptNodeId, true>;
+	/** Checklist lines ticked off by hand, keyed `stepId:itemId` (lines with a
+	 * field tick themselves once it's filled). */
+	checked: Record<string, true>;
+	/** Time spent on each step, ms (past visits; the current one is live). */
+	dwell_ms: Record<ScriptNodeId, number>;
+	/** When the current step was entered (ISO). */
+	entered_at: string | null;
 }
