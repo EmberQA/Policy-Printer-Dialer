@@ -31,7 +31,17 @@ export interface ScriptHeading {
 
 /* Text --------------------------------------------------------------------- */
 
+/** An optional answer beside an existing spoken block; 0 = text, 1 = first then line.
+ * Omitted after places it after the last block. Conditional fields retain their
+ * values when hidden, but do not contribute to checklist completion. */
+export interface ScriptTextField {
+	var: ScriptVarKey;
+	after?: number;
+	when?: {var: ScriptVarKey; equals: ScriptVarValue};
+}
+
 export interface ScriptText {
+	fields?: ScriptTextField[];
 	text: string;
 	variants?: string[];
 	/** Lines said after the caller answers (say → wait → say). */
@@ -48,7 +58,11 @@ export interface ScriptInstruction {
 /* Actions ------------------------------------------------------------------ */
 
 export type ScriptOutcome =
-	'sale' | 'no_sale' | 'callback' | 'redirected' | 'disqualified';
+	| 'sale'
+	| 'no_sale'
+	| 'callback'
+	| 'redirected'
+	| 'disqualified';
 
 export interface ScriptActionRegistry {
 	set_var: {key: ScriptVarKey; value: ScriptVarValue};
@@ -110,6 +124,8 @@ export interface ScriptNextRouting {
 	choices?: never;
 }
 export interface ScriptChoiceRouting {
+	/** Route for Next with no answer; never runs a choice action. */
+	skip?: ScriptTarget;
 	choices: ScriptChoice[];
 	next?: never;
 }
@@ -122,6 +138,10 @@ export interface ScriptCaptureData {
 	required?: boolean;
 }
 export interface ScriptChecklistItem extends ScriptCaptureData {
+	/** Reading/confirmation stays manual, even when its answer is prefilled. */
+	confirm?: boolean;
+	/** Read-only value, optionally selected from other vars by this var's value. */
+	display?: {var: ScriptVarKey; choices?: Record<string, ScriptVarKey>};
 	id: string;
 	/** Fine to leave blank (e.g. apartment / unit): the checklist counts as done
 	 * without it, and its box can be ticked by hand. Can't be `required`. */
@@ -129,6 +149,7 @@ export interface ScriptChecklistItem extends ScriptCaptureData {
 	say: ScriptText;
 }
 export interface ScriptChecklistData {
+	position?: 'before' | 'after';
 	items: ScriptChecklistItem[];
 }
 
@@ -172,7 +193,6 @@ export interface ScriptInputRegistry {
 	choice: {
 		options: Array<{value: string; label: string}>;
 		/** Adds an "Other" button with a free-text answer (the var stores the text). */
-		allow_other?: boolean;
 		allow_other?: boolean;
 	};
 	boolean: {true_label?: string; false_label?: string};
@@ -243,6 +263,10 @@ export interface ScriptVarState {
 }
 
 export interface ScriptSession {
+	/** Latest explicitly selected answer per question, preserved on Back. */
+	answers?: Record<ScriptNodeId, string>;
+	/** Choice responses waiting to be read, including suspended objection parents. */
+	pending_choices?: Record<ScriptNodeId, string>;
 	current_node_id: ScriptNodeId;
 	return_stack: ScriptNodeId[];
 	vars: Record<ScriptVarKey, ScriptVarState>;

@@ -6,7 +6,8 @@
  * tabs; otherwise just the notes panel, exactly as before.
  *
  * The session lives here, in the browser, for one call (keyed by the form's
- * callKey + script id) — never persisted, never sent anywhere. Form ↔ script
+ * callKey + script id). Navigation stays local; answers flow into lead fields
+ * or plain lead notes through the existing save workflow. Form ↔ script
  * sync: form commits (blur / pick / save) feed `in` vars; a committed script
  * capture writes `out` vars into the form. Last write wins both ways.
  *
@@ -37,6 +38,7 @@ import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card, CardContent, CardHeader} from '@/components/ui/card';
 import {cn} from '@/lib/utils';
+import {stateFormValueFromCode} from '@/lib/phone';
 import {
 	useLeadFormBridge,
 	type LeadFormView
@@ -52,6 +54,10 @@ import {
 	headingChain,
 	indexGraph,
 	isItemDone,
+	itemInputKeys,
+	itemDisplay,
+	visibleFields,
+	prerequisiteFields,
 	jumpToHeading,
 	missingVars,
 	raiseInterrupt,
@@ -63,6 +69,12 @@ import {
 	type ScriptIndex,
 	type VarSeed
 } from './engine';
+import {focusNextScriptField, handleScriptTab} from './fieldNavigation';
+import {
+	scriptAnswerLines,
+	mergeAnswerNotes,
+	type AnswerLines
+} from './answerNotes';
 import {ScriptVarInput} from './ScriptVarInput';
 import type {
 	DialerScript,
@@ -120,6 +132,39 @@ function LiveScript({
 
 	const runner = useScriptRunner(ix, () => initialSeed(ix, view, agentVars));
 	const {update} = runner;
+	const priorNoteLines = useRef<AnswerLines>({});
+	useEffect(() => {
+		const v = viewRef.current;
+		const lines = scriptAnswerLines(
+			ix.graph,
+			runner.session,
+			v.formKey,
+			v.schema
+		);
+		const previous = priorNoteLines.current;
+		if (JSON.stringify(lines) === JSON.stringify(previous)) return;
+		priorNoteLines.current = lines;
+		const noteKey =
+			v.schema.find((field) => field.key === 'notes' || field.key === 'note')
+				?.key ?? 'notes';
+		v.updateField(noteKey, (value) =>
+			mergeAnswerNotes(typeof value === 'string' ? value : '', previous, lines)
+		);
+	}, [ix, runner.session]);
+
+	useEffect(() => {
+		update((session) => {
+			let next = session;
+			for (const [key, seed] of Object.entries(agentSeed(ix, agentVars))) {
+				const existing = next.vars[key];
+				if (!existing || existing.source === 'profile') {
+					if (existing?.value !== seed.value)
+						next = commitVar(next, key, seed.value, 'profile');
+				}
+			}
+			return next;
+		});
+	}, [agentVars, ix, update]);
 
 	// Form → script: only committed values (blur / pick / save).
 	useEffect(
@@ -147,12 +192,40 @@ function LiveScript({
 				// A typed "Other" answer can't go into a pick-list field that
 				// doesn't offer it — the lead would fail to save.
 				const def = v.schema.find((f) => f.key === field);
-				const picks = def?.options?.map((o) => o.value);
-				if (picks?.length && !picks.includes(String(value))) continue;
-				v.writeField(field, value);
+				if (!def) continue;
+				const picks = def.options?.map((o) => o.value);
+				let formValue = value;
+				if (field === 'state' && typeof value === 'string' && picks?.length) {
+					const normalized = value.trim().toLowerCase();
+					formValue =
+						stateFormValueFromCode(value, def.options) ??
+						def.options?.find(
+							(option) =>
+								option.value.toLowerCase() === normalized ||
+								option.label.toLowerCase() === normalized ||
+								option.label.split(' (')[0].toLowerCase() === normalized
+						)?.value ??
+						value;
+				}
+				if (
+					picks?.length &&
+					formValue !== '' &&
+					!picks.includes(String(formValue))
+				)
+					continue;
+				v.writeField(field, formValue);
+				if (formValue !== value)
+					update((session) => commitVar(session, key, formValue, 'capture'));
+				update((session) =>
+					varsForFormField(ix, v.formKey!, field).reduce(
+						(next, alias) =>
+							alias === key ? next : commitVar(next, alias, formValue, 'form'),
+						session
+					)
+				);
 			}
 		},
-		[ix]
+		[ix, update]
 	);
 
 	return (
@@ -198,7 +271,10 @@ function useScriptRunner(ix: ScriptIndex, seed: () => VarSeed) {
 			setState((st) => {
 				const next = fn(st.session);
 				if (next === st.session) return st;
-				const moved = next.current_node_id !== st.session.current_node_id;
+				const moved =
+					next.current_node_id !== st.session.current_node_id ||
+					next.pending_choices !== st.session.pending_choices ||
+					next.ended !== st.session.ended;
 				return {
 					session: next,
 					history: moved
@@ -380,11 +456,7 @@ function ScriptPanel({
 	const chain = step ? headingChain(ix, step.heading_id).reverse() : [];
 	// Back is always "the page before this one" — never a jump to a section start.
 	const back = canGoBack ? onBack : undefined;
-	const canNext =
-		!session.ended &&
-		step !== undefined &&
-		!step.choices &&
-		missingVars(session, step).length === 0;
+	const canNext = !session.ended && step !== undefined;
 
 	return (
 		// Objection / trigger rail on the left, script card beside it — the
@@ -407,6 +479,7 @@ function ScriptPanel({
 								</Badge>
 							)}
 							<Button
+								tabIndex={-1}
 								type="button"
 								variant="ghost"
 								size="icon"
@@ -424,6 +497,7 @@ function ScriptPanel({
 				<CardContent className="space-y-1.5 px-2 pb-2 pt-0 text-sm">
 					<div className="flex gap-2">
 						<Button
+							tabIndex={-1}
 							type="button"
 							variant="outline"
 							disabled={!back}
@@ -432,8 +506,9 @@ function ScriptPanel({
 							<ArrowLeft className="size-4" />
 							Back
 						</Button>
-						{/* Always rendered; disabled on choice steps (pick an answer). */}
+						{/* Always available: Next can skip an unanswered question. */}
 						<Button
+							tabIndex={-1}
 							type="button"
 							className="flex-1"
 							disabled={!canNext}
@@ -446,7 +521,10 @@ function ScriptPanel({
 
 					{/* Fixed-height step area (scrolls inside) so the
 				    objection chips below never move between steps. */}
-					<div className="h-[calc(100vh-24rem)] min-h-[24rem] overflow-y-auto">
+					<div
+						key={`${session.current_node_id}:${session.pending_choices?.[session.current_node_id] ?? ''}:${session.ended}`}
+						className="h-[calc(100vh-24rem)] min-h-[24rem] overflow-y-auto"
+					>
 						{session.ended ? (
 							<div className="flex items-center gap-2 rounded-md border bg-muted/40 p-3">
 								<CheckCircle2 className="size-4 text-success" />
@@ -501,23 +579,85 @@ function StepView({
 	onAdvance: (choiceId?: string) => void;
 }) {
 	const missing = missingVars(session, step);
-	const blocked = missing.length > 0;
 	const choices = step.choices ? availableChoices(session, step) : null;
+	// Show prerequisite recovery only when needed, then keep it mounted while typing.
+	const [recoveryKeys, setRecoveryKeys] = useState<string[]>([]);
+	const recoveryCandidates = prerequisiteFields(session, step);
+	const recoveryFields = [
+		...new Set([
+			...recoveryKeys,
+			...recoveryCandidates.filter((key) => missing.includes(key))
+		])
+	].filter((key) => recoveryCandidates.includes(key));
+	useEffect(() => {
+		const needed = prerequisiteFields(session, step).filter((key) =>
+			missingVars(session, step).includes(key)
+		);
+		setRecoveryKeys((previous) => {
+			const added = needed.filter((key) => !previous.includes(key));
+			return added.length ? [...previous, ...added] : previous;
+		});
+	}, [session, step]);
 
 	const varInput = (key: ScriptVarKey, autoFocus = false) => {
 		const def = ix.vars.get(key);
 		if (!def) return null;
 		return (
-			<ScriptVarInput
-				def={def}
-				value={session.vars[key]?.value}
-				autoFocus={autoFocus}
-				onChange={(v) => onChangeVar(key, v)}
-				onCommit={(v) => onCommitVar(key, v)}
-				onSubmit={() => onAdvance()}
-			/>
+			<div data-script-field={key}>
+				<p className="mb-1 text-[11px] font-semibold text-foreground">
+					{def.label}
+				</p>
+				<ScriptVarInput
+					def={def}
+					value={session.vars[key]?.value}
+					autoFocus={autoFocus}
+					onChange={(v) => onChangeVar(key, v)}
+					onCommit={(v) => onCommitVar(key, v)}
+					onSubmit={(input) => focusNextScriptField(input)}
+				/>
+			</div>
 		);
 	};
+	const fields = (text: ScriptText, block: number) =>
+		visibleFields(session, text)
+			.filter((field) => (field.after ?? text.then?.length ?? 0) === block)
+			.map((field) => (
+				<Cue
+					key={field.var}
+					plain
+					kind="type"
+					label={inputCommand(ix.vars.get(field.var)?.input?.kind)}
+				>
+					{varInput(field.var)}
+				</Cue>
+			));
+	const pending = session.pending_choices?.[step.id]
+		? step.choices?.find(
+				(c) => c.id === session.pending_choices?.[session.current_node_id]
+			)
+		: undefined;
+	if (pending?.say)
+		return (
+			<div data-script-step onKeyDown={handleScriptTab} className="space-y-1.5">
+				<Cue kind="say">
+					<SayText
+						ix={ix}
+						session={session}
+						text={pending.say}
+						fields={fields}
+					/>
+				</Cue>
+				{missing.map((key) => (
+					<Cue
+						key={key}
+						kind="type"
+						label={inputCommand(ix.vars.get(key)?.input?.kind)}
+					>
+						{varInput(key)}
+					</Cue>
+				))}
+			</div>
+		);
 
 	// Each note sits above or below what to say: its own `position`, else
 	// cautions above and plain notes below.
@@ -531,69 +671,107 @@ function StepView({
 		</Cue>
 	);
 
+	const checklist =
+		step.type === 'checklist' ? (
+			<Cue kind="say" label="Say">
+				<ol className="space-y-3">
+					{step.data.items.map((item, i) => (
+						<li key={item.id} className="space-y-1.5">
+							<div className="flex gap-2">
+								<ItemCheck
+									done={isItemDone(session, step.id, item)}
+									auto={
+										itemInputKeys(session, item).length > 0 &&
+										!item.optional &&
+										!item.confirm
+									}
+									label={`${i + 1}`}
+									onToggle={(checked) =>
+										onToggleItem(step.id, item.id, checked)
+									}
+								/>
+								<div className="text-[15px] leading-6 font-medium">
+									<SayText
+										ix={ix}
+										session={session}
+										text={item.say}
+										fields={fields}
+									/>
+
+									{item.optional && (
+										<span className="text-xs font-normal text-muted-foreground">
+											{' '}
+											(optional)
+										</span>
+									)}
+								</div>
+							</div>
+							{item.display && (
+								<p className="pl-7 font-semibold">
+									{itemDisplay(ix, session, item)}
+								</p>
+							)}
+							{item.var &&
+								!visibleFields(session, item.say).some(
+									(f) => f.var === item.var
+								) && (
+									<div className="pl-7">
+										<Cue
+											kind="type"
+											plain
+											label={inputCommand(ix.vars.get(item.var)?.input?.kind)}
+										>
+											{varInput(item.var)}
+										</Cue>
+									</div>
+								)}
+						</li>
+					))}
+				</ol>
+			</Cue>
+		) : null;
+
 	// Reading order: notes placed before → what to say → notes after → what to listen for /
 	// type. Each cue has its own colour + label so the agent can tell at a
 	// glance what is spoken aloud and what is not.
 	return (
-		<div className="space-y-1.5">
+		<div data-script-step onKeyDown={handleScriptTab} className="space-y-1.5">
 			{before.map((ins, i) => note(ins, `b${i}`))}
+			{step.type === 'checklist' &&
+				step.data.position === 'before' &&
+				checklist}
 
 			{step.say && (
 				<Cue kind="say">
-					<SayText ix={ix} session={session} text={step.say} />
+					<SayText ix={ix} session={session} text={step.say} fields={fields} />
 				</Cue>
 			)}
 
 			{after.map((ins, i) => note(ins, `a${i}`))}
 
-			{step.type === 'capture' && step.data.var && (
-				<Cue
-					kind="type"
-					label={`You type: ${ix.vars.get(step.data.var)?.label ?? step.data.var}${step.data.required ? ' (required)' : ''}`}
-				>
-					{varInput(step.data.var, true)}
-				</Cue>
-			)}
+			{step.type === 'capture' &&
+				step.data.var &&
+				!visibleFields(session, step.say).some(
+					(f) => f.var === step.data.var
+				) && (
+					<Cue
+						kind="type"
+						label={inputCommand(ix.vars.get(step.data.var)?.input?.kind)}
+					>
+						{varInput(step.data.var, true)}
+					</Cue>
+				)}
 
-			{step.type === 'checklist' && (
-				<Cue kind="say" label="You say each, then tick it off">
-					<ol className="space-y-3">
-						{step.data.items.map((item, i) => (
-							<li key={item.id} className="space-y-1.5">
-								<div className="flex gap-2">
-									<ItemCheck
-										done={isItemDone(session, step.id, item)}
-										auto={item.var !== undefined && !item.optional}
-										label={`${i + 1}`}
-										onToggle={(checked) =>
-											onToggleItem(step.id, item.id, checked)
-										}
-									/>
-									<span className="text-[15px] leading-6 font-medium">
-										<Resolved ix={ix} session={session} text={item.say.text} />
-										{item.required && (
-											<span className="text-destructive"> *</span>
-										)}
-										{item.optional && (
-											<span className="text-xs font-normal text-muted-foreground">
-												{' '}
-												(optional)
-											</span>
-										)}
-									</span>
-								</div>
-								{item.var && <div className="pl-7">{varInput(item.var)}</div>}
-							</li>
-						))}
-					</ol>
-				</Cue>
-			)}
+			{step.type === 'checklist' &&
+				step.data.position !== 'before' &&
+				checklist}
 
 			{step.interrupts && step.interrupts.length > 0 && (
-				<Cue kind="listen" label="Or if they say…">
+				<Cue kind="listen" label="Listen">
 					<div className="grid gap-1">
 						{step.interrupts.map((it) => (
 							<button
+								tabIndex={-1}
 								key={it.id}
 								type="button"
 								className="flex w-full flex-col items-start gap-0.5 rounded-md border border-rose-200 bg-background px-2 py-1 text-left transition-colors hover:border-rose-500 hover:bg-rose-50 dark:border-rose-500/30 dark:hover:bg-rose-500/10"
@@ -610,21 +788,25 @@ function StepView({
 				</Cue>
 			)}
 
-			{blocked && (
-				<p className="text-xs font-medium text-destructive">
-					Needed before moving on:{' '}
-					{missing.map((k) => ix.vars.get(k)?.label ?? k).join(', ')}
-				</p>
-			)}
+			{recoveryFields.map((key) => (
+				<Cue
+					key={key}
+					kind="type"
+					label={inputCommand(ix.vars.get(key)?.input?.kind)}
+				>
+					{varInput(key)}
+				</Cue>
+			))}
 
 			{choices && (
 				<Cue kind="listen">
 					<div className="grid gap-1">
 						{choices.map((c) => (
 							<button
+								tabIndex={0}
 								key={c.id}
+								data-script-answer
 								type="button"
-								disabled={blocked}
 								className="flex w-full flex-col items-start gap-0.5 rounded-md border border-emerald-200 bg-background px-2 py-1 text-left transition-colors hover:border-emerald-500 hover:bg-emerald-50 disabled:pointer-events-none disabled:opacity-50 dark:border-emerald-500/30 dark:hover:bg-emerald-500/10"
 								onClick={() => onAdvance(c.id)}
 							>
@@ -637,7 +819,7 @@ function StepView({
 								{c.say && (
 									<span className="mt-1 text-xs">
 										<span className="font-bold tracking-wider text-sky-700 uppercase dark:text-sky-300">
-											Then you say:{' '}
+											Say:{' '}
 										</span>
 										<Resolved ix={ix} session={session} text={c.say.text} />
 									</span>
@@ -668,6 +850,7 @@ function ItemCheck({
 }) {
 	return (
 		<button
+			tabIndex={-1}
 			type="button"
 			role="checkbox"
 			aria-checked={done}
@@ -696,7 +879,7 @@ function ItemCheck({
 
 const CUES = {
 	say: {
-		label: 'You say',
+		label: 'Say',
 		icon: Megaphone,
 		box: 'border-sky-500 bg-sky-50 dark:bg-sky-500/10',
 		tag: 'text-sky-700 dark:text-sky-300'
@@ -714,13 +897,13 @@ const CUES = {
 		tag: 'text-red-700 dark:text-red-300'
 	},
 	listen: {
-		label: 'Prospect said something like…',
+		label: 'Select',
 		icon: Ear,
 		box: 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-500/10',
 		tag: 'text-emerald-700 dark:text-emerald-300'
 	},
 	type: {
-		label: 'You type',
+		label: 'Type',
 		icon: Keyboard,
 		box: 'border-amber-400 bg-amber-50 dark:bg-amber-500/10',
 		tag: 'text-amber-700 dark:text-amber-300'
@@ -731,25 +914,33 @@ const CUES = {
 function Cue({
 	kind,
 	label,
-	children
+	children,
+	plain = false
 }: {
 	kind: keyof typeof CUES;
 	label?: string;
+	plain?: boolean;
 	children: ReactNode;
 }) {
 	const cue = CUES[kind];
 	const Icon = cue.icon;
 	return (
-		<div className={cn('rounded-md border-l-4 px-2 py-1', cue.box)}>
-			<p
-				className={cn(
-					'mb-0.5 flex items-center gap-1 text-[11px] font-bold tracking-wider uppercase',
-					cue.tag
-				)}
-			>
-				<Icon className="size-3.5" />
-				{label ?? cue.label}
-			</p>
+		<div
+			className={
+				plain ? 'py-1' : cn('rounded-md border-l-4 px-2 py-1', cue.box)
+			}
+		>
+			{!plain && (
+				<p
+					className={cn(
+						'mb-0.5 flex items-center gap-1 text-[11px] font-bold tracking-wider uppercase',
+						cue.tag
+					)}
+				>
+					<Icon className="size-3.5" />
+					{label ?? cue.label}
+				</p>
+			)}
 			{children}
 		</div>
 	);
@@ -758,11 +949,13 @@ function Cue({
 function SayText({
 	ix,
 	session,
-	text
+	text,
+	fields
 }: {
 	ix: ScriptIndex;
 	session: ScriptSession;
 	text: ScriptText;
+	fields?: (text: ScriptText, block: number) => ReactNode;
 }) {
 	const [showVariants, setShowVariants] = useState(false);
 	return (
@@ -770,9 +963,11 @@ function SayText({
 			<p className="text-base leading-6 font-semibold whitespace-pre-line text-foreground">
 				<Resolved ix={ix} session={session} text={text.text} />
 			</p>
+			{fields?.(text, 0)}
 			{text.variants && text.variants.length > 0 && (
 				<div>
 					<button
+						tabIndex={-1}
 						type="button"
 						className="text-xs font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
 						onClick={() => setShowVariants((v) => !v)}
@@ -798,6 +993,7 @@ function SayText({
 					<p className="text-base leading-6 font-semibold whitespace-pre-line text-foreground">
 						<Resolved ix={ix} session={session} text={line} />
 					</p>
+					{fields?.(text, i + 1)}
 				</div>
 			))}
 		</div>
@@ -898,6 +1094,7 @@ function QuickJump({
 							.filter((h) => h.entry_node_id)
 							.map((h) => (
 								<button
+									tabIndex={-1}
 									key={h.id}
 									type="button"
 									title={
@@ -950,7 +1147,10 @@ function Outline({
 	const sections = childrenOf(ix, null).filter((h) => h.role === 'flow');
 	return (
 		<details className="border-t pt-2">
-			<summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+			<summary
+				tabIndex={-1}
+				className="cursor-pointer text-xs font-medium text-muted-foreground"
+			>
 				Outline
 			</summary>
 			<ol className="mt-2 space-y-1.5">
@@ -993,6 +1193,7 @@ function OutlineLink({
 }) {
 	return (
 		<button
+			tabIndex={-1}
 			type="button"
 			disabled={!heading.entry_node_id}
 			onClick={() => onJump(heading.id)}
@@ -1014,7 +1215,10 @@ function Reference({ix}: {ix: ScriptIndex}) {
 	if (refs.length === 0) return null;
 	return (
 		<details className="border-t pt-2">
-			<summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+			<summary
+				tabIndex={-1}
+				className="cursor-pointer text-xs font-medium text-muted-foreground"
+			>
 				Reference
 			</summary>
 			<div className="mt-2 space-y-3">
@@ -1031,4 +1235,14 @@ function Reference({ix}: {ix: ScriptIndex}) {
 			</div>
 		</details>
 	);
+}
+
+function inputCommand(kind?: string) {
+	return kind === 'boolean' || kind === 'choice'
+		? 'Select'
+		: kind === 'date'
+			? 'Choose'
+			: kind === 'number' || kind === 'currency'
+				? 'Enter'
+				: 'Type';
 }

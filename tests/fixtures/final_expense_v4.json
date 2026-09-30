@@ -1,0 +1,4763 @@
+{
+	"vars": [
+		{
+			"key": "agent_name",
+			"label": "Agent name",
+			"source": "agent",
+			"input": {
+				"kind": "text"
+			}
+		},
+		{
+			"key": "agent_state",
+			"label": "Agent state",
+			"source": "call",
+			"input": {
+				"kind": "text"
+			},
+			"bindings": [
+				{
+					"target": "form_field",
+					"form": "default",
+					"field": "state",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "agent_cell",
+			"input": {
+				"kind": "phone"
+			},
+			"label": "Agent cell",
+			"source": "agent"
+		},
+		{
+			"key": "agent_npn",
+			"label": "Agent NPN",
+			"source": "agent"
+		},
+		{
+			"key": "first_name",
+			"input": {
+				"kind": "text"
+			},
+			"label": "First name",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "first_name",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "last_name",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Last name",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "last_name",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "phone",
+			"input": {
+				"kind": "phone"
+			},
+			"label": "Phone",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "phone",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "email",
+			"input": {
+				"kind": "email"
+			},
+			"label": "Email",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "email",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "address",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Address",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "address",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "address2",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Address 2",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "address2",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "city",
+			"input": {
+				"kind": "text"
+			},
+			"label": "City",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "city",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "state",
+			"input": {
+				"kind": "text"
+			},
+			"label": "State",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "state",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "zip",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Zip",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "zip",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "dob",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Date of birth",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "dob",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "sob",
+			"input": {
+				"kind": "text"
+			},
+			"label": "State of birth",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "sob",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "weight",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Weight",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "weight",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "height",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Height",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "height",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "dl_number",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Driver's license number",
+			"source": "call",
+			"bindings": [
+				{
+					"form": "default",
+					"field": "dl_number",
+					"target": "form_field",
+					"direction": "both"
+				}
+			]
+		},
+		{
+			"key": "name",
+			"label": "Full name (lead)",
+			"source": "call",
+			"bindings": [
+				{
+					"column": "name",
+					"target": "lead_column",
+					"direction": "in"
+				}
+			]
+		},
+		{
+			"key": "caller_phone",
+			"input": {
+				"kind": "phone"
+			},
+			"label": "Calling from",
+			"source": "call",
+			"bindings": [
+				{
+					"column": "caller_phone",
+					"target": "lead_column",
+					"direction": "in"
+				}
+			]
+		},
+		{
+			"key": "bank_type",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "Traditional bank",
+							"value": "bank"
+						},
+						{
+							"label": "Credit union",
+							"value": "credit_union"
+						},
+						{
+							"label": "Direct Express card",
+							"value": "direct_express"
+						},
+						{
+							"label": "Not applicable",
+							"value": "not_applicable"
+						}
+					],
+					"allow_other": true
+				}
+			},
+			"label": "Receives benefits via",
+			"source": "call"
+		},
+		{
+			"key": "over_50",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "Yes",
+							"value": "yes"
+						},
+						{
+							"label": "No",
+							"value": "no"
+						}
+					]
+				}
+			},
+			"label": "Over 50",
+			"source": "call"
+		},
+		{
+			"key": "smoker",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "Non-smoker",
+							"value": "non_smoker"
+						},
+						{
+							"label": "Smoker",
+							"value": "smoker"
+						}
+					]
+				}
+			},
+			"label": "Smoker",
+			"source": "call"
+		},
+		{
+			"key": "benefits_type",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "Social Security",
+							"value": "social_security"
+						},
+						{
+							"label": "Disability",
+							"value": "disability"
+						},
+						{
+							"label": "VA",
+							"value": "va"
+						},
+						{
+							"label": "None",
+							"value": "none"
+						}
+					]
+				}
+			},
+			"label": "Benefits",
+			"source": "call"
+		},
+		{
+			"key": "motivation",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Why they called",
+			"source": "call"
+		},
+		{
+			"key": "goal",
+			"input": {
+				"kind": "text"
+			},
+			"label": "What they want the coverage to do",
+			"source": "call"
+		},
+		{
+			"key": "beneficiary_name",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Beneficiary",
+			"source": "call",
+			"fallback": "your loved one"
+		},
+		{
+			"key": "beneficiary_relation",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "Spouse",
+							"value": "spouse"
+						},
+						{
+							"label": "Child",
+							"value": "child"
+						}
+					],
+					"allow_other": true
+				}
+			},
+			"label": "Beneficiary relation",
+			"source": "call"
+		},
+		{
+			"key": "beneficiary_dob",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Beneficiary date of birth",
+			"source": "call"
+		},
+		{
+			"key": "funeral_type",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "Burial",
+							"value": "burial"
+						},
+						{
+							"label": "Cremation",
+							"value": "cremation"
+						}
+					],
+					"allow_other": true
+				}
+			},
+			"label": "Burial or cremation",
+			"source": "call"
+		},
+		{
+			"key": "funeral_wishes",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Funeral wishes",
+			"source": "call"
+		},
+		{
+			"key": "benefit_dq_answer",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Caller wants benficiary to...",
+			"source": "call"
+		},
+		{
+			"key": "plan1_amount",
+			"input": {
+				"kind": "currency"
+			},
+			"label": "Plan 1 coverage",
+			"source": "call"
+		},
+		{
+			"key": "plan1_premium",
+			"input": {
+				"kind": "currency"
+			},
+			"label": "Plan 1 monthly",
+			"source": "call"
+		},
+		{
+			"key": "plan2_amount",
+			"input": {
+				"kind": "currency"
+			},
+			"label": "Plan 2 coverage",
+			"source": "call"
+		},
+		{
+			"key": "plan2_premium",
+			"input": {
+				"kind": "currency"
+			},
+			"label": "Plan 2 monthly",
+			"source": "call"
+		},
+		{
+			"key": "plan3_amount",
+			"input": {
+				"kind": "currency"
+			},
+			"label": "Plan 3 coverage",
+			"source": "call"
+		},
+		{
+			"key": "plan3_premium",
+			"input": {
+				"kind": "currency"
+			},
+			"label": "Plan 3 monthly",
+			"source": "call"
+		},
+		{
+			"key": "selected_plan",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "Plan 1",
+							"value": "1"
+						},
+						{
+							"label": "Plan 2",
+							"value": "2"
+						},
+						{
+							"label": "Plan 3",
+							"value": "3"
+						}
+					]
+				}
+			},
+			"label": "Selected plan",
+			"source": "call"
+		},
+		{
+			"key": "comfortable_payment",
+			"input": {
+				"kind": "currency"
+			},
+			"label": "Comfortable monthly payment",
+			"source": "call"
+		},
+		{
+			"key": "expected_cost",
+			"input": {
+				"kind": "text"
+			},
+			"label": "What they expected it to cost",
+			"source": "call"
+		},
+		{
+			"key": "existing_carrier",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Current carrier",
+			"source": "call"
+		},
+		{
+			"key": "existing_coverage",
+			"input": {
+				"kind": "currency"
+			},
+			"label": "Current coverage amount",
+			"source": "call"
+		},
+		{
+			"key": "effective_date",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Effective date",
+			"source": "call"
+		},
+		{
+			"key": "tobacco_12mo",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "No",
+							"value": "no"
+						},
+						{
+							"label": "Yes",
+							"value": "yes"
+						}
+					]
+				}
+			},
+			"label": "Tobacco / nicotine in last 12 months",
+			"source": "call"
+		},
+		{
+			"key": "chf",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "No",
+							"value": "no"
+						},
+						{
+							"label": "Yes",
+							"value": "yes"
+						}
+					]
+				}
+			},
+			"label": "Congestive heart failure",
+			"source": "call"
+		},
+		{
+			"key": "heart_history",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "None",
+							"value": "no"
+						},
+						{
+							"label": "Heart attack",
+							"value": "heart_attack"
+						},
+						{
+							"label": "Stroke",
+							"value": "stroke"
+						},
+						{
+							"label": "Cancer",
+							"value": "cancer"
+						},
+						{
+							"label": "TIA",
+							"value": "tia"
+						},
+						{
+							"label": "Stents",
+							"value": "stents"
+						}
+					],
+					"allow_other": true
+				}
+			},
+			"label": "Heart attack / stroke / cancer / TIA / stents",
+			"source": "call"
+		},
+		{
+			"key": "copd",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "None",
+							"value": "no"
+						},
+						{
+							"label": "COPD",
+							"value": "copd"
+						},
+						{
+							"label": "Inhaler",
+							"value": "inhaler"
+						},
+						{
+							"label": "Oxygen",
+							"value": "oxygen"
+						}
+					],
+					"allow_other": true
+				}
+			},
+			"label": "COPD / inhaler / oxygen",
+			"source": "call"
+		},
+		{
+			"key": "diabetes",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "No",
+							"value": "no"
+						},
+						{
+							"label": "Yes, no insulin",
+							"value": "no_insulin"
+						},
+						{
+							"label": "Insulin",
+							"value": "insulin"
+						},
+						{
+							"label": "Complications",
+							"value": "complications"
+						}
+					],
+					"allow_other": true
+				}
+			},
+			"label": "Diabetes",
+			"source": "call"
+		},
+		{
+			"key": "liver_kidney",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "No",
+							"value": "no"
+						},
+						{
+							"label": "Yes",
+							"value": "yes"
+						}
+					]
+				}
+			},
+			"label": "Liver or kidney issues",
+			"source": "call"
+		},
+		{
+			"key": "medications",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Prescription medications (what + what for)",
+			"source": "call"
+		},
+		{
+			"key": "other_conditions",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "None",
+							"value": "no"
+						}
+					],
+					"allow_other": true
+				}
+			},
+			"label": "Other conditions being treated",
+			"source": "call"
+		},
+		{
+			"key": "leave_extra_money",
+			"input": {
+				"kind": "boolean"
+			},
+			"label": "Leave extra money for family",
+			"source": "call"
+		},
+		{
+			"key": "cover_outstanding_bills",
+			"input": {
+				"kind": "boolean"
+			},
+			"label": "Cover outstanding bills",
+			"source": "call"
+		},
+		{
+			"key": "age",
+			"input": {
+				"kind": "number"
+			},
+			"label": "Age",
+			"source": "call"
+		},
+		{
+			"key": "family_burden",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Burden on family",
+			"source": "call"
+		},
+		{
+			"key": "phone_type",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "Cell phone",
+							"value": "cell"
+						},
+						{
+							"label": "Home phone",
+							"value": "home"
+						}
+					]
+				}
+			},
+			"label": "Phone type",
+			"source": "call"
+		},
+		{
+			"key": "can_receive_texts",
+			"input": {
+				"kind": "boolean"
+			},
+			"label": "Can receive text messages",
+			"source": "call"
+		},
+		{
+			"key": "additional_beneficiaries",
+			"input": {
+				"kind": "boolean"
+			},
+			"label": "Additional beneficiaries",
+			"source": "call"
+		},
+		{
+			"key": "additional_beneficiary_details",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Additional beneficiary details",
+			"source": "call"
+		},
+		{
+			"key": "beneficiary_policy_copy",
+			"input": {
+				"kind": "boolean"
+			},
+			"label": "Beneficiary receives a policy copy",
+			"source": "call"
+		},
+		{
+			"key": "beneficiary_address",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Beneficiary address",
+			"source": "call"
+		},
+		{
+			"key": "us_citizen",
+			"input": {
+				"kind": "boolean"
+			},
+			"label": "US citizen",
+			"source": "call"
+		},
+		{
+			"key": "account_type",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "Checking",
+							"value": "checking"
+						},
+						{
+							"label": "Savings",
+							"value": "savings"
+						}
+					]
+				}
+			},
+			"label": "Account type",
+			"source": "call"
+		},
+		{
+			"key": "bank_name",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Bank name",
+			"source": "call"
+		},
+		{
+			"key": "existing_policy_duration",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Time with current policy",
+			"source": "call"
+		},
+		{
+			"key": "existing_policy_concern",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Concern with current policy",
+			"source": "call"
+		},
+		{
+			"key": "existing_coverage_sufficient",
+			"input": {
+				"kind": "boolean"
+			},
+			"label": "Current coverage is sufficient",
+			"source": "call"
+		},
+		{
+			"key": "changes_since_policy",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Changes since buying the policy",
+			"source": "call"
+		},
+		{
+			"key": "funeral_responsible_person",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Person responsible for funeral costs",
+			"source": "call"
+		},
+		{
+			"key": "family_can_afford_funeral",
+			"input": {
+				"kind": "boolean"
+			},
+			"label": "Family can afford funeral costs",
+			"source": "call"
+		},
+		{
+			"key": "family_financial_feelings",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Feelings about family paying",
+			"source": "call"
+		},
+		{
+			"key": "family_financial_burden",
+			"input": {
+				"kind": "boolean"
+			},
+			"label": "Heavy financial burden",
+			"source": "call"
+		},
+		{
+			"key": "wants_to_avoid_burden",
+			"input": {
+				"kind": "boolean"
+			},
+			"label": "Wants to avoid that burden",
+			"source": "call"
+		},
+		{
+			"key": "family_legacy_preference",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "Money",
+							"value": "money"
+						},
+						{
+							"label": "Bills",
+							"value": "bills"
+						}
+					]
+				}
+			},
+			"label": "Money or bills preference",
+			"source": "call"
+		},
+		{
+			"key": "policy_number",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Policy number",
+			"source": "call"
+		},
+		{
+			"key": "policy_carrier",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Carrier",
+			"source": "call"
+		},
+		{
+			"key": "carrier_service_phone",
+			"input": {
+				"kind": "phone"
+			},
+			"label": "Customer service number",
+			"source": "call"
+		},
+		{
+			"key": "benefits_schedule",
+			"input": {
+				"kind": "choice",
+				"config": {
+					"options": [
+						{
+							"label": "1st",
+							"value": "first"
+						},
+						{
+							"label": "3rd",
+							"value": "third"
+						},
+						{
+							"label": "Wednesday",
+							"value": "wednesday"
+						},
+						{
+							"label": "Not applicable",
+							"value": "not_applicable"
+						}
+					]
+				}
+			},
+			"label": "Benefits schedule",
+			"source": "call"
+		},
+		{
+			"key": "spouse_rapport",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "How they met and years married",
+			"source": "call"
+		},
+		{
+			"key": "child_rapport",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Family relationship and location",
+			"source": "call"
+		},
+		{
+			"key": "existing_coverage_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Current coverage and remaining expenses",
+			"source": "call"
+		},
+		{
+			"key": "family_discussion_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Family discussion",
+			"source": "call"
+		},
+		{
+			"key": "missing_information",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Information still needed",
+			"source": "call"
+		},
+		{
+			"key": "coverage_tradeoff",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Coverage preference",
+			"source": "call"
+		},
+		{
+			"key": "coverage_gap_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Responsibility for remaining expenses",
+			"source": "call"
+		},
+		{
+			"key": "death_benefit_gap_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Remaining expenses and family burden",
+			"source": "call"
+		},
+		{
+			"key": "death_benefit_sufficient_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Whether the benefit is enough",
+			"source": "call"
+		},
+		{
+			"key": "coverage_goal_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Coverage goal",
+			"source": "call"
+		},
+		{
+			"key": "trg1_follow_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Caller response",
+			"source": "call"
+		},
+		{
+			"key": "trg2_follow_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Caller response",
+			"source": "call"
+		},
+		{
+			"key": "trg3_follow_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Caller response",
+			"source": "call"
+		},
+		{
+			"key": "trg4_soft_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Caller response",
+			"source": "call"
+		},
+		{
+			"key": "trg5_soft_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Caller response",
+			"source": "call"
+		},
+		{
+			"key": "trg7_soft_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Caller response",
+			"source": "call"
+		},
+		{
+			"key": "trg8_soft_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Caller response",
+			"source": "call"
+		},
+		{
+			"key": "trg9_soft_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Caller response",
+			"source": "call"
+		},
+		{
+			"key": "trg10_soft_notes",
+			"input": {
+				"kind": "text",
+				"config": {
+					"multiline": true
+				}
+			},
+			"label": "Caller response",
+			"source": "call"
+		}
+	],
+	"nodes": [
+		{
+			"id": "h.intro",
+			"role": "flow",
+			"sort": 1,
+			"type": "heading",
+			"level": 1,
+			"title": "Section 1 — Intro",
+			"parent_id": null,
+			"entry_node_id": "intro.qualify"
+		},
+		{
+			"id": "h.intro.opening",
+			"role": "flow",
+			"sort": 1,
+			"type": "heading",
+			"level": 2,
+			"title": "Opening",
+			"parent_id": "h.intro",
+			"entry_node_id": "intro.qualify"
+		},
+		{
+			"id": "h.intro.discounts",
+			"role": "flow",
+			"sort": 2,
+			"type": "heading",
+			"level": 2,
+			"title": "Incentive-based discounts",
+			"parent_id": "h.intro",
+			"entry_node_id": "intro.discounts"
+		},
+		{
+			"id": "intro.qualify",
+			"say": {
+				"text": "Hi. Are you calling to qualify for an affordable funeral coverage plan today?",
+				"fields": [
+					{
+						"var": "agent_name"
+					},
+					{
+						"var": "agent_state"
+					}
+				]
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "yes",
+					"main": true,
+					"label": "Yes",
+					"target": {
+						"kind": "node",
+						"node_id": "intro.name"
+					}
+				},
+				{
+					"id": "free",
+					"label": "Thought it was free",
+					"target": {
+						"kind": "heading",
+						"heading_id": "h.obj1"
+					},
+					"examples": ["I saw it was free", "the ad said free"]
+				},
+				{
+					"id": "existing",
+					"label": "Question about an existing policy",
+					"target": {
+						"kind": "heading",
+						"heading_id": "h.obj6"
+					}
+				},
+				{
+					"id": "not_interested",
+					"label": "Not really interested",
+					"target": {
+						"kind": "heading",
+						"heading_id": "h.trg6"
+					}
+				}
+			],
+			"heading_id": "h.intro.opening",
+			"skip": {
+				"kind": "node",
+				"node_id": "intro.name"
+			}
+		},
+		{
+			"id": "intro.name",
+			"say": {
+				"text": "Ok perfect, my name is {{agent_name}}. I'm the Benefits Coordinator for the state of {{agent_state}}. My job is to simply explain these plans to you, answer any questions you have about the coverage, and help you find the most affordable option as well.\n\nFor compliance purposes, may I ask who I am speaking with?"
+			},
+			"data": {
+				"var": "first_name"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "intro.discounts"
+			},
+			"type": "capture",
+			"heading_id": "h.intro.opening"
+		},
+		{
+			"id": "intro.discounts",
+			"say": {
+				"text": "The good news is there may be a few discounts available to help you more. So, I'm going to see which ones you may qualify for today."
+			},
+			"data": {
+				"items": [
+					{
+						"id": "over_50",
+						"say": {
+							"text": "Are you currently over the age of 50?"
+						},
+						"var": "over_50"
+					},
+					{
+						"id": "smoker",
+						"say": {
+							"text": "Are you a smoker or non-smoker?"
+						},
+						"var": "smoker"
+					},
+					{
+						"id": "benefits",
+						"say": {
+							"text": "Are you receiving Social Security, Disability, or VA benefits?"
+						},
+						"var": "benefits_type"
+					},
+					{
+						"id": "bank_type",
+						"say": {
+							"text": "When you receive those benefits, do you normally use a traditional bank, a credit union, or Direct Express card?"
+						},
+						"var": "bank_type"
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "intro.qualified"
+			},
+			"type": "checklist",
+			"heading_id": "h.intro.discounts"
+		},
+		{
+			"id": "intro.qualified",
+			"say": {
+				"text": "Perfect. In that case, you DO qualify for the discounts, so I'll go ahead and apply for them for you now."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "dq.first_time"
+			},
+			"type": "say",
+			"heading_id": "h.intro.discounts"
+		},
+		{
+			"id": "h.dq",
+			"role": "flow",
+			"sort": 2,
+			"type": "heading",
+			"level": 1,
+			"title": "Section 2 — Discovery",
+			"parent_id": null,
+			"entry_node_id": "dq.first_time"
+		},
+		{
+			"id": "h.dq.motivation",
+			"role": "flow",
+			"sort": 1,
+			"type": "heading",
+			"level": 2,
+			"title": "Motivation + situation",
+			"parent_id": "h.dq",
+			"entry_node_id": "dq.first_time"
+		},
+		{
+			"id": "h.dq.coverage",
+			"role": "flow",
+			"sort": 2,
+			"type": "heading",
+			"level": 2,
+			"title": "Explaining the coverage",
+			"parent_id": "h.dq",
+			"entry_node_id": "dq.coverage"
+		},
+		{
+			"id": "h.dq.beneficiary",
+			"role": "flow",
+			"sort": 3,
+			"type": "heading",
+			"level": 2,
+			"title": "Beneficiary DQ",
+			"parent_id": "h.dq",
+			"entry_node_id": "dq.beneficiary"
+		},
+		{
+			"id": "h.dq.consequence",
+			"role": "flow",
+			"sort": 4,
+			"type": "heading",
+			"level": 2,
+			"title": "Consequence + benefit DQ",
+			"parent_id": "h.dq",
+			"entry_node_id": "dq.benefit"
+		},
+		{
+			"id": "dq.first_time",
+			"say": {
+				"text": "Is this your first time looking into these plans?",
+				"then": [
+					"Okay, so just to confirm — you don't have any plans to cover your final expenses yet?"
+				]
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "shopped_before",
+					"label": "Shopped before, still uncovered",
+					"target": {
+						"kind": "node",
+						"node_id": "dq.branch1"
+					}
+				},
+				{
+					"id": "first_time",
+					"label": "First time, no coverage",
+					"target": {
+						"kind": "node",
+						"node_id": "dq.branch2"
+					}
+				},
+				{
+					"id": "has_coverage",
+					"label": "Has some coverage",
+					"target": {
+						"kind": "node",
+						"node_id": "dq.branch3"
+					}
+				}
+			],
+			"heading_id": "h.dq.motivation",
+			"skip": {
+				"kind": "node",
+				"node_id": "dq.coverage"
+			}
+		},
+		{
+			"id": "dq.branch1",
+			"say": {
+				"text": "Oh wow… What made you decide not to get Final Expense from the previous agents you spoke with? Was it because of the experience, the pricing, did you get knocked out for health issues, or was it something else?"
+			},
+			"data": {
+				"var": "motivation"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "dq.coverage"
+			},
+			"type": "capture",
+			"heading_id": "h.dq.motivation"
+		},
+		{
+			"id": "dq.branch2",
+			"say": {
+				"text": "Oh, I see — then what made you feel like calling in and wanting more info about this coverage?",
+				"variants": [
+					"And what's got you looking into this now? Was it something that happened recently, or are you just wanting to get ahead of it before it becomes a problem?"
+				]
+			},
+			"data": {
+				"var": "motivation"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "dq.branch2_check"
+			},
+			"type": "capture",
+			"heading_id": "h.dq.motivation"
+		},
+		{
+			"id": "dq.branch2_check",
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "cost_answer",
+					"label": "They said free / the $25k–$40k",
+					"target": {
+						"kind": "node",
+						"node_id": "dq.branch2_reloop"
+					},
+					"max_uses": 1
+				},
+				{
+					"id": "still_free",
+					"label": "Still thinks it's free",
+					"target": {
+						"kind": "heading",
+						"heading_id": "h.obj1"
+					}
+				},
+				{
+					"id": "real_reason",
+					"main": true,
+					"label": "Gave a real reason",
+					"target": {
+						"kind": "node",
+						"node_id": "dq.coverage"
+					}
+				}
+			],
+			"heading_id": "h.dq.motivation",
+			"skip": {
+				"kind": "node",
+				"node_id": "dq.coverage"
+			}
+		},
+		{
+			"id": "dq.branch2_reloop",
+			"say": {
+				"text": "Okay, but if you really think about it — besides thinking it was free or seeing the $25k or $40k — was there another reason?"
+			},
+			"data": {
+				"var": "motivation"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "dq.branch2_check"
+			},
+			"type": "capture",
+			"heading_id": "h.dq.motivation"
+		},
+		{
+			"id": "dq.branch3",
+			"say": {
+				"text": "Oh, I see — so what made you call in today to get more info on this coverage?",
+				"variants": [
+					"Just so I get a clear picture — do you have any coverage in place right now, or would this be the first policy protecting the family?"
+				]
+			},
+			"data": {
+				"var": "motivation"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "dq.coverage"
+			},
+			"type": "capture",
+			"heading_id": "h.dq.motivation",
+			"interrupts": [
+				{
+					"id": "review",
+					"fill": "Review insurance",
+					"label": "Wants a review of what they already have",
+					"heading_id": "h.obj4"
+				}
+			]
+		},
+		{
+			"id": "dq.coverage",
+			"say": {
+				"text": "Perfect and just so you are aware, these are State-Regulated and Approved Whole Life plans that are designed to cover 100% of your burial, cremation, or any other final expenses that you may have. These plans come from carriers you've probably heard of, like Mutual of Omaha, Transamerica, Liberty, and American General Life. These carriers are very easy to get approved for because there are no doctor visits, nurses, or medical exams required. Isn't that great?"
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "dq.beneficiary"
+			},
+			"type": "say",
+			"heading_id": "h.dq.coverage"
+		},
+		{
+			"id": "dq.beneficiary",
+			"say": {
+				"text": "Now, {{first_name}}, let me ask you this — if something unexpected were to happen… who would be the loved one stepping in to hold everything together and pick up the pieces?"
+			},
+			"data": {
+				"var": "beneficiary_name"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "dq.relation"
+			},
+			"type": "capture",
+			"heading_id": "h.dq.beneficiary"
+		},
+		{
+			"id": "dq.relation",
+			"say": {
+				"text": "Got it… tell me a little about {{beneficiary_name}}."
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "spouse",
+					"label": "Spouse",
+					"target": {
+						"kind": "node",
+						"node_id": "dq.rapport_spouse"
+					},
+					"actions": [
+						{
+							"type": "set_var",
+							"params": {
+								"key": "beneficiary_relation",
+								"value": "spouse"
+							}
+						}
+					]
+				},
+				{
+					"id": "child",
+					"label": "Child",
+					"target": {
+						"kind": "node",
+						"node_id": "dq.rapport_child"
+					},
+					"actions": [
+						{
+							"type": "set_var",
+							"params": {
+								"key": "beneficiary_relation",
+								"value": "child"
+							}
+						}
+					]
+				},
+				{
+					"id": "other",
+					"label": "Someone else",
+					"target": {
+						"kind": "node",
+						"node_id": "dq.relation_other"
+					},
+					"actions": [
+						{
+							"type": "set_var",
+							"params": {
+								"key": "beneficiary_relation",
+								"value": ""
+							}
+						}
+					]
+				}
+			],
+			"heading_id": "h.dq.beneficiary",
+			"skip": {
+				"kind": "node",
+				"node_id": "dq.funeral"
+			}
+		},
+		{
+			"id": "dq.relation_other",
+			"data": {
+				"var": "beneficiary_relation"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "dq.funeral"
+			},
+			"type": "capture",
+			"heading_id": "h.dq.beneficiary"
+		},
+		{
+			"id": "dq.rapport_spouse",
+			"say": {
+				"text": "How did you two meet?",
+				"then": ["And how long have you been married?"],
+				"fields": [
+					{
+						"var": "spouse_rapport"
+					}
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "dq.funeral"
+			},
+			"type": "say",
+			"heading_id": "h.dq.beneficiary",
+			"instructions": [
+				{
+					"text": "Let them talk. This builds emotional attachment."
+				}
+			]
+		},
+		{
+			"id": "dq.rapport_child",
+			"say": {
+				"text": "Is {{beneficiary_name}} your favorite?",
+				"then": [
+					"And does {{beneficiary_name}} and their family live near you?"
+				],
+				"fields": [
+					{
+						"var": "child_rapport"
+					}
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "dq.funeral"
+			},
+			"type": "say",
+			"heading_id": "h.dq.beneficiary",
+			"instructions": [
+				{
+					"text": "Let them talk. This builds emotional attachment."
+				}
+			]
+		},
+		{
+			"id": "dq.funeral",
+			"say": {
+				"text": "Now, I know this can be a morbid question sometimes, but walk me through your ideal funeral situation and how do you want to have that handled?"
+			},
+			"data": {
+				"items": [
+					{
+						"id": "type",
+						"say": {
+							"text": "Were you wanting to have a burial or cremation?"
+						},
+						"var": "funeral_type"
+					},
+					{
+						"id": "basics",
+						"say": {
+							"text": "Did you just want to cover the basics, or did you have something else in mind?"
+						},
+						"var": "funeral_wishes"
+					},
+					{
+						"id": "extra",
+						"say": {
+							"text": "Do you also want to leave any extra money for the family?"
+						},
+						"var": "leave_extra_money"
+					},
+					{
+						"id": "bills",
+						"say": {
+							"text": "Did you want to cover any left-over credit card bills or medical bills?"
+						},
+						"var": "cover_outstanding_bills"
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "dq.benefit"
+			},
+			"type": "checklist",
+			"heading_id": "h.dq.beneficiary"
+		},
+		{
+			"id": "dq.benefit",
+			"say": {
+				"text": "{{first_name}}, I was just wondering. If you did not have an insurance policy in place and heaven forbid you died in a car wreck tomorrow, would that be a heavy burden on {{beneficiary_name}}? They would not have to go through the embarrassment of opening up a GoFundMe account… would they?",
+				"then": [
+					"And let's say we do get you approved today — what would you want {{beneficiary_name}} to be able to do with that money, aside from covering your funeral expenses?"
+				],
+				"fields": [
+					{
+						"var": "family_burden",
+						"after": 0
+					},
+					{
+						"var": "benefit_dq_answer",
+						"after": 1
+					}
+				]
+			},
+			"data": {
+				"var": "benefit_dq_answer"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "med.transition"
+			},
+			"type": "capture",
+			"heading_id": "h.dq.consequence",
+			"instructions": [
+				{
+					"text": "Deliver it gently and let the silence work.",
+					"position": "before"
+				}
+			]
+		},
+		{
+			"id": "h.med",
+			"role": "flow",
+			"sort": 3,
+			"type": "heading",
+			"level": 1,
+			"title": "Section 3 — Medical questions",
+			"parent_id": null,
+			"entry_node_id": "med.transition"
+		},
+		{
+			"id": "h.med.eligibility",
+			"role": "flow",
+			"sort": 1,
+			"type": "heading",
+			"level": 2,
+			"title": "Health questions (eligibility)",
+			"parent_id": "h.med",
+			"entry_node_id": "med.age"
+		},
+		{
+			"id": "med.transition",
+			"say": {
+				"text": "Perfect. It's good that you have a clear picture of how you want the funeral to go, that makes our job a lot easier. So, I'll bring up a few plans here shortly."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "med.age"
+			},
+			"type": "say",
+			"heading_id": "h.med"
+		},
+		{
+			"id": "med.age",
+			"say": {
+				"text": "Now, these plans are based on 2 things. The first is your age and the second is your health, and even if your health isn't perfect, these plans do have generous underwriting guidelines that help you get approved, so it isn't a huge deal."
+			},
+			"data": {
+				"items": [
+					{
+						"id": "age",
+						"say": {
+							"text": "Now as far as your age goes, how young are you?"
+						},
+						"var": "age"
+					},
+					{
+						"id": "dob",
+						"say": {
+							"text": "What is your actual date of birth?"
+						},
+						"var": "dob"
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "med.health"
+			},
+			"type": "checklist",
+			"heading_id": "h.med.eligibility"
+		},
+		{
+			"id": "med.health",
+			"say": {
+				"text": "Ok great. And then as far as your health goes…"
+			},
+			"data": {
+				"items": [
+					{
+						"id": "tobacco",
+						"say": {
+							"text": "Have you used tobacco or nicotine in the last 12 months?"
+						},
+						"var": "tobacco_12mo"
+					},
+					{
+						"id": "height",
+						"say": {
+							"text": "And my mom would kill me for asking you this, but what's a good height for you?"
+						},
+						"var": "height"
+					},
+					{
+						"id": "weight",
+						"say": {
+							"text": "And weight?"
+						},
+						"var": "weight"
+					},
+					{
+						"id": "chf",
+						"say": {
+							"text": "Have you ever been diagnosed with Congestive Heart Failure?"
+						},
+						"var": "chf"
+					},
+					{
+						"id": "heart",
+						"say": {
+							"text": "Any Heart Attack, Stroke, Cancer, TIA (Transient Ischemic Attacks), Stents?"
+						},
+						"var": "heart_history"
+					},
+					{
+						"id": "copd",
+						"say": {
+							"text": "COPD or inhaler use like albuterol, Oxygen?"
+						},
+						"var": "copd"
+					},
+					{
+						"id": "diabetes",
+						"say": {
+							"text": "Diabetes — Insulin? Complications such as amputation, neuropathy or tingling in the feet?"
+						},
+						"var": "diabetes"
+					},
+					{
+						"id": "liver",
+						"say": {
+							"text": "Any liver or kidney issues?"
+						},
+						"var": "liver_kidney"
+					},
+					{
+						"id": "meds",
+						"say": {
+							"text": "Do you take prescription medications? What are they? What are you taking them for?"
+						},
+						"var": "medications"
+					},
+					{
+						"id": "other",
+						"say": {
+							"text": "Any other conditions that you are being treated for by a doctor?"
+						},
+						"var": "other_conditions"
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "med.result"
+			},
+			"type": "checklist",
+			"heading_id": "h.med.eligibility"
+		},
+		{
+			"id": "med.result",
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "healthy",
+					"say": {
+						"text": "That's great, sounds like you're in good shape. What's your secret?"
+					},
+					"label": "Healthy",
+					"target": {
+						"kind": "node",
+						"node_id": "edu.contact"
+					}
+				},
+				{
+					"id": "conditions",
+					"say": {
+						"text": "No problem at all, I appreciate you being upfront."
+					},
+					"label": "Has conditions",
+					"target": {
+						"kind": "node",
+						"node_id": "edu.contact"
+					}
+				}
+			],
+			"heading_id": "h.med.eligibility",
+			"skip": {
+				"kind": "node",
+				"node_id": "edu.contact"
+			}
+		},
+		{
+			"id": "h.edu",
+			"role": "flow",
+			"sort": 4,
+			"type": "heading",
+			"level": 1,
+			"title": "Section 4 — Education",
+			"parent_id": null,
+			"entry_node_id": "edu.contact"
+		},
+		{
+			"id": "h.edu.benefits",
+			"role": "flow",
+			"sort": 1,
+			"type": "heading",
+			"level": 2,
+			"title": "Benefits of the policy",
+			"parent_id": "h.edu",
+			"entry_node_id": "edu.contact"
+		},
+		{
+			"id": "edu.contact",
+			"say": {
+				"text": "Thank you for answering those questions. You're making my job a lot easier. If you have a pen and paper nearby, go ahead and grab those so you can take down some notes while we go over these plans."
+			},
+			"data": {
+				"items": [
+					{
+						"id": "name",
+						"say": {
+							"text": "My full name is {{agent_name}}."
+						},
+						"confirm": true
+					},
+					{
+						"id": "cell",
+						"say": {
+							"text": "My personal cell phone number so you can always reach me is {{agent_cell}}."
+						},
+						"var": "agent_cell",
+						"confirm": true
+					},
+					{
+						"id": "npn",
+						"say": {
+							"text": "My national insurance producer ID number, similar to a SSN in the insurance industry, is {{agent_npn}}."
+						},
+						"var": "agent_npn",
+						"confirm": true
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "edu.expectation"
+			},
+			"type": "checklist",
+			"heading_id": "h.edu.benefits",
+			"instructions": [
+				{
+					"text": "Explain the NPN as your \"insurance ID number\" — \"NPN\" is jargon to most callers."
+				}
+			]
+		},
+		{
+			"id": "edu.expectation",
+			"say": {
+				"text": "And while we're waiting for your options to load, I'll go over the benefits of these plans again just so everything makes sense for you. 1) These are State Approved Whole Life Plans that protect your family and cover you for your whole entire life, and they do not cancel or expire on you. 2) Your benefit amount will never decrease, and your monthly payments will never increase, even if you do get sick, and they're designed to get more affordable as you receive those cost-of-living increases from Social Security. 3) These do not require any medical exams, no blood testing, and we don't need to send you to a doctor or nurse to get approved. 4) And lastly, with these plans you do not have to pay anything today. You can start on the 1st, 3rd, or whatever day you receive your benefits. Does that make sense?",
+				"then": [
+					"All right. And based on everything you shared with me, I've narrowed down a few plans that I think are a great starting point. Before we go through them, I do want to set one expectation. The prices I'm about to give you are based on the information we discussed today. Once we submit the application, the insurance company completes its review. In many cases, the premium does stay the same, but depending on underwriting decisions, it could end up being a little bit lower, a little higher, or the company may recommend a different plan. If anything changes, I'll review everything with you before it moves forward, so there won't be any surprises. And also, the options I'm about to give you are not the only options available. If one of these monthly payments is more than you're comfortable with, that's perfectly okay. We can just adjust the amount of coverage until we find something that fits both your needs and your monthly budget. My goal here is to simply help you find a policy that you're comfortable keeping for years to come, all right?"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "pitch.quotes"
+			},
+			"type": "say",
+			"heading_id": "h.edu.benefits"
+		},
+		{
+			"id": "h.pitch",
+			"role": "flow",
+			"sort": 5,
+			"type": "heading",
+			"level": 1,
+			"title": "Section 5 — Pitch",
+			"parent_id": null,
+			"entry_node_id": "pitch.quotes"
+		},
+		{
+			"id": "h.pitch.options",
+			"role": "flow",
+			"sort": 1,
+			"type": "heading",
+			"level": 2,
+			"title": "Presenting options",
+			"parent_id": "h.pitch",
+			"entry_node_id": "pitch.quotes"
+		},
+		{
+			"id": "pitch.quotes",
+			"say": {
+				"text": "Perfect. Now I've got a few plans brought up here, and we can always adjust these to fit your needs better. Do you still have your pen and paper available? Please write these down."
+			},
+			"data": {
+				"items": [
+					{
+						"id": "p1a",
+						"say": {
+							"text": "Plan 1 coverage"
+						},
+						"var": "plan1_amount"
+					},
+					{
+						"id": "p1p",
+						"say": {
+							"text": "Plan 1 monthly"
+						},
+						"var": "plan1_premium"
+					},
+					{
+						"id": "p2a",
+						"say": {
+							"text": "Plan 2 coverage"
+						},
+						"var": "plan2_amount"
+					},
+					{
+						"id": "p2p",
+						"say": {
+							"text": "Plan 2 monthly"
+						},
+						"var": "plan2_premium"
+					},
+					{
+						"id": "p3a",
+						"say": {
+							"text": "Plan 3 coverage"
+						},
+						"var": "plan3_amount"
+					},
+					{
+						"id": "p3p",
+						"say": {
+							"text": "Plan 3 monthly"
+						},
+						"var": "plan3_premium"
+					}
+				],
+				"position": "before"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "pitch.choose"
+			},
+			"type": "checklist",
+			"heading_id": "h.pitch.options",
+			"instructions": [
+				{
+					"text": "Enter the three quotes before presenting — the next steps read them out.",
+					"position": "before"
+				}
+			]
+		},
+		{
+			"id": "pitch.choose",
+			"say": {
+				"text": "So, let's start with the first one. The first plan will leave {{beneficiary_name}} {{plan1_amount}} in coverage. This will be enough to cover the burial/cremation entirely. That plan comes out to a monthly fixed amount of {{plan1_premium}}.\n\nThe second plan is for {{plan2_amount}} in coverage. This will be enough to cover the burial/cremation entirely plus give the family a little extra so {{beneficiary_name}} can {{benefit_dq_answer}}. That is a monthly fixed amount of {{plan2_premium}}.\n\nThe third plan will leave {{beneficiary_name}} {{plan3_amount}} in coverage. This will be enough to cover the burial/cremation entirely plus give them quite a bit extra so {{beneficiary_name}} can {{benefit_dq_answer}} without any stress. That is a monthly fixed amount of {{plan3_premium}}.\n\nIf anything were to happen to you, which one of these options do you want {{beneficiary_name}} to receive as a check?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "plan1",
+					"label": "Plan 1",
+					"target": {
+						"kind": "node",
+						"node_id": "pitch.confirm"
+					},
+					"actions": [
+						{
+							"type": "set_var",
+							"params": {
+								"key": "selected_plan",
+								"value": "1"
+							}
+						}
+					]
+				},
+				{
+					"id": "plan2",
+					"label": "Plan 2",
+					"target": {
+						"kind": "node",
+						"node_id": "pitch.confirm"
+					},
+					"actions": [
+						{
+							"type": "set_var",
+							"params": {
+								"key": "selected_plan",
+								"value": "2"
+							}
+						}
+					]
+				},
+				{
+					"id": "plan3",
+					"label": "Plan 3",
+					"target": {
+						"kind": "node",
+						"node_id": "pitch.confirm"
+					},
+					"actions": [
+						{
+							"type": "set_var",
+							"params": {
+								"key": "selected_plan",
+								"value": "3"
+							}
+						}
+					]
+				},
+				{
+					"id": "adjust",
+					"label": "Adjust coverage",
+					"target": {
+						"kind": "node",
+						"node_id": "pitch.quotes"
+					}
+				},
+				{
+					"id": "too_expensive",
+					"label": "Too expensive",
+					"target": {
+						"kind": "heading",
+						"heading_id": "h.obj3"
+					}
+				},
+				{
+					"id": "think",
+					"label": "Needs to think about it",
+					"target": {
+						"kind": "heading",
+						"heading_id": "h.obj2"
+					}
+				}
+			],
+			"requires": ["beneficiary_name", "plan1_amount", "plan1_premium"],
+			"heading_id": "h.pitch.options",
+			"instructions": [
+				{
+					"text": "Call back their exact words from the Benefit DQ. Their own words sell the bigger plan better than yours will.",
+					"position": "before"
+				}
+			],
+			"skip": {
+				"kind": "node",
+				"node_id": "pitch.confirm"
+			}
+		},
+		{
+			"id": "pitch.confirm",
+			"say": {
+				"text": "Perfect, I think that's a good choice too because it will cover what you need completely. And just to confirm, is that going to be comfortable monthly for you?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "yes",
+					"say": {
+						"text": "Ok. Sounds good. We'll go ahead and submit the application to the carrier for that then."
+					},
+					"label": "Yes",
+					"target": {
+						"kind": "node",
+						"node_id": "app.identity"
+					},
+					"actions": [
+						{
+							"type": "set_outcome",
+							"params": {
+								"outcome": "sale"
+							}
+						}
+					]
+				},
+				{
+					"id": "no",
+					"label": "Not comfortable",
+					"target": {
+						"kind": "node",
+						"node_id": "pitch.quotes"
+					}
+				},
+				{
+					"id": "too_expensive",
+					"label": "Too expensive",
+					"target": {
+						"kind": "heading",
+						"heading_id": "h.obj3"
+					}
+				}
+			],
+			"heading_id": "h.pitch.options",
+			"skip": {
+				"kind": "node",
+				"node_id": "app.identity"
+			}
+		},
+		{
+			"id": "h.app",
+			"role": "flow",
+			"sort": 6,
+			"type": "heading",
+			"level": 1,
+			"title": "Section 6 — App",
+			"parent_id": null,
+			"entry_node_id": "app.identity"
+		},
+		{
+			"id": "h.app.client",
+			"role": "flow",
+			"sort": 1,
+			"type": "heading",
+			"level": 2,
+			"title": "Client information",
+			"parent_id": "h.app",
+			"entry_node_id": "app.identity"
+		},
+		{
+			"id": "h.app.payment",
+			"role": "flow",
+			"sort": 2,
+			"type": "heading",
+			"level": 2,
+			"title": "Approval + payment",
+			"parent_id": "h.app",
+			"entry_node_id": "app.approval"
+		},
+		{
+			"id": "app.identity",
+			"say": {
+				"text": "Now, when we get pre-approval, the first thing the carrier will ask us for is the spelling of your first and last name. Please spell that for me whenever you're ready."
+			},
+			"data": {
+				"items": [
+					{
+						"id": "first",
+						"say": {
+							"text": "First name"
+						},
+						"var": "first_name"
+					},
+					{
+						"id": "last",
+						"say": {
+							"text": "Last name"
+						},
+						"var": "last_name"
+					},
+					{
+						"id": "phone",
+						"say": {
+							"text": "Is this a cell phone or a home phone? Ok, and if I send you a text message on this phone you can get it, right?",
+							"fields": [
+								{
+									"var": "phone",
+									"after": 0
+								},
+								{
+									"var": "phone_type"
+								},
+								{
+									"var": "can_receive_texts"
+								}
+							]
+						},
+						"var": "phone"
+					},
+					{
+						"id": "email",
+						"say": {
+							"text": "And then what's the best email for you?"
+						},
+						"var": "email"
+					},
+					{
+						"id": "address",
+						"say": {
+							"text": "Complete home / mailing address"
+						},
+						"var": "address"
+					},
+					{
+						"id": "address2",
+						"say": {
+							"text": "Apartment / unit"
+						},
+						"var": "address2",
+						"optional": true
+					},
+					{
+						"id": "city",
+						"say": {
+							"text": "City"
+						},
+						"var": "city"
+					},
+					{
+						"id": "state",
+						"say": {
+							"text": "State"
+						},
+						"var": "state"
+					},
+					{
+						"id": "zip",
+						"say": {
+							"text": "Zip"
+						},
+						"var": "zip"
+					},
+					{
+						"id": "sob",
+						"say": {
+							"text": "Birth state"
+						},
+						"var": "sob"
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "app.beneficiary"
+			},
+			"type": "checklist",
+			"heading_id": "h.app.client",
+			"instructions": [
+				{
+					"text": "Confirm cell — if it's a home phone, ask if they can get an email."
+				}
+			]
+		},
+		{
+			"id": "app.beneficiary",
+			"say": {
+				"text": "Ok, and who did you want to be your beneficiary?"
+			},
+			"data": {
+				"items": [
+					{
+						"id": "relation",
+						"say": {
+							"text": "Beneficiary relation"
+						},
+						"var": "beneficiary_relation"
+					},
+					{
+						"id": "name",
+						"say": {
+							"text": "Beneficiary name"
+						},
+						"var": "beneficiary_name"
+					},
+					{
+						"id": "dob",
+						"say": {
+							"text": "Beneficiary date of birth"
+						},
+						"var": "beneficiary_dob"
+					},
+					{
+						"id": "more",
+						"say": {
+							"text": "Did you want to add any other beneficiaries or just them?",
+							"fields": [
+								{
+									"var": "additional_beneficiaries",
+									"after": 0
+								},
+								{
+									"var": "additional_beneficiary_details",
+									"when": {
+										"var": "additional_beneficiaries",
+										"equals": true
+									}
+								}
+							]
+						},
+						"var": "additional_beneficiaries"
+					},
+					{
+						"id": "copy",
+						"say": {
+							"text": "Did you want them to get a copy of the policy too or just you? (If yes, get beneficiary address.)",
+							"fields": [
+								{
+									"var": "beneficiary_policy_copy",
+									"after": 0
+								},
+								{
+									"var": "beneficiary_address",
+									"when": {
+										"var": "beneficiary_policy_copy",
+										"equals": true
+									}
+								}
+							]
+						},
+						"var": "beneficiary_policy_copy"
+					},
+					{
+						"id": "citizen",
+						"say": {
+							"text": "And this next one I already know, but you are a US citizen, right?"
+						},
+						"var": "us_citizen"
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "app.ssn"
+			},
+			"type": "checklist",
+			"heading_id": "h.app.client"
+		},
+		{
+			"id": "app.ssn",
+			"say": {
+				"text": "And if anything were to happen to you, your family would receive a death certificate with your Social Security number on it, and the carrier uses that to verify the benefits go to the right beneficiaries. Since there's no medical exam, they'll also do a quick background check to confirm the health information we discussed. Because of that, they'll have us verify your Social, so go ahead with that whenever you're ready."
+			},
+			"data": {
+				"items": [
+					{
+						"id": "ssn",
+						"say": {
+							"text": "SSN"
+						}
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "app.effective"
+			},
+			"type": "checklist",
+			"heading_id": "h.app.client",
+			"instructions": [
+				{
+					"text": "Share screen if necessary — sometimes you will get objections here.",
+					"position": "before"
+				}
+			]
+		},
+		{
+			"id": "app.effective",
+			"say": {
+				"text": "Ok, thank you. Now when you get your benefits, do they normally come on the 1st, the 3rd, or on a Wednesday?",
+				"fields": [
+					{
+						"var": "benefits_schedule",
+						"after": 0
+					}
+				]
+			},
+			"data": {
+				"var": "effective_date"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "app.confirm_date"
+			},
+			"type": "capture",
+			"heading_id": "h.app.client",
+			"instructions": [
+				{
+					"text": "Make the effective date the same as the benefits date or the next day after."
+				}
+			]
+		},
+		{
+			"id": "app.confirm_date",
+			"say": {
+				"text": "Ok, and if we start the plan on {{effective_date}} this works for you? And that day of every month works too? Ok perfect."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "app.approval"
+			},
+			"type": "say",
+			"heading_id": "h.app.client"
+		},
+		{
+			"id": "app.approval",
+			"say": {
+				"text": "So now we'll go ahead and run the approval for you, this will take just a couple minutes, and in the meantime, you'll get a text message/email here shortly, so I'll walk you through that."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "app.bank"
+			},
+			"type": "say",
+			"on_enter": [
+				{
+					"type": "integration",
+					"params": {
+						"integration": "carrier_approval"
+					}
+				}
+			],
+			"heading_id": "h.app.payment",
+			"instructions": [
+				{
+					"text": "Get the approval, then go over the plan again."
+				}
+			]
+		},
+		{
+			"id": "app.bank",
+			"say": {
+				"text": "Ok, so we did get the approval, congratulations, they said you were very healthy, so nothing changed from what I told you originally.\n\nNow, this plan will start on {{effective_date}}, when it begins, did you want that to come from a checking or savings account? Ok, perfect. And what's the bank you bank with?"
+			},
+			"data": {
+				"items": [
+					{
+						"id": "type",
+						"say": {
+							"text": "Checking or savings"
+						},
+						"var": "account_type"
+					},
+					{
+						"id": "bank",
+						"say": {
+							"text": "Bank name"
+						},
+						"var": "bank_name"
+					},
+					{
+						"id": "routing",
+						"say": {
+							"text": "It looks like they are one of our partner banks, so their routing number automatically pops up in our system, it is ____. (Let them confirm.)"
+						}
+					},
+					{
+						"id": "account",
+						"say": {
+							"text": "Ok and the account number?"
+						}
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "close.writedown"
+			},
+			"type": "checklist",
+			"heading_id": "h.app.payment",
+			"instructions": [
+				{
+					"text": "As soon as they name the bank, look up the routing number. Ask for the account number without hesitation."
+				}
+			]
+		},
+		{
+			"id": "h.close",
+			"role": "flow",
+			"sort": 7,
+			"type": "heading",
+			"level": 1,
+			"title": "Section 7 — Closing",
+			"parent_id": null,
+			"entry_node_id": "close.writedown"
+		},
+		{
+			"id": "h.close.wrap",
+			"role": "flow",
+			"sort": 1,
+			"type": "heading",
+			"level": 2,
+			"title": "Wrap up",
+			"parent_id": "h.close",
+			"entry_node_id": "close.writedown"
+		},
+		{
+			"id": "close.writedown",
+			"say": {
+				"text": "Now we're just about completed. If you still have the pen and paper, I'll have you write down a few important pieces of information."
+			},
+			"data": {
+				"items": [
+					{
+						"id": "policy",
+						"say": {
+							"text": "Policy number"
+						},
+						"var": "policy_number",
+						"confirm": true
+					},
+					{
+						"id": "carrier",
+						"say": {
+							"text": "Carrier"
+						},
+						"var": "policy_carrier",
+						"confirm": true
+					},
+					{
+						"id": "benefit",
+						"say": {
+							"text": "Benefit amount"
+						},
+						"display": {
+							"var": "selected_plan",
+							"choices": {
+								"1": "plan1_amount",
+								"2": "plan2_amount",
+								"3": "plan3_amount"
+							}
+						}
+					},
+					{
+						"id": "premium",
+						"say": {
+							"text": "Monthly premium"
+						},
+						"display": {
+							"var": "selected_plan",
+							"choices": {
+								"1": "plan1_premium",
+								"2": "plan2_premium",
+								"3": "plan3_premium"
+							}
+						}
+					},
+					{
+						"id": "start",
+						"say": {
+							"text": "Start date: {{effective_date}}"
+						},
+						"display": {
+							"var": "effective_date"
+						}
+					},
+					{
+						"id": "beneficiary",
+						"say": {
+							"text": "Beneficiary: {{beneficiary_name}}"
+						},
+						"display": {
+							"var": "beneficiary_name"
+						}
+					},
+					{
+						"id": "cs",
+						"say": {
+							"text": "Customer service number"
+						},
+						"var": "carrier_service_phone",
+						"confirm": true
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "close.referral"
+			},
+			"type": "checklist",
+			"heading_id": "h.close.wrap",
+			"instructions": [
+				{
+					"text": "Confirm your info once again with them."
+				}
+			]
+		},
+		{
+			"id": "close.referral",
+			"say": {
+				"text": "Now, you'll get a package in the mail in about 7-10 business days that will have all this information in it as well so you can review. When you get it, make sure to make a copy of it for yourself, and one for {{beneficiary_name}}. If God forbid anything happens to you, they'll call the number on the policy once they have the death certificate to receive the benefit within 24-48 hours.\n\nAnd now, I'm going to give you a quick security code: ____. If you ever receive another call from someone about your Final Expense policy telling you to make changes, simply ask them for this code. If they can't provide it, please hang up immediately. That means they are not working with me or on my behalf, so do not share any personal information with them.",
+				"then": [
+					"And lastly, now that you and your family are taken care of, do you happen to know anyone else who might benefit from Final Expense coverage to help protect their family as well? If so, feel free to share my number with them. Other than that, we are all set but if you have any questions, please don't hesitate to ask. Have a good one!"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "end",
+				"outcome": "sale"
+			},
+			"type": "say",
+			"heading_id": "h.close.wrap",
+			"instructions": [
+				{
+					"text": "Use a memorable code, like your birthdate.",
+					"position": "before"
+				}
+			]
+		},
+		{
+			"id": "h.obj",
+			"role": "objection",
+			"sort": 8,
+			"type": "heading",
+			"level": 1,
+			"title": "Objections & rebuttals",
+			"parent_id": null,
+			"entry_node_id": "obj1.temp"
+		},
+		{
+			"id": "h.obj1",
+			"role": "objection",
+			"sort": 1,
+			"type": "heading",
+			"level": 2,
+			"title": "“I thought it's FREE”",
+			"parent_id": "h.obj",
+			"cue_phrases": ["I thought it was free", "that's what I saw on the ads"],
+			"entry_node_id": "obj1.temp"
+		},
+		{
+			"id": "obj1.temp",
+			"say": {
+				"text": "Absolutely! I'd love free Final Expense insurance too if that existed and I completely understand why you'd think that. What the ad is referring to is the free quote and finding out what you qualify for. There isn't any cost to see your options or speak with a licensed benefits coordinator.\n\nJust so I understand, was the main reason you called because you thought the coverage itself was free, or were you also looking into making sure your family wouldn't have to pay for your funeral expenses someday?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "just_free",
+					"label": "Just wanted the free insurance",
+					"target": {
+						"kind": "node",
+						"node_id": "obj1.coverage"
+					}
+				},
+				{
+					"id": "protect",
+					"label": "Wanted to protect the family",
+					"target": {
+						"kind": "node",
+						"node_id": "obj1.reinforce"
+					}
+				}
+			],
+			"heading_id": "h.obj1",
+			"instructions": [
+				{
+					"text": "Agree and acknowledge — don't argue."
+				}
+			],
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj1.coverage",
+			"say": {
+				"text": "Do you already have any Final Expense or life insurance in place today?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "yes",
+					"label": "Yes",
+					"target": {
+						"kind": "node",
+						"node_id": "obj1.small"
+					}
+				},
+				{
+					"id": "no",
+					"label": "No",
+					"target": {
+						"kind": "node",
+						"node_id": "obj1.emotional"
+					}
+				}
+			],
+			"heading_id": "h.obj1",
+			"instructions": [
+				{
+					"text": "Don't jump into pricing. Shift their mindset toward the cost of having no coverage."
+				}
+			],
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj1.small",
+			"say": {
+				"text": "That's great. About how much coverage do you currently have?",
+				"then": [
+					"Do you feel that's enough to cover everything you want, or are there still some expenses your family might have to pay out of pocket?"
+				],
+				"fields": [
+					{
+						"var": "existing_coverage_notes"
+					}
+				],
+				"variants": [
+					"If funeral costs ended up being closer to $20,000 and your policy only covered $5,000, who do you think would be responsible for the remaining balance?"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj1.transition"
+			},
+			"type": "say",
+			"heading_id": "h.obj1"
+		},
+		{
+			"id": "obj1.emotional",
+			"data": {
+				"items": [
+					{
+						"id": "dq2",
+						"say": {
+							"text": "If something happened tomorrow, who would most likely be responsible for paying for your funeral?"
+						},
+						"var": "funeral_responsible_person"
+					},
+					{
+						"id": "dq3",
+						"say": {
+							"text": "Do you think your children, your spouse, or your family could comfortably come up with $15,000 to $25,000 within a couple of days?"
+						},
+						"var": "family_can_afford_funeral"
+					},
+					{
+						"id": "dq4",
+						"say": {
+							"text": "How would you feel knowing that while your family is grieving, they also have to figure out how they're going to pay for everything?"
+						},
+						"var": "family_financial_feelings"
+					},
+					{
+						"id": "dq5",
+						"say": {
+							"text": "Would that be a pretty heavy financial burden for them?"
+						},
+						"var": "family_financial_burden"
+					},
+					{
+						"id": "dq6",
+						"say": {
+							"text": "Most parents and spouses I speak with tell me they never want their family to have to go through that. Would you say you feel the same way?"
+						},
+						"var": "wants_to_avoid_burden"
+					},
+					{
+						"id": "dq7",
+						"say": {
+							"text": "At the end of the day, would you rather leave your family with money to help them through that difficult time, or leave them with bills they have to figure out?"
+						},
+						"var": "family_legacy_preference"
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "obj1.transition"
+			},
+			"type": "checklist",
+			"heading_id": "h.obj1"
+		},
+		{
+			"id": "obj1.transition",
+			"say": {
+				"text": "That's exactly why so many people decide to put something in place. It's not because anyone expects something to happen tomorrow — it's because they want their family protected whenever that day eventually comes."
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"heading_id": "h.obj1"
+		},
+		{
+			"id": "obj1.reinforce",
+			"say": {
+				"text": "I completely understand, and honestly that's exactly why most people reach out to us. Let's make sure we find something that protects your family without stretching your monthly budget."
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"heading_id": "h.obj1"
+		},
+		{
+			"id": "h.obj2",
+			"role": "objection",
+			"sort": 2,
+			"type": "heading",
+			"level": 2,
+			"title": "“I need to think about it”",
+			"parent_id": "h.obj",
+			"cue_phrases": ["I need to think about it", "let me think it over"],
+			"entry_node_id": "obj2.temp"
+		},
+		{
+			"id": "obj2.temp",
+			"say": {
+				"text": "Absolutely, I understand. This is an important decision and I wouldn't expect you to make it lightly.\n\nJust so I know how best to help you… what specifically would you like to think about?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "price",
+					"label": "Price",
+					"target": {
+						"kind": "node",
+						"node_id": "obj2.price"
+					}
+				},
+				{
+					"id": "family",
+					"label": "Wants to discuss with family",
+					"target": {
+						"kind": "node",
+						"node_id": "obj2.family"
+					}
+				},
+				{
+					"id": "time",
+					"label": "Needs time",
+					"target": {
+						"kind": "node",
+						"node_id": "obj2.time"
+					}
+				}
+			],
+			"heading_id": "h.obj2",
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj2.price",
+			"say": {
+				"text": "I completely understand. Can I ask… is it the monthly payment itself, or is it just fitting it comfortably into your budget?",
+				"then": ["About what monthly payment would feel comfortable for you?"]
+			},
+			"data": {
+				"var": "comfortable_payment"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "pitch.quotes"
+			},
+			"type": "capture",
+			"heading_id": "h.obj2",
+			"instructions": [
+				{
+					"text": "If lower: \"Perfect, let's see if we can adjust the coverage so you're still protecting your family while staying within a payment you're comfortable with.\""
+				}
+			]
+		},
+		{
+			"id": "obj2.family",
+			"say": {
+				"text": "I completely respect that. Out of curiosity, what do you think your son/daughter/spouse would want you to do if they knew this policy would keep them from paying those funeral expenses themselves?",
+				"then": [
+					"My job isn't to pressure you. It's simply to make sure you have enough information to make the best decision for your family."
+				],
+				"fields": [
+					{
+						"var": "family_discussion_notes",
+						"after": 0
+					}
+				],
+				"variants": [
+					"If they were sitting here with us, do you think protecting them would still be the priority?"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "pitch.choose"
+			},
+			"type": "say",
+			"heading_id": "h.obj2"
+		},
+		{
+			"id": "obj2.time",
+			"say": {
+				"text": "Of course. Can I ask what information you're still missing so I can make sure you have everything before you decide?",
+				"then": [
+					"My job isn't to pressure you. It's simply to make sure you have enough information to make the best decision for your family."
+				],
+				"fields": [
+					{
+						"var": "missing_information",
+						"after": 0
+					}
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "pitch.choose"
+			},
+			"type": "say",
+			"heading_id": "h.obj2"
+		},
+		{
+			"id": "h.obj3",
+			"role": "objection",
+			"sort": 3,
+			"type": "heading",
+			"level": 2,
+			"title": "“It's too expensive”",
+			"parent_id": "h.obj",
+			"cue_phrases": [
+				"it's too expensive",
+				"I can't afford it",
+				"that's more than I expected"
+			],
+			"entry_node_id": "obj3.temp"
+		},
+		{
+			"id": "obj3.temp",
+			"say": {
+				"text": "I completely understand, and I appreciate you being honest with me. Nobody wants to take on another monthly expense.\n\nJust so I understand, when you say it's too expensive, is it the monthly payment itself, or were you expecting the coverage to cost something different?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "payment",
+					"label": "Monthly payment is too high",
+					"target": {
+						"kind": "node",
+						"node_id": "obj3.payment"
+					}
+				},
+				{
+					"id": "expected",
+					"label": "Didn't expect it to cost that much",
+					"target": {
+						"kind": "node",
+						"node_id": "obj3.expected"
+					}
+				},
+				{
+					"id": "cant_afford",
+					"label": "Can't afford it",
+					"target": {
+						"kind": "node",
+						"node_id": "obj3.cant"
+					}
+				}
+			],
+			"heading_id": "h.obj3",
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj3.payment",
+			"say": {
+				"text": "I completely understand. Before I see what adjustments we can make, about what monthly payment would feel comfortable for you?"
+			},
+			"data": {
+				"var": "comfortable_payment"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "obj3.payment_anchor"
+			},
+			"type": "capture",
+			"heading_id": "h.obj3"
+		},
+		{
+			"id": "obj3.payment_anchor",
+			"say": {
+				"text": "Perfect. My goal isn't to sell you something that stretches your budget. My job is to make sure your family is protected with a payment you're actually comfortable making. Let's see if we can adjust the coverage while still making sure your family isn't left paying those final expenses out of pocket."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "pitch.quotes"
+			},
+			"type": "say",
+			"heading_id": "h.obj3"
+		},
+		{
+			"id": "obj3.expected",
+			"say": {
+				"text": "I understand. Out of curiosity, what were you expecting it to cost?"
+			},
+			"data": {
+				"var": "expected_cost"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "obj3.educate"
+			},
+			"type": "capture",
+			"heading_id": "h.obj3"
+		},
+		{
+			"id": "obj3.educate",
+			"say": {
+				"text": "A lot of people are surprised at first because they haven't priced Final Expense coverage before. The monthly premium is based on things like age, health, and the amount of coverage you choose. The good news is we can usually adjust the coverage to find something that protects your family without going beyond your budget."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "pitch.quotes"
+			},
+			"type": "say",
+			"heading_id": "h.obj3"
+		},
+		{
+			"id": "obj3.cant",
+			"say": {
+				"text": "I understand. Can I ask — is it that you truly can't fit another payment into your budget, or is there another concern that's making you hesitate?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "budget",
+					"label": "Budget",
+					"target": {
+						"kind": "node",
+						"node_id": "obj3.budget"
+					}
+				},
+				{
+					"id": "other",
+					"label": "Another concern",
+					"target": {
+						"kind": "node",
+						"node_id": "obj3.weigh"
+					}
+				}
+			],
+			"heading_id": "h.obj3",
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj3.budget",
+			"say": {
+				"text": "What monthly payment would realistically work for you?"
+			},
+			"data": {
+				"var": "comfortable_payment"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "obj3.reanchor"
+			},
+			"type": "capture",
+			"heading_id": "h.obj3"
+		},
+		{
+			"id": "obj3.reanchor",
+			"say": {
+				"text": "Earlier you mentioned your biggest concern was making sure your family wouldn't have to pay for these expenses. I don't want you to leave this call feeling like it's all or nothing. Even a smaller amount of coverage can make a tremendous difference for your family."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj3.weigh"
+			},
+			"type": "say",
+			"heading_id": "h.obj3"
+		},
+		{
+			"id": "obj3.weigh",
+			"say": {
+				"text": "If we can find a payment that fits comfortably within your budget, would protecting your family still be something you'd want to take care of today?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "yes",
+					"say": {
+						"text": "Let's take a look at a few options that fit the payment you're comfortable with, and we'll build the right amount of protection from there."
+					},
+					"label": "Yes",
+					"target": {
+						"kind": "node",
+						"node_id": "pitch.quotes"
+					}
+				},
+				{
+					"id": "hesitant",
+					"label": "Still hesitant",
+					"target": {
+						"kind": "node",
+						"node_id": "obj3.tradeoff"
+					}
+				}
+			],
+			"heading_id": "h.obj3",
+			"instructions": [
+				{
+					"text": "Instead of immediately dropping the price, help them weigh the trade-off.",
+					"tone": "warn"
+				}
+			],
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj3.tradeoff",
+			"say": {
+				"text": "Would you rather adjust the amount of coverage so it fits your budget, or leave your family responsible for covering whatever isn't protected?",
+				"then": [
+					"Let's work together to find the right balance. My job isn't to recommend the biggest policy — it's to help you find one that's meaningful for your family and comfortable for your monthly budget."
+				],
+				"fields": [
+					{
+						"var": "coverage_tradeoff",
+						"after": 0
+					}
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "pitch.quotes"
+			},
+			"type": "say",
+			"heading_id": "h.obj3"
+		},
+		{
+			"id": "h.obj4",
+			"role": "objection",
+			"sort": 4,
+			"type": "heading",
+			"level": 2,
+			"title": "“I already have insurance”",
+			"parent_id": "h.obj",
+			"cue_phrases": ["I already have insurance", "I already have a policy"],
+			"entry_node_id": "obj4.temp"
+		},
+		{
+			"id": "obj4.temp",
+			"say": {
+				"text": "That's actually great to hear. I'm glad you've already taken the first step toward protecting your family.\n\nJust so I understand, if you already have insurance in place, what made you decide to call us today? Was it because you're not completely satisfied with your current coverage, or were you simply looking to see if you should add more protection?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "unsatisfied",
+					"label": "Not satisfied with current policy",
+					"target": {
+						"kind": "node",
+						"node_id": "obj4.unsatisfied"
+					}
+				},
+				{
+					"id": "more",
+					"label": "Wants more coverage",
+					"target": {
+						"kind": "node",
+						"node_id": "obj4.more"
+					}
+				},
+				{
+					"id": "enough",
+					"label": "Thought they had enough",
+					"target": {
+						"kind": "node",
+						"node_id": "obj4.enough"
+					}
+				}
+			],
+			"heading_id": "h.obj4",
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj4.unsatisfied",
+			"say": {
+				"text": "I'd be happy to help with that. Can I ask what you're not satisfied with? Is it the coverage amount, the monthly payment, the waiting period, or something else?",
+				"fields": [
+					{
+						"var": "existing_policy_concern",
+						"after": 0
+					}
+				]
+			},
+			"data": {
+				"items": [
+					{
+						"id": "carrier",
+						"say": {
+							"text": "Who is your current policy with?"
+						},
+						"var": "existing_carrier"
+					},
+					{
+						"id": "amount",
+						"say": {
+							"text": "About how much coverage do you currently have?"
+						},
+						"var": "existing_coverage"
+					},
+					{
+						"id": "length",
+						"say": {
+							"text": "How long have you had the policy?"
+						},
+						"var": "existing_policy_duration"
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "obj4.reassure"
+			},
+			"type": "checklist",
+			"heading_id": "h.obj4"
+		},
+		{
+			"id": "obj4.reassure",
+			"say": {
+				"text": "Don't worry. As your Benefits Coordinator today, my job is simply to make sure you have the protection you actually need. We'll review what you already have, identify any gaps, and if additional coverage makes sense, I'll show you the most affordable option that fits your needs and budget."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj4.transition"
+			},
+			"type": "say",
+			"heading_id": "h.obj4"
+		},
+		{
+			"id": "obj4.more",
+			"say": {
+				"text": "That makes perfect sense. A lot of families already have some coverage and simply realize it may not be enough anymore. About how much coverage do you currently have?",
+				"variants": [
+					"What made you feel like you might need additional protection?"
+				]
+			},
+			"data": {
+				"var": "existing_coverage"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "obj4.low"
+			},
+			"type": "capture",
+			"heading_id": "h.obj4"
+		},
+		{
+			"id": "obj4.low",
+			"say": {
+				"text": "If funeral costs ended up being closer to $20,000 and your current policy only covered $5,000 or $10,000, who do you think would most likely be responsible for the remaining balance? Would you feel comfortable leaving that portion for your family to figure out?",
+				"fields": [
+					{
+						"var": "coverage_gap_notes",
+						"after": 0
+					}
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj4.transition"
+			},
+			"type": "say",
+			"heading_id": "h.obj4",
+			"instructions": [
+				{
+					"text": "Use when their coverage is low."
+				}
+			]
+		},
+		{
+			"id": "obj4.enough",
+			"say": {
+				"text": "That's great. Out of curiosity, when was the last time you reviewed your policy? Do you feel it still covers everything you want based on today's funeral costs?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "not_sure",
+					"label": "Not sure",
+					"target": {
+						"kind": "node",
+						"node_id": "obj4.costs"
+					}
+				},
+				{
+					"id": "confident",
+					"label": "Confident it's enough",
+					"target": {
+						"kind": "node",
+						"node_id": "obj4.transition"
+					}
+				}
+			],
+			"heading_id": "h.obj4",
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj4.costs",
+			"say": {
+				"text": "Funeral costs have continued to increase over the years, and many people discover that the coverage they purchased years ago no longer fully protects their family. That's why we're taking a few minutes to review it together today."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj4.transition"
+			},
+			"type": "say",
+			"heading_id": "h.obj4"
+		},
+		{
+			"id": "obj4.transition",
+			"say": {
+				"text": "Many of the families I help already have insurance in place. They aren't starting over — they're simply making sure there aren't any gaps in coverage. Let's take a look at what you already have and see if there's anything we can do to make sure your family is fully protected without paying for more than you actually need.",
+				"variants": [
+					"If everything looks good, I'll be the first to tell you. But if we find a gap, we'll put together the most affordable solution to complete your protection so your family isn't left with unexpected expenses."
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
+			"type": "say",
+			"heading_id": "h.obj4"
+		},
+		{
+			"id": "h.obj5",
+			"role": "objection",
+			"sort": 5,
+			"type": "heading",
+			"level": 2,
+			"title": "“Free government benefit of $255”",
+			"parent_id": "h.obj",
+			"cue_phrases": [
+				"the $255 death benefit",
+				"Social Security will pay for it"
+			],
+			"entry_node_id": "obj5.temp"
+		},
+		{
+			"id": "obj5.temp",
+			"say": {
+				"text": "Yes, many people have heard about the Social Security death benefit, and I'm glad you brought it up.\n\nJust so I understand, were you under the impression that the $255 benefit would cover your funeral expenses, or were you simply wondering how it works?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "covered",
+					"label": "Thought it covered the funeral",
+					"target": {
+						"kind": "node",
+						"node_id": "obj5.costs"
+					}
+				},
+				{
+					"id": "curious",
+					"label": "Just wanted to know about it",
+					"target": {
+						"kind": "node",
+						"node_id": "obj5.goal"
+					}
+				},
+				{
+					"id": "enough",
+					"label": "That's all my family will need",
+					"target": {
+						"kind": "node",
+						"node_id": "obj5.enough"
+					}
+				}
+			],
+			"heading_id": "h.obj5",
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj5.costs",
+			"say": {
+				"text": "I completely understand why you'd think that. The $255 Social Security death benefit is a one-time payment that some eligible survivors may receive, but it's separate from Final Expense insurance and it's not designed to cover the full cost of a funeral.\n\nHave you had a chance to look into what funeral costs are running in your area these days?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "no",
+					"label": "No",
+					"target": {
+						"kind": "node",
+						"node_id": "obj5.range"
+					}
+				},
+				{
+					"id": "yes",
+					"label": "Yes",
+					"target": {
+						"kind": "node",
+						"node_id": "obj5.reanchor"
+					}
+				}
+			],
+			"heading_id": "h.obj5",
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj5.range",
+			"say": {
+				"text": "Depending on the type of service and arrangements, many funerals today can cost anywhere from $15,000 to $25,000, sometimes even more."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj5.reanchor"
+			},
+			"type": "say",
+			"heading_id": "h.obj5"
+		},
+		{
+			"id": "obj5.reanchor",
+			"say": {
+				"text": "If there were still thousands of dollars left after that benefit, who do you think would most likely have to cover the remaining expenses? Would that place a financial burden on your family?",
+				"fields": [
+					{
+						"var": "death_benefit_gap_notes",
+						"after": 0
+					}
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj5.transition"
+			},
+			"type": "say",
+			"heading_id": "h.obj5"
+		},
+		{
+			"id": "obj5.goal",
+			"say": {
+				"text": "That's a great question. Many callers ask about it because they've seen it online or heard about it from someone else. The Social Security benefit and Final Expense insurance serve two very different purposes. The government benefit, if someone qualifies, is a small one-time payment, while Final Expense insurance is designed to provide enough money to help your family cover funeral costs and other final expenses.\n\nCan I ask what your biggest goal is? Is it simply covering the funeral, leaving something behind for your family, or a little bit of both?"
+			},
+			"data": {
+				"var": "goal"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "obj5.transition"
+			},
+			"type": "capture",
+			"heading_id": "h.obj5"
+		},
+		{
+			"id": "obj5.enough",
+			"say": {
+				"text": "Can I ask you something? If your family received $255, do you think that would be enough to cover the funeral and everything else you'd want taken care of?",
+				"then": [
+					"Most people I speak with want their family focused on being together and grieving — not trying to figure out how to come up with the rest of the money. That's exactly why they choose to have something additional in place."
+				],
+				"fields": [
+					{
+						"var": "death_benefit_sufficient_notes",
+						"after": 0
+					}
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj5.transition"
+			},
+			"type": "say",
+			"heading_id": "h.obj5"
+		},
+		{
+			"id": "obj5.transition",
+			"say": {
+				"text": "The Social Security benefit can certainly help with a small portion of the expenses if someone qualifies, but it's not intended to replace Final Expense coverage. Let's take a look at what you actually need so your family isn't left paying the difference out of pocket.",
+				"variants": [
+					"We'll build a plan around your family's needs and your budget, so you know exactly where they'll stand when that day eventually comes."
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"heading_id": "h.obj5"
+		},
+		{
+			"id": "h.obj6",
+			"role": "objection",
+			"sort": 6,
+			"type": "heading",
+			"level": 2,
+			"title": "Existing policy / previous agent (customer service)",
+			"parent_id": "h.obj",
+			"cue_phrases": [
+				"I have a question about my policy",
+				"I need to talk to my previous agent"
+			],
+			"entry_node_id": "obj6.temp"
+		},
+		{
+			"id": "obj6.temp",
+			"say": {
+				"text": "Absolutely, I'd be happy to point you in the right direction.\n\nJust so I understand, is your question about your billing, your policy benefits, your coverage amount, or something else?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "carrier",
+					"label": "Something only the carrier / original agent can handle",
+					"target": {
+						"kind": "node",
+						"node_id": "obj6.reviewed"
+					}
+				},
+				{
+					"id": "previous_agent",
+					"label": "Wants the previous agent",
+					"target": {
+						"kind": "node",
+						"node_id": "obj6.previous"
+					}
+				}
+			],
+			"heading_id": "h.obj6",
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj6.reviewed",
+			"say": {
+				"text": "I definitely don't want to guess or give you inaccurate information, so for anything specific to your existing policy, the carrier or the licensed agent who helped you originally would be the best resource. Since I've got you on the phone though, can I ask you something?",
+				"then": [
+					"When was the last time someone reviewed your coverage to make sure it still matches what you want for your family today?"
+				]
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "a_while",
+					"label": "It's been a while",
+					"target": {
+						"kind": "node",
+						"node_id": "obj6.offer"
+					}
+				},
+				{
+					"id": "recently",
+					"label": "Recently / not interested",
+					"target": {
+						"kind": "end",
+						"outcome": "redirected"
+					}
+				}
+			],
+			"heading_id": "h.obj6",
+			"instructions": [
+				{
+					"text": "Pivot instead of ending the call."
+				}
+			],
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj6.offer",
+			"say": {
+				"text": "A lot can change over the years — funeral costs continue to increase, health changes, and many people find out they're either underinsured or paying more than they need to. While you get those customer service questions answered, I'd be happy to do a complimentary coverage review with you today. That way you'll know whether your current policy still gives your family the protection you're looking for."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj6.review"
+			},
+			"type": "say",
+			"heading_id": "h.obj6"
+		},
+		{
+			"id": "obj6.review",
+			"data": {
+				"items": [
+					{
+						"id": "amount",
+						"say": {
+							"text": "About how much coverage do you currently have?"
+						},
+						"var": "existing_coverage"
+					},
+					{
+						"id": "beneficiary",
+						"say": {
+							"text": "Who did you name as your beneficiary?"
+						},
+						"var": "beneficiary_name"
+					},
+					{
+						"id": "enough",
+						"say": {
+							"text": "If something happened tomorrow, do you feel that amount would completely cover everything you want?"
+						},
+						"var": "existing_coverage_sufficient"
+					},
+					{
+						"id": "changed",
+						"say": {
+							"text": "Has anything changed since you first purchased that policy?"
+						},
+						"var": "changes_since_policy"
+					}
+				]
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "obj6.gaps"
+			},
+			"type": "checklist",
+			"heading_id": "h.obj6"
+		},
+		{
+			"id": "obj6.gaps",
+			"say": {
+				"text": "I'm really glad you mentioned that. That's exactly the kind of thing we help people review every day. Let's take a few minutes to see whether what you already have is still enough, or if there's a simple way to make sure your family is fully protected."
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"heading_id": "h.obj6",
+			"instructions": [
+				{
+					"text": "Use when they reveal gaps."
+				}
+			]
+		},
+		{
+			"id": "obj6.previous",
+			"say": {
+				"text": "Of course, and if your question is specific to that policy, they're definitely the best person to answer it. Before I let you go though, can I ask you one quick question?",
+				"then": [
+					"If we found out today that your current coverage wasn't enough to fully protect your family, would you want to know about it?"
+				]
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "yes",
+					"say": {
+						"text": "Perfect. Let's do a quick review together. It'll only take a few minutes, and at the end you'll know whether you're in great shape or if there are any gaps we should address."
+					},
+					"label": "Yes",
+					"target": {
+						"kind": "node",
+						"node_id": "obj6.review"
+					}
+				},
+				{
+					"id": "no",
+					"label": "No",
+					"target": {
+						"kind": "end",
+						"outcome": "redirected"
+					}
+				}
+			],
+			"heading_id": "h.obj6",
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "h.obj7",
+			"role": "objection",
+			"sort": 7,
+			"type": "heading",
+			"level": 2,
+			"title": "“Claim the $25,000 / $40,000 free benefit”",
+			"parent_id": "h.obj",
+			"cue_phrases": ["I want to claim the $25,000", "the $40,000 benefit"],
+			"entry_node_id": "obj7.temp"
+		},
+		{
+			"id": "obj7.temp",
+			"say": {
+				"text": "Absolutely! I completely understand why you called, and I'm glad you reached out. A lot of people call after seeing those advertisements, so you're definitely not the only one.\n\nJust to clarify, the $25,000 and $40,000 shown in the ad refer to the amount of Final Expense coverage that some people may qualify for. The good news is that getting a quote, reviewing your options, and finding out what you qualify for is completely free.\n\nJust so I can better help you, were you mainly calling because you wanted to claim that amount, or were you looking to make sure your family would be protected from funeral expenses when that day eventually comes?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "claim",
+					"label": "Just wants the amount",
+					"target": {
+						"kind": "node",
+						"node_id": "obj7.standout"
+					}
+				},
+				{
+					"id": "protect",
+					"label": "Wants to protect family",
+					"target": {
+						"kind": "node",
+						"node_id": "obj7.reinforce"
+					}
+				}
+			],
+			"heading_id": "h.obj7",
+			"instructions": [
+				{
+					"text": "Clarify — don't argue."
+				}
+			],
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj7.standout",
+			"say": {
+				"text": "I completely understand. Can I ask what made that amount stand out to you?",
+				"then": [
+					"Were you thinking that amount would cover your funeral, leave something behind for your family, or both?"
+				]
+			},
+			"data": {
+				"var": "goal"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "obj7.reanchor"
+			},
+			"type": "capture",
+			"heading_id": "h.obj7"
+		},
+		{
+			"id": "obj7.reanchor",
+			"say": {
+				"text": "That makes perfect sense. Rather than guessing at a number, my job is to make sure you have enough coverage to accomplish exactly what you want for your family without paying for more than you actually need."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj7.transition"
+			},
+			"type": "say",
+			"heading_id": "h.obj7"
+		},
+		{
+			"id": "obj7.reinforce",
+			"say": {
+				"text": "I completely understand, and that's exactly why most people reach out to us. Let's make sure we find the amount of coverage that fully protects your family while keeping the monthly payment comfortable for you."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj7.transition"
+			},
+			"type": "say",
+			"heading_id": "h.obj7"
+		},
+		{
+			"id": "obj7.transition",
+			"say": {
+				"text": "The first step is learning a little more about what you're trying to protect. Once I understand your situation, I'll show you the options you qualify for and help you find the coverage that best fits your needs and budget.",
+				"variants": [
+					"Let's start by talking about who you're protecting and what you want the policy to accomplish, and then we'll build the right amount of coverage from there."
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"heading_id": "h.obj7"
+		},
+		{
+			"id": "h.obj8",
+			"role": "objection",
+			"sort": 8,
+			"type": "heading",
+			"level": 2,
+			"title": "“I want the $25,000 / $40,000 policy”",
+			"parent_id": "h.obj",
+			"cue_phrases": ["I want the $25,000 policy", "give me the $40,000"],
+			"entry_node_id": "obj8.temp"
+		},
+		{
+			"id": "obj8.temp",
+			"say": {
+				"text": "Absolutely. Most people would love to leave that much behind for their family. The exact amount someone qualifies for depends on several factors, including age, health, and what feels comfortable for their monthly budget.\n\nCan I ask… what made you choose that amount?"
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "needed",
+					"label": "Thinks that's what's needed",
+					"target": {
+						"kind": "node",
+						"node_id": "obj8.needed"
+					}
+				},
+				{
+					"id": "max",
+					"label": "Just wants maximum coverage",
+					"target": {
+						"kind": "node",
+						"node_id": "obj8.max"
+					}
+				}
+			],
+			"heading_id": "h.obj8",
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "obj8.needed",
+			"say": {
+				"text": "What expenses were you hoping that amount would cover?"
+			},
+			"data": {
+				"var": "goal"
+			},
+			"next": {
+				"kind": "node",
+				"node_id": "obj8.reanchor"
+			},
+			"type": "capture",
+			"heading_id": "h.obj8"
+		},
+		{
+			"id": "obj8.max",
+			"say": {
+				"text": "If we could fully cover your funeral expenses while keeping your monthly payment much more affordable, would that accomplish what you're looking for?",
+				"fields": [
+					{
+						"var": "coverage_goal_notes",
+						"after": 0
+					}
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj8.reanchor"
+			},
+			"type": "say",
+			"heading_id": "h.obj8"
+		},
+		{
+			"id": "obj8.reanchor",
+			"say": {
+				"text": "The goal isn't necessarily having the biggest policy. The goal is making sure your family has enough money so they don't have to come out of pocket when that day comes. Let's first figure out exactly what your family would need, then we'll build the right amount of coverage around that."
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"heading_id": "h.obj8"
+		},
+		{
+			"id": "h.trg",
+			"role": "trigger",
+			"sort": 9,
+			"type": "heading",
+			"level": 1,
+			"title": "Emotional triggers",
+			"parent_id": null,
+			"entry_node_id": "trg1.follow"
+		},
+		{
+			"id": "h.trg1",
+			"role": "trigger",
+			"sort": 1,
+			"type": "heading",
+			"level": 2,
+			"title": "Recent loss",
+			"parent_id": "h.trg",
+			"cue_phrases": ["My husband passed away last year"],
+			"entry_node_id": "trg1.follow"
+		},
+		{
+			"id": "trg1.follow",
+			"say": {
+				"text": "I'm very sorry to hear that. If you don't mind me asking, how did your family handle everything financially when that happened?",
+				"fields": [
+					{
+						"var": "trg1_follow_notes",
+						"after": 0
+					}
+				],
+				"variants": [
+					"Was that experience one of the reasons you decided to start looking into coverage for yourself?",
+					"What is your main goal when it comes to making sure your family won't have to worry about unexpected costs?"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"on_enter": [
+				{
+					"type": "tag",
+					"params": {
+						"tag": "motivation:recent_loss"
+					}
+				}
+			],
+			"heading_id": "h.trg1",
+			"instructions": [
+				{
+					"text": "Avoid jumping straight to qualification (\"Okay, and how old are you?\"). They already know the impact — find out what it means to them."
+				}
+			]
+		},
+		{
+			"id": "h.trg2",
+			"role": "trigger",
+			"sort": 2,
+			"type": "heading",
+			"level": 2,
+			"title": "Doesn't want to burden family",
+			"parent_id": "h.trg",
+			"cue_phrases": [
+				"I just don't want my kids to have to pay for my funeral"
+			],
+			"entry_node_id": "trg2.follow"
+		},
+		{
+			"id": "trg2.follow",
+			"say": {
+				"text": "That's very thoughtful of you. Have you had a chance to talk to them about that?",
+				"fields": [
+					{
+						"var": "trg2_follow_notes",
+						"after": 0
+					}
+				],
+				"variants": [
+					"If everything had to be handled tomorrow, would they be financially prepared for those expenses?",
+					"So your goal is really to make sure they can focus on family rather than worrying about unexpected costs?",
+					"What would it mean to you knowing your family wouldn't have to worry about paying for your final expenses?",
+					"How important is it for you to make sure your children are not left with those expenses?",
+					"What concerns you most about your family having to handle those costs?",
+					"What would you want your family to be able to focus on when that time comes?"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"on_enter": [
+				{
+					"type": "tag",
+					"params": {
+						"tag": "motivation:burden"
+					}
+				}
+			],
+			"heading_id": "h.trg2",
+			"instructions": [
+				{
+					"text": "Many Final Expense buyers are motivated by protecting loved ones from financial stress."
+				}
+			]
+		},
+		{
+			"id": "h.trg3",
+			"role": "trigger",
+			"sort": 3,
+			"type": "heading",
+			"level": 2,
+			"title": "Lives on Social Security",
+			"parent_id": "h.trg",
+			"cue_phrases": ["I only live on Social Security"],
+			"entry_node_id": "trg3.follow"
+		},
+		{
+			"id": "trg3.follow",
+			"say": {
+				"text": "I understand. That's actually one of the reasons many people look into this type of coverage.",
+				"fields": [
+					{
+						"var": "trg3_follow_notes",
+						"after": 0
+					}
+				],
+				"variants": [
+					"If an unexpected expense came up, would your family need to step in and help financially?",
+					"Is protecting your family from that responsibility one of the reasons you're exploring your options today?",
+					"What concerns you most about handling final expenses while living on a fixed income?",
+					"If something unexpected happened, how do you think your family would handle those costs?",
+					"What would give you peace of mind when it comes to making sure your family is not left with that responsibility?"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"on_enter": [
+				{
+					"type": "tag",
+					"params": {
+						"tag": "motivation:fixed_income"
+					}
+				}
+			],
+			"heading_id": "h.trg3",
+			"instructions": [
+				{
+					"text": "Listen for fixed income, budget concerns, fear of becoming a burden, limited ability to handle unexpected expenses."
+				}
+			]
+		},
+		{
+			"id": "h.trg4",
+			"role": "trigger",
+			"sort": 4,
+			"type": "heading",
+			"level": 2,
+			"title": "Already has coverage",
+			"parent_id": "h.trg",
+			"cue_phrases": ["I already have a policy"],
+			"entry_node_id": "trg4.soft"
+		},
+		{
+			"id": "trg4.soft",
+			"say": {
+				"text": "That's great. When was the last time you reviewed your policy?",
+				"then": [
+					"Funeral costs continue to rise, and many families discover there's a gap between what they expected and what is actually needed."
+				],
+				"fields": [
+					{
+						"var": "trg4_soft_notes",
+						"after": 0
+					}
+				],
+				"variants": [
+					"Do you know exactly how much coverage it provides today?",
+					"Would that amount fully cover funeral expenses and any final bills?",
+					"That's good that you already have something in place. What made you feel like calling in today?",
+					"If you already have coverage, what were you hoping to find out today?",
+					"When you called in today, were you mainly looking to compare, add more coverage, or just make sure your family is fully protected?",
+					"What changed recently that made you think about this again?"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"on_enter": [
+				{
+					"type": "tag",
+					"params": {
+						"tag": "motivation:existing_coverage"
+					}
+				}
+			],
+			"heading_id": "h.trg4",
+			"instructions": [
+				{
+					"text": "Don't assume the need is covered."
+				}
+			]
+		},
+		{
+			"id": "h.trg5",
+			"role": "trigger",
+			"sort": 5,
+			"type": "heading",
+			"level": 2,
+			"title": "Mentions a health condition",
+			"parent_id": "h.trg",
+			"cue_phrases": ["I've got diabetes"],
+			"entry_node_id": "trg5.soft"
+		},
+		{
+			"id": "trg5.soft",
+			"say": {
+				"text": "How long have you been dealing with that?",
+				"then": [
+					"I imagine that's one of the reasons you're thinking ahead and making sure everything is taken care of for your family."
+				],
+				"fields": [
+					{
+						"var": "trg5_soft_notes",
+						"after": 0
+					}
+				],
+				"variants": [
+					"Has it caused any hospital stays or major concerns recently?"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"on_enter": [
+				{
+					"type": "tag",
+					"params": {
+						"tag": "motivation:health"
+					}
+				}
+			],
+			"heading_id": "h.trg5",
+			"instructions": [
+				{
+					"text": "Don't move past it too quickly — find out if the condition is part of why they're thinking ahead."
+				}
+			]
+		},
+		{
+			"id": "h.trg6",
+			"role": "trigger",
+			"sort": 6,
+			"type": "heading",
+			"level": 2,
+			"title": "Not interested",
+			"parent_id": "h.trg",
+			"cue_phrases": ["I'm not really interested"],
+			"entry_node_id": "trg6.follow"
+		},
+		{
+			"id": "trg6.follow",
+			"say": {
+				"text": "I understand. And aside from the cost or anything you may have expected from the ad, what was it that made you call in today?",
+				"variants": [
+					"I understand. Before we even talk about cost, just so I don't assume, what was it that made you call in today?",
+					"I completely understand. Before we even look at whether something would fit your budget, what made you feel this was something worth checking into for your family?",
+					"That makes sense. Is the concern that you don't need the coverage, or that you're worried it may not fit your budget?"
+				]
+			},
+			"data": {},
+			"type": "ask",
+			"choices": [
+				{
+					"id": "free",
+					"label": "Thought it was free / a benefit",
+					"target": {
+						"kind": "heading",
+						"heading_id": "h.obj1"
+					}
+				},
+				{
+					"id": "reason",
+					"main": true,
+					"label": "Gave a real reason",
+					"target": {
+						"kind": "node",
+						"node_id": "trg6.soft"
+					}
+				}
+			],
+			"on_enter": [
+				{
+					"type": "tag",
+					"params": {
+						"tag": "motivation:not_interested"
+					}
+				}
+			],
+			"heading_id": "h.trg6",
+			"instructions": [
+				{
+					"text": "Slow the caller down and find the original reason they called. Don't get stuck on cost or the free angle."
+				}
+			],
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			}
+		},
+		{
+			"id": "trg6.soft",
+			"say": {
+				"text": "That makes sense. The only reason I ask is because most people who call in usually saw something that made them think about their family or the cost of final expenses. I just wanted to understand what caught your attention."
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"heading_id": "h.trg6"
+		},
+		{
+			"id": "h.trg7",
+			"role": "trigger",
+			"sort": 7,
+			"type": "heading",
+			"level": 2,
+			"title": "Mentions children or grandchildren",
+			"parent_id": "h.trg",
+			"cue_phrases": ["I have three kids and six grandkids"],
+			"entry_node_id": "trg7.soft"
+		},
+		{
+			"id": "trg7.soft",
+			"say": {
+				"text": "It sounds like family is very important to you. Who are you closest to in your family?",
+				"then": [
+					"That makes sense. A lot of people who call in are not just thinking about themselves. They are thinking about the people they would leave behind and making sure things are easier for them."
+				],
+				"fields": [
+					{
+						"var": "trg7_soft_notes",
+						"after": 0
+					}
+				],
+				"variants": [
+					"When you think about your children or grandchildren, who would most likely be the one handling everything when that time comes?",
+					"What would you want them to be able to focus on instead of worrying about funeral costs or final expenses?",
+					"How would it make you feel knowing they wouldn't have to come out of pocket for those expenses?",
+					"Is protecting them from that financial stress one of the reasons you decided to call in today?"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"on_enter": [
+				{
+					"type": "tag",
+					"params": {
+						"tag": "motivation:family"
+					}
+				}
+			],
+			"heading_id": "h.trg7",
+			"instructions": [
+				{
+					"text": "Find out who they most want to protect."
+				}
+			]
+		},
+		{
+			"id": "h.trg8",
+			"role": "trigger",
+			"sort": 8,
+			"type": "heading",
+			"level": 2,
+			"title": "Has been delaying the decision",
+			"parent_id": "h.trg",
+			"cue_phrases": ["I've been meaning to do this for years"],
+			"entry_node_id": "trg8.soft"
+		},
+		{
+			"id": "trg8.soft",
+			"say": {
+				"text": "What made today the day you decided to finally look into it?",
+				"then": [
+					"That makes sense. Sometimes people put this off for years, but something eventually makes them realize it is time to get it handled. I just want to understand what made this important for you now."
+				],
+				"fields": [
+					{
+						"var": "trg8_soft_notes",
+						"after": 0
+					}
+				],
+				"variants": [
+					"What changed recently that made this feel more important now?",
+					"When you say you've been meaning to do this for years, what kept you from moving forward before?",
+					"Was there something that happened recently that made you start thinking about this again?",
+					"If you waited this long already, what would happen if you put it off again?",
+					"Who would be most affected if this still wasn't handled?"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"on_enter": [
+				{
+					"type": "tag",
+					"params": {
+						"tag": "motivation:delaying"
+					}
+				}
+			],
+			"heading_id": "h.trg8",
+			"instructions": [
+				{
+					"text": "Common answers: health concerns, loss of a friend or family member, financial worries, family responsibilities."
+				}
+			]
+		},
+		{
+			"id": "h.trg9",
+			"role": "trigger",
+			"sort": 9,
+			"type": "heading",
+			"level": 2,
+			"title": "Only wants cremation coverage",
+			"parent_id": "h.trg",
+			"cue_phrases": ["I just want enough for cremation"],
+			"entry_node_id": "trg9.soft"
+		},
+		{
+			"id": "trg9.soft",
+			"say": {
+				"text": "That makes sense. What made you decide that cremation is the only thing you want covered?",
+				"then": [
+					"That makes sense. A lot of people call in thinking only about the cremation itself, but sometimes there are other small expenses left behind. I just want to make sure we are looking at what your family may actually need, not more than necessary."
+				],
+				"fields": [
+					{
+						"var": "trg9_soft_notes",
+						"after": 0
+					}
+				],
+				"variants": [
+					"When you say you only want enough for cremation, are you mainly trying to keep the cost low, or are you trying to make sure your family doesn't have to worry about anything?",
+					"Besides the cremation itself, what other expenses do you think your family might have to handle?",
+					"If the cremation was covered but there were still other expenses, who would most likely be responsible for those?",
+					"Would it make sense to look at an amount that covers the cremation first, then see if there is room to protect them from a little more?"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"on_enter": [
+				{
+					"type": "tag",
+					"params": {
+						"tag": "motivation:cremation_only"
+					}
+				}
+			],
+			"heading_id": "h.trg9",
+			"instructions": [
+				{
+					"text": "Many callers underestimate the total cost their family may face."
+				}
+			]
+		},
+		{
+			"id": "h.trg10",
+			"role": "trigger",
+			"sort": 10,
+			"type": "heading",
+			"level": 2,
+			"title": "Says their family will handle it",
+			"parent_id": "h.trg",
+			"cue_phrases": ["My kids will take care of it"],
+			"entry_node_id": "trg10.soft"
+		},
+		{
+			"id": "trg10.soft",
+			"say": {
+				"text": "It's wonderful that you have children willing to step up. If you had the choice, would you rather leave them a bill or leave them a benefit?",
+				"then": [
+					"That makes sense. It sounds like your children would be there for you, but the goal is really to see if we can make things easier for them instead of leaving them with one more thing to figure out."
+				],
+				"fields": [
+					{
+						"var": "trg10_soft_notes",
+						"after": 0
+					}
+				],
+				"variants": [
+					"Even though they would help, would you prefer they spend that time focusing on family rather than finances?",
+					"If they had to handle it, how do you think that would affect them financially?",
+					"When you say your kids will take care of it, would that be easy for them, or would it put some pressure on them?",
+					"How would it feel knowing they could grieve and be with family instead of worrying about how to pay for everything?"
+				]
+			},
+			"data": {},
+			"next": {
+				"kind": "return",
+				"fallback": "dq.first_time"
+			},
+			"type": "say",
+			"on_enter": [
+				{
+					"type": "tag",
+					"params": {
+						"tag": "motivation:family_will_handle"
+					}
+				}
+			],
+			"heading_id": "h.trg10",
+			"instructions": [
+				{
+					"text": "Don't question whether the family would help — help them weigh the pressure it would create."
+				}
+			]
+		},
+		{
+			"id": "h.ref",
+			"role": "reference",
+			"sort": 10,
+			"type": "heading",
+			"level": 1,
+			"title": "Reference",
+			"parent_id": null,
+			"entry_node_id": null
+		},
+		{
+			"id": "h.ref.questions",
+			"role": "reference",
+			"sort": 1,
+			"type": "heading",
+			"level": 2,
+			"notes": [
+				"Family: Who are you ultimately protecting with this coverage?",
+				"Family: Who would be responsible for handling everything when the time comes?",
+				"Family: What concerns you most about leaving those expenses behind?",
+				"Family: How important is it to you that your family doesn't have to worry about finances during that time?",
+				"Experience: Have you ever had to help pay for a loved one's funeral?",
+				"Experience: Have you ever seen a family struggle financially after a loss? What was that like?",
+				"Future: If something happened tomorrow, would your family know exactly what to do financially?",
+				"Future: Would they have immediate access to the funds they need? How would they handle a $10,000 to $15,000 expense?",
+				"Legacy: What kind of legacy would you like to leave behind?",
+				"Legacy: Is it important to you that everything is taken care of ahead of time?"
+			],
+			"title": "Emotional discovery questions",
+			"parent_id": "h.ref",
+			"entry_node_id": null
+		},
+		{
+			"id": "h.ref.coaching",
+			"role": "reference",
+			"sort": 2,
+			"type": "heading",
+			"level": 2,
+			"notes": [
+				"Pay close attention to: recent loss, health concerns or hospitalizations, children and grandchildren, fixed income, financial struggles, existing coverage, retirement, concerns about becoming a burden.",
+				"These are emotional openings. Rather than rushing to a quote, take time to explore them.",
+				"People rarely buy Final Expense because they want insurance. They buy because they care about the people they will leave behind."
+			],
+			"title": "Coaching notes",
+			"parent_id": "h.ref",
+			"entry_node_id": null
+		}
+	],
+	"title": "Final Expense Full Script",
+	"start_node_id": "intro.qualify",
+	"version_label": "v4",
+	"schema_version": 1
+}

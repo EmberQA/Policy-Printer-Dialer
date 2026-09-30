@@ -38,6 +38,7 @@ export interface LeadFormView {
 	script: DialerScript | null;
 	/** Script → form. Does NOT emit a commit (no echo back into the script). */
 	writeField: (key: string, value: unknown) => void;
+	updateField: (key: string, update: (value: unknown) => unknown) => void;
 }
 
 export type LeadFormCommit =

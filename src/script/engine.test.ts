@@ -223,10 +223,10 @@ describe('script engine', () => {
 		expect(Object.keys(s.vars)).toEqual(['caller_phone']);
 	});
 
-	it('blocks a required capture until its var is set', () => {
+	it('allows an unanswered capture even with legacy required metadata', () => {
 		const s = start();
 		expect(missingVars(s, currentStep(ix, s)!)).toEqual(['first_name']);
-		expect(advance(ix, s)).toBe(s);
+		expect(advance(ix, s).current_node_id).toBe('intro.hi');
 		expect(named().current_node_id).toBe('intro.hi');
 	});
 
@@ -243,10 +243,10 @@ describe('script engine', () => {
 		expect(resolveText(ix, priced, '{{amount}}')).toBe('$25,000');
 	});
 
-	it('`requires` blocks leaving a step until the var is set, from any source', () => {
+	it('legacy requires never blocks choosing an answer', () => {
 		const s = advance(ix, named(), {now: NOW}); // → pitch.choose
 		expect(s.current_node_id).toBe('pitch.choose');
-		expect(advance(ix, s, {choiceId: 'plan'})).toBe(s);
+		expect(advance(ix, s, {choiceId: 'plan'}).ended).toBe(true);
 		const fromForm = commitVar(s, 'beneficiary', 'Bob', 'form', NOW);
 		const done = advance(ix, fromForm, {choiceId: 'plan', now: NOW});
 		expect(done.ended).toBe(true);
@@ -311,11 +311,11 @@ describe('script engine', () => {
 			'intro.hi'
 		);
 
-		// Say step read in full (at READING_WPM) → on to the step after it.
+		// Reading time is not an acknowledgment: return to the same spoken step.
 		const read = jumpToHeading(ix, named(), 'h.obj', at(readIt));
-		expect(isStepDone(ix, read, 'intro.hi', at(readIt))).toBe(true);
+		expect(isStepDone(ix, read, 'intro.hi', at(readIt))).toBe(false);
 		const back = resume(ix, read, at(readIt + 5_000));
-		expect(back.current_node_id).toBe('pitch.choose');
+		expect(back.current_node_id).toBe('intro.hi');
 		expect(back.return_stack).toEqual([]);
 
 		// Capture: finished once its field is filled, not by time.
