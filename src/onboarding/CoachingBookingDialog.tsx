@@ -91,12 +91,12 @@ export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 								Close preview
 							</Button>
 						)}
-						<p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Your next step</p>
-						<DialogPrimitive.Title className="text-2xl font-semibold tracking-tight">Let’s build your success</DialogPrimitive.Title>
+						<p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Five-sale milestone</p>
+						<DialogPrimitive.Title className="text-2xl font-semibold tracking-tight">Let’s review your first 5 sales</DialogPrimitive.Title>
 						<DialogPrimitive.Description className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground" asChild>
 							<div>
-								<p>Please book a call with <strong className="font-semibold text-foreground">Chris George</strong>, your Client Success Manager, who is here to help you improve and succeed through call listening, personalized coaching, and ongoing development.</p>
-								<p>The goal is to help you strengthen your approach, overcome challenges, and get the most out of your experience with Policy Printer.</p>
+								<p>Nice work reaching five sales. Please book a feedback call with <strong className="font-semibold text-foreground">Chris George</strong>, your Client Success Manager.</p>
+								<p>You’ll review what is working, talk through any challenges, and share feedback about your experience with Policy Printer.</p>
 							</div>
 						</DialogPrimitive.Description>
 						<p className="mt-5 border-t pt-4 text-xs leading-5 text-muted-foreground">Choose a time and confirm your booking to continue using the dialer.</p>

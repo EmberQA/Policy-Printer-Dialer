@@ -387,12 +387,12 @@ function AuthenticatedDialerApp({
 					type="button"
 					onClick={() => setPreviewBooking(true)}
 					disabled={promotionBlocked || trainingOpen || audioCheckOpen || bookingRequired}
-					title="Preview the client success booking popup (pause calls first)"
+					title="Preview the five-sale feedback call popup (pause calls first)"
 					data-testid="preview-booking-popup"
 					className="fixed bottom-16 right-4 z-50 flex items-center gap-2 rounded-full border border-cyan-300/80 bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xl shadow-cyan-500/20 outline-none hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-500 disabled:bg-slate-800 disabled:text-slate-400 disabled:opacity-70 disabled:shadow-none"
 				>
 					<CalendarDays className="size-4 text-cyan-300" />
-					View book help popup
+					View feedback call popup
 				</button>
 			)}
 			<header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">

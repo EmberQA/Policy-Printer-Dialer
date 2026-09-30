@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useState} from 'react';
 import {fetchCoachingStatus, type CoachingStatus} from '@/lib/api';
-import {bookingCookie, bookingCookieName, coachingRequired, DAY_MS, hasBookingCookie} from './coaching';
+import {bookingCookie, bookingCookieName, coachingRequired, hasBookingCookie} from './coaching';
 
 export function useCoachingBooking({orgId, userId, enabled, onCall}: {
 	orgId: string;
@@ -9,21 +9,18 @@ export function useCoachingBooking({orgId, userId, enabled, onCall}: {
 	onCall: boolean;
 }) {
 	const key = bookingCookieName(orgId, userId);
+	// Local development exposes the dialog through the explicit preview button only.
+	// Do not let real account history auto-open the gate or take the dialer offline.
+	const eligibilityEnabled = enabled && !import.meta.env.DEV;
 	const [bookedKey, setBookedKey] = useState<string | null>(null);
-	const [snapshot, setSnapshot] = useState<{
-		key: string; status: CoachingStatus; offset: number;
-	} | null>(null);
-	const [now, setNow] = useState(Date.now);
+	const [snapshot, setSnapshot] = useState<{key: string; status: CoachingStatus} | null>(null);
 	let cookieBooked = false;
 	try { cookieBooked = hasBookingCookie(document.cookie, key); } catch { /* in-memory fallback */ }
 	const booked = bookedKey === key || cookieBooked;
 	const current = snapshot?.key === key ? snapshot : null;
-	const serverNow = now + (current?.offset ?? 0);
-	const expired = Boolean(current?.status.purchased_at &&
-		serverNow - Date.parse(current.status.purchased_at) > 14 * DAY_MS);
 
 	useEffect(() => {
-		if (!enabled || booked || expired) return;
+		if (!eligibilityEnabled || booked) return;
 		let cancelled = false;
 		let timer: ReturnType<typeof setTimeout>;
 		const poll = async () => {
@@ -31,12 +28,7 @@ export function useCoachingBooking({orgId, userId, enabled, onCall}: {
 				const response = await fetchCoachingStatus();
 				if (cancelled) return;
 				if (response.statusCode === 'SP100' && response.coaching) {
-					const receivedAt = Date.now();
-					const serverTime = Date.parse(response.coaching.server_time);
-					if (Number.isFinite(serverTime)) {
-						setSnapshot({key, status: response.coaching, offset: serverTime - receivedAt});
-						setNow(receivedAt);
-					}
+					setSnapshot({key, status: response.coaching});
 				}
 			} catch { /* Retry without blocking the dialer on an eligibility read failure. */ }
 			if (!cancelled) timer = setTimeout(poll, 30_000);
@@ -44,16 +36,7 @@ export function useCoachingBooking({orgId, userId, enabled, onCall}: {
 		void poll();
 		return () => { cancelled = true; clearTimeout(timer); };
 		// Re-check as a call/wrap-up ends, as well as on the slow poll.
-	}, [enabled, booked, expired, key, onCall]);
-
-	useEffect(() => {
-		if (!enabled || booked || !current?.status.purchased_at || expired) return;
-		const purchase = Date.parse(current.status.purchased_at);
-		if (!Number.isFinite(purchase)) return;
-		const nextBoundary = purchase + 14 * DAY_MS + 1;
-		const timer = setTimeout(() => setNow(Date.now()), Math.max(1, Math.min(30_000, nextBoundary - serverNow)));
-		return () => clearTimeout(timer);
-	}, [enabled, booked, current, expired, serverNow]);
+	}, [eligibilityEnabled, booked, key, onCall]);
 
 	const completeBooking = useCallback(() => {
 		try { document.cookie = bookingCookie(key, location.protocol === 'https:'); } catch { /* retain for this session */ }
@@ -61,7 +44,7 @@ export function useCoachingBooking({orgId, userId, enabled, onCall}: {
 	}, [key]);
 
 	return {
-		bookingRequired: enabled && !booked && coachingRequired(current?.status ?? null, serverNow),
+		bookingRequired: eligibilityEnabled && !booked && coachingRequired(current?.status ?? null),
 		completeBooking
 	};
 }
