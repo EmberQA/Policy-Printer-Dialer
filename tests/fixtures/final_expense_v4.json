@@ -2,24 +2,24 @@
 	"vars": [
 		{
 			"key": "agent_name",
-			"label": "Agent name",
-			"source": "agent",
-			"input": {
-				"kind": "text"
-			}
-		},
-		{
-			"key": "agent_state",
-			"label": "Agent state",
-			"source": "call",
 			"input": {
 				"kind": "text"
 			},
+			"label": "Agent name",
+			"source": "agent"
+		},
+		{
+			"key": "agent_state",
+			"input": {
+				"kind": "text"
+			},
+			"label": "Agent state",
+			"source": "call",
 			"bindings": [
 				{
-					"target": "form_field",
 					"form": "default",
 					"field": "state",
+					"target": "form_field",
 					"direction": "both"
 				}
 			]
@@ -413,20 +413,7 @@
 		{
 			"key": "beneficiary_relation",
 			"input": {
-				"kind": "choice",
-				"config": {
-					"options": [
-						{
-							"label": "Spouse",
-							"value": "spouse"
-						},
-						{
-							"label": "Child",
-							"value": "child"
-						}
-					],
-					"allow_other": true
-				}
+				"kind": "text"
 			},
 			"label": "Beneficiary relation",
 			"source": "call"
@@ -1299,17 +1286,13 @@
 		{
 			"id": "intro.qualify",
 			"say": {
-				"text": "Hi. Are you calling to qualify for an affordable funeral coverage plan today?",
-				"fields": [
-					{
-						"var": "agent_name"
-					},
-					{
-						"var": "agent_state"
-					}
-				]
+				"text": "Hi. Are you calling to qualify for an affordable funeral coverage plan today?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "node",
+				"node_id": "intro.name"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -1347,11 +1330,7 @@
 					}
 				}
 			],
-			"heading_id": "h.intro.opening",
-			"skip": {
-				"kind": "node",
-				"node_id": "intro.name"
-			}
+			"heading_id": "h.intro.opening"
 		},
 		{
 			"id": "intro.name",
@@ -1484,6 +1463,10 @@
 				]
 			},
 			"data": {},
+			"skip": {
+				"kind": "node",
+				"node_id": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -1511,11 +1494,7 @@
 					}
 				}
 			],
-			"heading_id": "h.dq.motivation",
-			"skip": {
-				"kind": "node",
-				"node_id": "dq.coverage"
-			}
+			"heading_id": "h.dq.motivation"
 		},
 		{
 			"id": "dq.branch1",
@@ -1553,6 +1532,10 @@
 		{
 			"id": "dq.branch2_check",
 			"data": {},
+			"skip": {
+				"kind": "node",
+				"node_id": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -1582,11 +1565,7 @@
 					}
 				}
 			],
-			"heading_id": "h.dq.motivation",
-			"skip": {
-				"kind": "node",
-				"node_id": "dq.coverage"
-			}
+			"heading_id": "h.dq.motivation"
 		},
 		{
 			"id": "dq.branch2_reloop",
@@ -1663,6 +1642,10 @@
 				"text": "Got it… tell me a little about {{beneficiary_name}}."
 			},
 			"data": {},
+			"skip": {
+				"kind": "node",
+				"node_id": "dq.funeral"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -1717,14 +1700,13 @@
 					]
 				}
 			],
-			"heading_id": "h.dq.beneficiary",
-			"skip": {
-				"kind": "node",
-				"node_id": "dq.funeral"
-			}
+			"heading_id": "h.dq.beneficiary"
 		},
 		{
 			"id": "dq.relation_other",
+			"say": {
+				"text": "What is their relationship to you?"
+			},
 			"data": {
 				"var": "beneficiary_relation"
 			},
@@ -2015,36 +1997,56 @@
 		{
 			"id": "med.result",
 			"data": {},
+			"skip": {
+				"kind": "node",
+				"node_id": "edu.contact"
+			},
 			"type": "ask",
 			"choices": [
 				{
 					"id": "healthy",
-					"say": {
-						"text": "That's great, sounds like you're in good shape. What's your secret?"
-					},
 					"label": "Healthy",
 					"target": {
 						"kind": "node",
-						"node_id": "edu.contact"
+						"node_id": "med.result_healthy"
 					}
 				},
 				{
 					"id": "conditions",
-					"say": {
-						"text": "No problem at all, I appreciate you being upfront."
-					},
 					"label": "Has conditions",
 					"target": {
 						"kind": "node",
-						"node_id": "edu.contact"
+						"node_id": "med.result_conditions"
 					}
 				}
 			],
-			"heading_id": "h.med.eligibility",
-			"skip": {
+			"heading_id": "h.med.eligibility"
+		},
+		{
+			"id": "med.result_healthy",
+			"say": {
+				"text": "That's great, sounds like you're in good shape. What's your secret?"
+			},
+			"data": {},
+			"next": {
 				"kind": "node",
 				"node_id": "edu.contact"
-			}
+			},
+			"type": "say",
+			"heading_id": "h.med.eligibility"
+		},
+		{
+			"id": "med.result_conditions",
+			"say": {
+				"text": "No problem at all, I appreciate you being upfront."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "edu.contact"
+			},
+			"type": "say",
+			"heading_id": "h.med.eligibility"
 		},
 		{
 			"id": "h.edu",
@@ -2083,17 +2085,15 @@
 					{
 						"id": "cell",
 						"say": {
-							"text": "My personal cell phone number so you can always reach me is {{agent_cell}}."
+							"text": "My personal cell phone number so you can always reach me is _____."
 						},
-						"var": "agent_cell",
 						"confirm": true
 					},
 					{
 						"id": "npn",
 						"say": {
-							"text": "My national insurance producer ID number, similar to a SSN in the insurance industry, is {{agent_npn}}."
+							"text": "My national insurance producer ID number, similar to a SSN in the insurance industry, is _____."
 						},
-						"var": "agent_npn",
 						"confirm": true
 					}
 				]
@@ -2217,6 +2217,10 @@
 				"text": "So, let's start with the first one. The first plan will leave {{beneficiary_name}} {{plan1_amount}} in coverage. This will be enough to cover the burial/cremation entirely. That plan comes out to a monthly fixed amount of {{plan1_premium}}.\n\nThe second plan is for {{plan2_amount}} in coverage. This will be enough to cover the burial/cremation entirely plus give the family a little extra so {{beneficiary_name}} can {{benefit_dq_answer}}. That is a monthly fixed amount of {{plan2_premium}}.\n\nThe third plan will leave {{beneficiary_name}} {{plan3_amount}} in coverage. This will be enough to cover the burial/cremation entirely plus give them quite a bit extra so {{beneficiary_name}} can {{benefit_dq_answer}} without any stress. That is a monthly fixed amount of {{plan3_premium}}.\n\nIf anything were to happen to you, which one of these options do you want {{beneficiary_name}} to receive as a check?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "node",
+				"node_id": "pitch.confirm"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -2302,11 +2306,7 @@
 					"text": "Call back their exact words from the Benefit DQ. Their own words sell the bigger plan better than yours will.",
 					"position": "before"
 				}
-			],
-			"skip": {
-				"kind": "node",
-				"node_id": "pitch.confirm"
-			}
+			]
 		},
 		{
 			"id": "pitch.confirm",
@@ -2314,17 +2314,18 @@
 				"text": "Perfect, I think that's a good choice too because it will cover what you need completely. And just to confirm, is that going to be comfortable monthly for you?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "node",
+				"node_id": "app.identity"
+			},
 			"type": "ask",
 			"choices": [
 				{
 					"id": "yes",
-					"say": {
-						"text": "Ok. Sounds good. We'll go ahead and submit the application to the carrier for that then."
-					},
 					"label": "Yes",
 					"target": {
 						"kind": "node",
-						"node_id": "app.identity"
+						"node_id": "pitch.confirm_yes"
 					},
 					"actions": [
 						{
@@ -2352,11 +2353,20 @@
 					}
 				}
 			],
-			"heading_id": "h.pitch.options",
-			"skip": {
+			"heading_id": "h.pitch.options"
+		},
+		{
+			"id": "pitch.confirm_yes",
+			"say": {
+				"text": "Ok. Sounds good. We'll go ahead and submit the application to the carrier for that then."
+			},
+			"data": {},
+			"next": {
 				"kind": "node",
 				"node_id": "app.identity"
-			}
+			},
+			"type": "say",
+			"heading_id": "h.pitch.options"
 		},
 		{
 			"id": "h.app",
@@ -2581,28 +2591,36 @@
 			"say": {
 				"text": "And if anything were to happen to you, your family would receive a death certificate with your Social Security number on it, and the carrier uses that to verify the benefits go to the right beneficiaries. Since there's no medical exam, they'll also do a quick background check to confirm the health information we discussed. Because of that, they'll have us verify your Social, so go ahead with that whenever you're ready."
 			},
-			"data": {
-				"items": [
-					{
-						"id": "ssn",
-						"say": {
-							"text": "SSN"
-						}
-					}
-				]
-			},
+			"data": {},
 			"next": {
 				"kind": "node",
-				"node_id": "app.effective"
+				"node_id": "app.ssn_confirm"
 			},
-			"type": "checklist",
+			"type": "say",
 			"heading_id": "h.app.client",
 			"instructions": [
 				{
 					"text": "Share screen if necessary — sometimes you will get objections here.",
 					"position": "before"
+				},
+				{
+					"text": "Type in SSN in the carrier application.",
+					"position": "after"
 				}
 			]
+		},
+		{
+			"id": "app.ssn_confirm",
+			"say": {
+				"text": "Just to confirm, your SSN is _____."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "app.effective"
+			},
+			"type": "say",
+			"heading_id": "h.app.client"
 		},
 		{
 			"id": "app.effective",
@@ -2876,6 +2894,10 @@
 				"text": "Absolutely! I'd love free Final Expense insurance too if that existed and I completely understand why you'd think that. What the ad is referring to is the free quote and finding out what you qualify for. There isn't any cost to see your options or speak with a licensed benefits coordinator.\n\nJust so I understand, was the main reason you called because you thought the coverage itself was free, or were you also looking into making sure your family wouldn't have to pay for your funeral expenses someday?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -2900,11 +2922,7 @@
 				{
 					"text": "Agree and acknowledge — don't argue."
 				}
-			],
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			]
 		},
 		{
 			"id": "obj1.coverage",
@@ -2912,6 +2930,10 @@
 				"text": "Do you already have any Final Expense or life insurance in place today?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -2936,11 +2958,7 @@
 				{
 					"text": "Don't jump into pricing. Shift their mindset toward the cost of having no coverage."
 				}
-			],
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			]
 		},
 		{
 			"id": "obj1.small",
@@ -3064,6 +3082,10 @@
 				"text": "Absolutely, I understand. This is an important decision and I wouldn't expect you to make it lightly.\n\nJust so I know how best to help you… what specifically would you like to think about?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -3091,11 +3113,7 @@
 					}
 				}
 			],
-			"heading_id": "h.obj2",
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			"heading_id": "h.obj2"
 		},
 		{
 			"id": "obj2.price",
@@ -3186,6 +3204,10 @@
 				"text": "I completely understand, and I appreciate you being honest with me. Nobody wants to take on another monthly expense.\n\nJust so I understand, when you say it's too expensive, is it the monthly payment itself, or were you expecting the coverage to cost something different?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -3213,11 +3235,7 @@
 					}
 				}
 			],
-			"heading_id": "h.obj3",
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			"heading_id": "h.obj3"
 		},
 		{
 			"id": "obj3.payment",
@@ -3281,6 +3299,10 @@
 				"text": "I understand. Can I ask — is it that you truly can't fit another payment into your budget, or is there another concern that's making you hesitate?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -3300,11 +3322,7 @@
 					}
 				}
 			],
-			"heading_id": "h.obj3",
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			"heading_id": "h.obj3"
 		},
 		{
 			"id": "obj3.budget",
@@ -3340,17 +3358,18 @@
 				"text": "If we can find a payment that fits comfortably within your budget, would protecting your family still be something you'd want to take care of today?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
 					"id": "yes",
-					"say": {
-						"text": "Let's take a look at a few options that fit the payment you're comfortable with, and we'll build the right amount of protection from there."
-					},
 					"label": "Yes",
 					"target": {
 						"kind": "node",
-						"node_id": "pitch.quotes"
+						"node_id": "obj3.weigh_yes"
 					}
 				},
 				{
@@ -3368,11 +3387,20 @@
 					"text": "Instead of immediately dropping the price, help them weigh the trade-off.",
 					"tone": "warn"
 				}
-			],
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			]
+		},
+		{
+			"id": "obj3.weigh_yes",
+			"say": {
+				"text": "Let's take a look at a few options that fit the payment you're comfortable with, and we'll build the right amount of protection from there."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "pitch.quotes"
+			},
+			"type": "say",
+			"heading_id": "h.obj3"
 		},
 		{
 			"id": "obj3.tradeoff",
@@ -3413,6 +3441,10 @@
 				"text": "That's actually great to hear. I'm glad you've already taken the first step toward protecting your family.\n\nJust so I understand, if you already have insurance in place, what made you decide to call us today? Was it because you're not completely satisfied with your current coverage, or were you simply looking to see if you should add more protection?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -3440,11 +3472,7 @@
 					}
 				}
 			],
-			"heading_id": "h.obj4",
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			"heading_id": "h.obj4"
 		},
 		{
 			"id": "obj4.unsatisfied",
@@ -3550,6 +3578,10 @@
 				"text": "That's great. Out of curiosity, when was the last time you reviewed your policy? Do you feel it still covers everything you want based on today's funeral costs?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -3569,11 +3601,7 @@
 					}
 				}
 			],
-			"heading_id": "h.obj4",
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			"heading_id": "h.obj4"
 		},
 		{
 			"id": "obj4.costs",
@@ -3624,6 +3652,10 @@
 				"text": "Yes, many people have heard about the Social Security death benefit, and I'm glad you brought it up.\n\nJust so I understand, were you under the impression that the $255 benefit would cover your funeral expenses, or were you simply wondering how it works?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -3651,11 +3683,7 @@
 					}
 				}
 			],
-			"heading_id": "h.obj5",
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			"heading_id": "h.obj5"
 		},
 		{
 			"id": "obj5.costs",
@@ -3663,6 +3691,10 @@
 				"text": "I completely understand why you'd think that. The $255 Social Security death benefit is a one-time payment that some eligible survivors may receive, but it's separate from Final Expense insurance and it's not designed to cover the full cost of a funeral.\n\nHave you had a chance to look into what funeral costs are running in your area these days?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -3682,11 +3714,7 @@
 					}
 				}
 			],
-			"heading_id": "h.obj5",
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			"heading_id": "h.obj5"
 		},
 		{
 			"id": "obj5.range",
@@ -3793,6 +3821,10 @@
 				"text": "Absolutely, I'd be happy to point you in the right direction.\n\nJust so I understand, is your question about your billing, your policy benefits, your coverage amount, or something else?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -3812,11 +3844,7 @@
 					}
 				}
 			],
-			"heading_id": "h.obj6",
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			"heading_id": "h.obj6"
 		},
 		{
 			"id": "obj6.reviewed",
@@ -3827,6 +3855,10 @@
 				]
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -3851,11 +3883,7 @@
 				{
 					"text": "Pivot instead of ending the call."
 				}
-			],
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			]
 		},
 		{
 			"id": "obj6.offer",
@@ -3938,17 +3966,18 @@
 				]
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
 					"id": "yes",
-					"say": {
-						"text": "Perfect. Let's do a quick review together. It'll only take a few minutes, and at the end you'll know whether you're in great shape or if there are any gaps we should address."
-					},
 					"label": "Yes",
 					"target": {
 						"kind": "node",
-						"node_id": "obj6.review"
+						"node_id": "obj6.previous_yes"
 					}
 				},
 				{
@@ -3960,11 +3989,20 @@
 					}
 				}
 			],
-			"heading_id": "h.obj6",
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			"heading_id": "h.obj6"
+		},
+		{
+			"id": "obj6.previous_yes",
+			"say": {
+				"text": "Perfect. Let's do a quick review together. It'll only take a few minutes, and at the end you'll know whether you're in great shape or if there are any gaps we should address."
+			},
+			"data": {},
+			"next": {
+				"kind": "node",
+				"node_id": "obj6.review"
+			},
+			"type": "say",
+			"heading_id": "h.obj6"
 		},
 		{
 			"id": "h.obj7",
@@ -3983,6 +4021,10 @@
 				"text": "Absolutely! I completely understand why you called, and I'm glad you reached out. A lot of people call after seeing those advertisements, so you're definitely not the only one.\n\nJust to clarify, the $25,000 and $40,000 shown in the ad refer to the amount of Final Expense coverage that some people may qualify for. The good news is that getting a quote, reviewing your options, and finding out what you qualify for is completely free.\n\nJust so I can better help you, were you mainly calling because you wanted to claim that amount, or were you looking to make sure your family would be protected from funeral expenses when that day eventually comes?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -4007,11 +4049,7 @@
 				{
 					"text": "Clarify — don't argue."
 				}
-			],
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			]
 		},
 		{
 			"id": "obj7.standout",
@@ -4090,6 +4128,10 @@
 				"text": "Absolutely. Most people would love to leave that much behind for their family. The exact amount someone qualifies for depends on several factors, including age, health, and what feels comfortable for their monthly budget.\n\nCan I ask… what made you choose that amount?"
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -4109,11 +4151,7 @@
 					}
 				}
 			],
-			"heading_id": "h.obj8",
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			"heading_id": "h.obj8"
 		},
 		{
 			"id": "obj8.needed",
@@ -4447,6 +4485,10 @@
 				]
 			},
 			"data": {},
+			"skip": {
+				"kind": "return",
+				"fallback": "dq.coverage"
+			},
 			"type": "ask",
 			"choices": [
 				{
@@ -4480,11 +4522,7 @@
 				{
 					"text": "Slow the caller down and find the original reason they called. Don't get stuck on cost or the free angle."
 				}
-			],
-			"skip": {
-				"kind": "return",
-				"fallback": "dq.coverage"
-			}
+			]
 		},
 		{
 			"id": "trg6.soft",

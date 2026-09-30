@@ -21,11 +21,13 @@ type LoadState =
 export function ScriptPreviewPanel({
 	campaign,
 	agentVars,
-	onClose
+	onClose,
+	onCollapse
 }: {
 	campaign: DialerCampaign;
 	agentVars: ScriptAgentVars;
 	onClose: () => void;
+	onCollapse?: () => void;
 }) {
 	return (
 		<div className="space-y-2 xl:sticky xl:top-28">
@@ -47,7 +49,7 @@ export function ScriptPreviewPanel({
 			<PreviewBody
 				key={campaign.id}
 				campaignId={campaign.id}
-				agentVars={agentVars}
+				agentVars={agentVars} onCollapse={onCollapse}
 			/>
 		</div>
 	);
@@ -55,10 +57,12 @@ export function ScriptPreviewPanel({
 
 function PreviewBody({
 	campaignId,
-	agentVars
+	agentVars,
+	onCollapse
 }: {
 	campaignId: string;
 	agentVars: ScriptAgentVars;
+	onCollapse?: () => void;
 }) {
 	const [state, setState] = useState<LoadState>({kind: 'loading'});
 
@@ -103,5 +107,5 @@ function PreviewBody({
 				This campaign has no published script yet.
 			</p>
 		);
-	return <ScriptPreview script={state.script} agentVars={agentVars} />;
+	return <ScriptPreview script={state.script} agentVars={agentVars} onCollapse={onCollapse} />;
 }

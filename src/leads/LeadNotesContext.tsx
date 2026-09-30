@@ -8,6 +8,8 @@ import {
 	createContext,
 	useCallback,
 	useContext,
+	useLayoutEffect,
+	useRef,
 	useState,
 	type ReactNode
 } from 'react';
@@ -49,27 +51,51 @@ export function useLeadNotes() {
 
 /** Renders only while the active lead form has a `note` or `notes` field. */
 export function LeadNotesPanel() {
-	const {note} = useLeadNotes();
+	const {note, setNote} = useLeadNotes();
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const previousNote = useRef<ActiveLeadNote | null>(null);
+	useLayoutEffect(() => {
+		const previous = previousNote.current;
+		previousNote.current = note;
+		if (
+			note &&
+			previous?.key === note.key &&
+			note.value !== previous.value &&
+			textareaRef.current
+		) {
+			textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
+		}
+	}, [note]);
 	if (!note) return null;
 	const id = `active-lead-${note.key}`;
 	return (
 		<Card className="shadow-xs">
-			<CardHeader className="pb-3">
-				<CardTitle>{note.label || 'Notes'}</CardTitle>
-				<p className="text-sm leading-5 text-muted-foreground">
+			<CardHeader className="gap-0.5 px-4 pb-2 pt-3">
+				<CardTitle className="text-base">{note.label || 'Notes'}</CardTitle>
+				<p className="text-xs leading-4 text-muted-foreground">
 					Notes are saved with this lead.
 				</p>
 			</CardHeader>
-			<CardContent className="pt-0">
+			<CardContent className="px-4 pb-4 pt-0">
 				<Label htmlFor={id} className="sr-only">
 					{note.label || 'Notes'}
 				</Label>
 				<Textarea
+					ref={textareaRef}
 					id={id}
 					value={note.value}
-					onChange={(event) => note.onChange(event.target.value)}
+					onChange={(event) => {
+						const value = event.target.value;
+						// Manual edits keep the caret's scroll position; only incoming
+						// script updates should move the notes to the bottom.
+						previousNote.current = {...note, value};
+						// Update the controlled input in the same event as the keystroke.
+						// Waiting for LeadForm's effect to echo it back restores stale text.
+						setNote({...note, value});
+						note.onChange(value);
+					}}
 					placeholder="Write notes for this lead…"
-					className="min-h-[26rem] resize-y leading-6"
+					className="h-32 min-h-32 max-h-32 field-sizing-fixed resize-none overflow-y-auto leading-6"
 				/>
 			</CardContent>
 		</Card>

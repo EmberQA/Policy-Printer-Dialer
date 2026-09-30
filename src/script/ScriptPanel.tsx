@@ -31,6 +31,7 @@ import {
 	StickyNote,
 	Keyboard,
 	Megaphone,
+	PanelLeftClose,
 	RotateCcw,
 	TriangleAlert
 } from 'lucide-react';
@@ -103,7 +104,7 @@ const toVarValue = (v: unknown): ScriptVarValue | null => {
 /* Host: tabs + per-call session                                              */
 /* -------------------------------------------------------------------------- */
 
-export function ScriptHost({agentVars}: {agentVars: ScriptAgentVars}) {
+export function ScriptHost({agentVars, onCollapse}: {agentVars: ScriptAgentVars; onCollapse?: () => void}) {
 	const {view} = useLeadFormBridge();
 	if (!view?.script) return null;
 	return (
@@ -111,16 +112,19 @@ export function ScriptHost({agentVars}: {agentVars: ScriptAgentVars}) {
 			key={`${view.callKey}:${view.script.id}`}
 			view={view}
 			agentVars={agentVars}
+			onCollapse={onCollapse}
 		/>
 	);
 }
 
 function LiveScript({
 	view,
-	agentVars
+	agentVars,
+	onCollapse
 }: {
 	view: LeadFormView;
 	agentVars: ScriptAgentVars;
+	onCollapse?: () => void;
 }) {
 	const script = view.script!;
 	const ix = useMemo(() => indexGraph(script.graph), [script.graph]);
@@ -233,8 +237,10 @@ function LiveScript({
 			<ScriptPanel
 				ix={ix}
 				title={script.name}
-				versionLabel={script.graph.version_label}
+				versionLabel={`v${script.version}`}
+				onCollapse={onCollapse}
 				{...runnerPanelProps(ix, runner, pushOut)}
+				onRestart={undefined}
 			/>
 		</div>
 	);
@@ -363,10 +369,12 @@ function runnerPanelProps(
  */
 export function ScriptPreview({
 	script,
-	agentVars
+	agentVars,
+	onCollapse
 }: {
 	script: DialerScript;
 	agentVars: ScriptAgentVars;
+	onCollapse?: () => void;
 }) {
 	const ix = useMemo(() => indexGraph(script.graph), [script.graph]);
 	const runner = useScriptRunner(ix, () => agentSeed(ix, agentVars));
@@ -374,7 +382,8 @@ export function ScriptPreview({
 		<ScriptPanel
 			ix={ix}
 			title={script.name}
-			versionLabel={script.graph.version_label}
+			versionLabel={`v${script.version}`}
+			onCollapse={onCollapse}
 			{...runnerPanelProps(ix, runner)}
 		/>
 	);
@@ -436,7 +445,8 @@ function ScriptPanel({
 	onAdvance,
 	onJump,
 	onBack,
-	onRestart
+	onRestart,
+	onCollapse
 }: {
 	ix: ScriptIndex;
 	title: string;
@@ -450,7 +460,8 @@ function ScriptPanel({
 	onAdvance: (choiceId?: string) => void;
 	onJump: (headingId: string) => void;
 	onBack: () => void;
-	onRestart: () => void;
+	onRestart?: () => void;
+	onCollapse?: () => void;
 }) {
 	const step = currentStep(ix, session);
 	const chain = step ? headingChain(ix, step.heading_id).reverse() : [];
@@ -466,27 +477,42 @@ function ScriptPanel({
 			<Card className="min-w-0 flex-[3_1_0%] shadow-xs">
 				<CardHeader className="space-y-0 px-2 pt-1.5 pb-1">
 					<div className="flex items-center justify-between gap-2">
-						<p className="min-w-0 truncate text-sm font-semibold">
+						<p className="min-w-0 flex-1 truncate text-sm font-semibold">
 							{title}{' '}
 							<span className="font-normal text-muted-foreground">
 								{versionLabel}
 							</span>
 						</p>
-						<div className="flex items-center gap-1">
+						<div className="flex items-center gap-0">
 							{session.outcome && (
 								<Badge variant="secondary" className="capitalize">
 									{session.outcome.replace('_', ' ')}
 								</Badge>
+							)}
+							{onRestart && (
+								<Button
+									tabIndex={-1}
+									type="button"
+									variant="ghost"
+									size="icon"
+									title="Restart script (keeps captured answers)"
+									onClick={onRestart}
+								>
+									<RotateCcw className="size-4" />
+								</Button>
 							)}
 							<Button
 								tabIndex={-1}
 								type="button"
 								variant="ghost"
 								size="icon"
-								title="Restart script (keeps captured answers)"
-								onClick={onRestart}
+								className="w-6 shrink-0 p-0 text-[#4338ca] hover:bg-[#eef2ff] hover:text-[#3730a3] dark:text-[#818cf8] dark:hover:bg-[#312e81] dark:hover:text-[#a5b4fc]"
+								aria-label="Collapse script sidebar"
+								title="Collapse script sidebar"
+								aria-expanded={true}
+								onClick={onCollapse}
 							>
-								<RotateCcw className="size-4" />
+								<PanelLeftClose className="size-4" />
 							</Button>
 						</div>
 					</div>
@@ -604,9 +630,6 @@ function StepView({
 		if (!def) return null;
 		return (
 			<div data-script-field={key}>
-				<p className="mb-1 text-[11px] font-semibold text-foreground">
-					{def.label}
-				</p>
 				<ScriptVarInput
 					def={def}
 					value={session.vars[key]?.value}
@@ -618,13 +641,13 @@ function StepView({
 			</div>
 		);
 	};
-	const fields = (text: ScriptText, block: number) =>
+	const fields = (text: ScriptText, block: number, plain = true) =>
 		visibleFields(session, text)
 			.filter((field) => (field.after ?? text.then?.length ?? 0) === block)
 			.map((field) => (
 				<Cue
 					key={field.var}
-					plain
+					plain={plain}
 					kind="type"
 					label={inputCommand(ix.vars.get(field.var)?.input?.kind)}
 				>
@@ -742,9 +765,17 @@ function StepView({
 				checklist}
 
 			{step.say && (
-				<Cue kind="say">
-					<SayText ix={ix} session={session} text={step.say} fields={fields} />
-				</Cue>
+				<>
+					<Cue kind="say">
+						<SayText
+							ix={ix}
+							session={session}
+							text={step.say}
+							fields={step.say.then?.length ? fields : undefined}
+						/>
+					</Cue>
+					{!step.say.then?.length && fields(step.say, 0, false)}
+				</>
 			)}
 
 			{after.map((ins, i) => note(ins, `a${i}`))}
