@@ -93,8 +93,8 @@ export default function Dial() {
 	const userName = [user?.first_name, user?.last_name]
 		.filter(Boolean)
 		.join(' ');
-	// Call-script `source: 'agent'` vars (ENG-278). State and NPN aren't known to
-	// the dialer yet, so those render as a blank the agent fills in verbally.
+	// Agent identity comes from the signed-in user. Caller state is bound to
+	// the lead form by the script, never inferred from the agent profile.
 	const scriptAgentVars = useMemo(
 		() => ({
 			agent_name: userName || undefined,

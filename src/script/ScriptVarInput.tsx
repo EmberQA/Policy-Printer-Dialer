@@ -24,8 +24,8 @@ export function ScriptVarInput({
 	value: ScriptVarValue | undefined;
 	onChange: (value: ScriptVarValue) => void;
 	onCommit: (value: ScriptVarValue) => void;
-	/** Enter in a single-line input: commit, then advance. */
-	onSubmit?: () => void;
+	/** Enter in a single-line input: commit, then let the step move focus or advance. */
+	onSubmit?: (input: HTMLInputElement) => void;
 	autoFocus?: boolean;
 }) {
 	const input = def.input ?? {kind: 'text' as const};
@@ -51,9 +51,11 @@ export function ScriptVarInput({
 						const selected = str === o.value;
 						return (
 							<Button
+								data-script-answer
 								key={o.value}
 								type="button"
 								size="sm"
+								aria-pressed={selected}
 								variant={selected ? 'default' : 'outline'}
 								onClick={() => {
 									const v: ScriptVarValue =
@@ -69,6 +71,7 @@ export function ScriptVarInput({
 					})}
 					{withOther && (
 						<Button
+							data-script-answer
 							type="button"
 							size="sm"
 							variant={otherActive ? 'default' : 'outline'}
@@ -87,13 +90,18 @@ export function ScriptVarInput({
 				</div>
 				{otherActive && (
 					<Input
+						aria-label={def.label}
 						value={isListed ? '' : str}
 						placeholder="Their answer…"
 						autoFocus={otherOpen}
 						onChange={(e) => onChange(e.target.value)}
 						onBlur={(e) => onCommit(e.target.value)}
 						onKeyDown={(e) => {
-							if (e.key === 'Enter') onCommit(e.currentTarget.value);
+							if (e.key === 'Enter') {
+								e.preventDefault();
+								onCommit(e.currentTarget.value);
+								onSubmit?.(e.currentTarget);
+							}
 						}}
 					/>
 				)}
@@ -104,6 +112,7 @@ export function ScriptVarInput({
 	if (input.kind === 'text' && input.config?.multiline) {
 		return (
 			<Textarea
+				aria-label={def.label}
 				value={str}
 				rows={3}
 				autoFocus={autoFocus}
@@ -114,7 +123,13 @@ export function ScriptVarInput({
 	}
 
 	const type =
-		input.kind === 'phone' ? 'tel' : input.kind === 'email' ? 'email' : 'text';
+		input.kind === 'phone'
+			? 'tel'
+			: input.kind === 'email'
+				? 'email'
+				: input.kind === 'date'
+					? 'date'
+					: 'text';
 	return (
 		<div className="relative">
 			{input.kind === 'currency' && (
@@ -129,6 +144,7 @@ export function ScriptVarInput({
 						? 'decimal'
 						: undefined
 				}
+				aria-label={def.label}
 				value={str}
 				autoFocus={autoFocus}
 				placeholder={def.label}
@@ -139,7 +155,7 @@ export function ScriptVarInput({
 					if (e.key !== 'Enter') return;
 					e.preventDefault();
 					onCommit(e.currentTarget.value);
-					onSubmit?.();
+					onSubmit?.(e.currentTarget);
 				}}
 			/>
 		</div>

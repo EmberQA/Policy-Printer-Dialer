@@ -11,14 +11,15 @@
  * Return-stack rule: entering an OBJECTION / TRIGGER heading pushes the step
  * the agent was on; `return` pops it and picks up where they left off — that
  * step again if it wasn't finished, or where it leads if it was (its `next`, or
- * a question's `main` answer — see continueFrom; isStepDone: an answer picked, Next clicked, fields filled, or the lines read
- * at READING_WPM). Landing on a FLOW step by any other route (a node
+ * a question's `main` answer — see continueFrom; isStepDone: an answer picked, Next clicked, fields filled). Landing on a FLOW step by any other route (a node
  * target like "→ Pitch, adjust coverage", or an outline jump) clears the stack —
  * the agent has left the override for good, so nothing is left to return to.
  */
 
 import type {
 	ScriptChecklistItem,
+	ScriptText,
+	ScriptTextField,
 	ScriptAction,
 	ScriptChoice,
 	ScriptGraph,
@@ -237,7 +238,7 @@ export const availableChoices = (
 const choiceUseKey = (stepId: string, choiceId: string) =>
 	`${stepId}:${choiceId}`;
 
-/** Vars that must be set before the agent can leave this step. */
+/** Unanswered legacy hints, used to offer inputs without blocking navigation. */
 export const missingVars = (
 	session: ScriptSession,
 	step: ScriptStep
@@ -299,6 +300,11 @@ function enter(
 		...leaveCurrent(session, now),
 		entered_at: now,
 		current_node_id: stepId,
+		pending_choices: isOverride(stepRole(ix, stepId))
+			? session.pending_choices
+			: session.pending_choices?.[stepId]
+				? {[stepId]: session.pending_choices[stepId]}
+				: undefined,
 		return_stack: clearStack ? [] : session.return_stack,
 		path: [
 			...session.path,
@@ -312,7 +318,7 @@ function enter(
 /* Progress tracking                                                          */
 /* -------------------------------------------------------------------------- */
 
-/** Reading speed used to decide a say step has been read (words per minute). */
+/** Reading-speed estimate for timing diagnostics only (words per minute). */
 export const READING_WPM = 250;
 
 const wordCount = (text: string | undefined) =>
@@ -356,7 +362,7 @@ const leaveCurrent = (session: ScriptSession, now: string): ScriptSession =>
  * Has the agent finished this step? Tracked, not assumed:
  *   - any step left by Next / an answer is done (`done`),
  *   - ask: only by picking an answer,
- *   - say: or once they've been on it long enough to read it (READING_WPM),
+ *   - say: only after explicit Next (elapsed time does not imply reading),
  *   - capture: or once its field is filled,
  *   - checklist: or once every non-optional line is ticked off (see isItemDone).
  */
@@ -364,16 +370,17 @@ export const isStepDone = (
 	ix: ScriptIndex,
 	session: ScriptSession,
 	stepId: ScriptNodeId,
-	now: string = new Date().toISOString()
+	_now: string = new Date().toISOString()
 ): boolean => {
-	if (session.done[stepId]) return true;
 	const step = ix.steps.get(stepId);
-	if (!step) return false;
+	if (!step || session.pending_choices?.[stepId]) return false;
+	if (session.done[stepId]) return true;
+	if (missingVars(session, step).length) return false;
 	switch (step.type) {
 		case 'ask':
 			return false;
 		case 'say':
-			return dwellMs(session, stepId, now) >= readingMs(step);
+			return false;
 		case 'capture':
 			return (
 				step.data.var !== undefined &&
@@ -389,14 +396,67 @@ export const isStepDone = (
 const checkKey = (stepId: ScriptNodeId, itemId: string) =>
 	`${stepId}:${itemId}`;
 
-/** A checklist line is done once its field is filled, or it was ticked by hand. */
+/** Supplemental answers shown at this point in the conversation. */
+export const visibleFields = (
+	session: ScriptSession,
+	text?: ScriptText
+): ScriptTextField[] =>
+	(text?.fields ?? []).filter(
+		(field) =>
+			!field.when || session.vars[field.when.var]?.value === field.when.equals
+	);
+
+export const itemInputKeys = (
+	session: ScriptSession,
+	item: ScriptChecklistItem
+): string[] => [
+	...new Set([
+		...(item.var ? [item.var] : []),
+		...visibleFields(session, item.say).map((f) => f.var)
+	])
+];
+
+/** Input presence is separate from acknowledgment on read-back lines. */
 export const isItemDone = (
 	session: ScriptSession,
 	stepId: ScriptNodeId,
 	item: ScriptChecklistItem
-): boolean =>
-	(item.var !== undefined && hasValue(session.vars[item.var]?.value)) ||
-	!!session.checked[checkKey(stepId, item.id)];
+): boolean => {
+	if (item.confirm) return !!session.checked[checkKey(stepId, item.id)];
+	const keys = itemInputKeys(session, item);
+	return (
+		(keys.length > 0 &&
+			keys.every((key) => hasValue(session.vars[key]?.value))) ||
+		!!session.checked[checkKey(stepId, item.id)]
+	);
+};
+
+/** A read-back can follow the currently selected quote without copying stale values. */
+export const itemDisplay = (
+	ix: ScriptIndex,
+	session: ScriptSession,
+	item: ScriptChecklistItem
+): string | undefined => {
+	if (!item.display) return undefined;
+	const key = item.display.choices
+		? item.display.choices[String(session.vars[item.display.var]?.value)]
+		: item.display.var;
+	const value = key ? session.vars[key]?.value : undefined;
+	return value === undefined ? BLANK : formatVar(ix.vars.get(key), value);
+};
+
+/** Required fields not already present on this screen need an editable fallback. */
+export const prerequisiteFields = (
+	session: ScriptSession,
+	step: ScriptStep
+): string[] => {
+	const shown = new Set(visibleFields(session, step.say).map((f) => f.var));
+	if (step.type === 'capture' && step.data.var) shown.add(step.data.var);
+	if (step.type === 'checklist')
+		for (const item of step.data.items)
+			for (const key of itemInputKeys(session, item)) shown.add(key);
+	return (step.requires ?? []).filter((key) => !shown.has(key));
+};
 
 /** Tick / untick a checklist line. */
 export const setItemChecked = (
@@ -454,14 +514,18 @@ const navigate = (
 			return enter(ix, popped, back, {...opts, keepStack: true});
 		}
 		case 'end':
-			return {...session, outcome: target.outcome, ended: true};
+			return {
+				...session,
+				pending_choices: undefined,
+				outcome: target.outcome,
+				ended: true
+			};
 	}
 };
 
 /**
  * Leave the current step: by `choiceId` for a choice-routed step, otherwise via
- * `next`. Refused (session returned unchanged) while required vars are missing
- * or when the choice isn't currently offered.
+ * `next`. All inputs are optional; explicit choices still must be offered.
  */
 /** Leaving by Next / an answer is what "finished" means. */
 const markDone = (
@@ -479,24 +543,78 @@ export const advance = (
 ): ScriptSession => {
 	const step = currentStep(ix, session);
 	if (!step || session.ended) return session;
-	if (missingVars(session, step).length > 0) return session;
 	const now = opts.now ?? new Date().toISOString();
+
+	if (session.pending_choices?.[step.id]) {
+		const choice = step.choices?.find(
+			(c) => c.id === session.pending_choices![step.id]
+		);
+		const pending = {...session.pending_choices};
+		delete pending[step.id];
+		// The editor can remove an answer during a preview walk. Allow recovery.
+		if (!choice)
+			return advance(ix, {...session, pending_choices: pending}, opts);
+		// A repeated click cannot apply actions twice or consume another use.
+		if (opts.choiceId) return session;
+		return navigate(
+			ix,
+			{...markDone(session, step.id), pending_choices: pending},
+			choice.target,
+			{choiceId: choice.id, now}
+		);
+	}
 
 	if (step.choices) {
 		const choice = availableChoices(session, step).find(
 			(c) => c.id === opts.choiceId
 		);
-		if (!choice) return session;
+		if (!choice) {
+			if (opts.choiceId) return session;
+			if (step.skip)
+				return navigate(ix, markDone(session, step.id), step.skip, {now});
+			// Older graphs have no skip metadata. Leave an objection, or proceed to
+			// the next flow heading without fabricating an answer or outcome.
+			const back = session.return_stack.at(-1);
+			if (back)
+				return navigate(ix, session, {kind: 'return', fallback: back}, {now});
+			const headings = [...ix.headings.values()].filter(
+				(h) =>
+					h.entry_node_id &&
+					!isOverride(headingChain(ix, h.id).at(-1)?.role ?? h.role) &&
+					h.role !== 'reference'
+			);
+			const at = headings.findIndex((h) => h.id === step.heading_id);
+			const next = headings
+				.slice(at + 1)
+				.find((h) => h.entry_node_id !== step.id);
+			return next
+				? navigate(
+						ix,
+						markDone(session, step.id),
+						{kind: 'heading', heading_id: next.id},
+						{now}
+					)
+				: {...markDone(session, step.id), ended: true};
+		}
 		const key = choiceUseKey(step.id, choice.id);
 		let s: ScriptSession = {
-			...markDone(session, step.id),
+			...session,
+			answers: {...session.answers, [step.id]: choice.id},
 			choice_uses: {
 				...session.choice_uses,
 				[key]: (session.choice_uses[key] ?? 0) + 1
 			}
 		};
 		s = applyActions(s, choice.actions, now);
-		return navigate(ix, s, choice.target, {choiceId: choice.id, now});
+		if (choice.say)
+			return {
+				...s,
+				pending_choices: {...s.pending_choices, [step.id]: choice.id}
+			};
+		return navigate(ix, markDone(s, step.id), choice.target, {
+			choiceId: choice.id,
+			now
+		});
 	}
 	return navigate(ix, markDone(session, step.id), step.next, {now});
 };
@@ -566,6 +684,7 @@ export const goBack = (
 	return {
 		...previous,
 		vars: current.vars,
+		answers: current.answers,
 		done: left.done,
 		checked: left.checked,
 		dwell_ms: left.dwell_ms,

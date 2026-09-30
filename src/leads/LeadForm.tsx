@@ -175,7 +175,7 @@ export function LeadForm({
 		() =>
 			(form?.schema ?? []).find(
 				(field) => field.key === 'notes' || field.key === 'note'
-			) ?? null,
+			) ?? {key: 'notes', label: 'Notes'},
 		[form]
 	);
 
@@ -248,7 +248,9 @@ export function LeadForm({
 			formData,
 			callerPhone,
 			script,
-			writeField: onField
+			writeField: onField,
+			updateField: (key, update) =>
+				setFormData((prev) => ({...prev, [key]: update(prev[key])}))
 		});
 	}, [
 		publishToScript,
