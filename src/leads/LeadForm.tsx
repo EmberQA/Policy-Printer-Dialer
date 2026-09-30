@@ -405,15 +405,15 @@ export function LeadForm({
 
 	return (
 		<Card className="shadow-xs">
-			<CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
-				{savedLeadId && (
+			{savedLeadId && (
+				<CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0 px-4 pb-0 pt-3">
 					<Badge className="bg-success text-success-foreground">
 						<CheckCircle2 className="size-3" />
 						saved
 					</Badge>
-				)}
-			</CardHeader>
-			<CardContent className="space-y-5 text-sm">
+				</CardHeader>
+			)}
+			<CardContent className="space-y-5 p-4 text-sm">
 				{loading && (
 					<p className="flex items-center gap-2 text-muted-foreground">
 						<Loader2 className="size-4 animate-spin" />

@@ -8,6 +8,7 @@ import {
 	ListChecks,
 	Loader2,
 	Mic,
+	PanelLeftOpen,
 	PhoneCall,
 	PhoneOutgoing,
 	Power,
@@ -485,12 +486,19 @@ export default function Dial() {
 	// With a script up (preview or live) the script + form split the width;
 	// otherwise the call column sits centered on the page.
 	const {view: leadFormView} = useLeadFormBridge();
+	const [scriptCollapsed, setScriptCollapsed] = useState(false);
 	const scriptOpen =
 		Boolean(scriptPreviewCampaign && !workCall) ||
 		Boolean(leadFormView?.script);
 
 	return (
-		<div className="w-full">
+		<div
+			className={cn(
+				'w-full',
+				scriptOpen &&
+					'xl:flex xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:flex-col'
+			)}
+		>
 			{balanceWarning && (
 				<div
 					role="alert"
@@ -517,64 +525,84 @@ export default function Dial() {
 			)}
 
 			{/* Controls toolbar across the top (dropdowns open over the page), then
-          two flex columns: LEFT (script / notes) and CENTER (call core / lead
-          form). Side-by-side at xl, stacked below (center first). */}
-			<div className="flex flex-col gap-8 xl:flex-row xl:flex-wrap xl:items-start xl:gap-x-3 xl:gap-y-3">
+          two columns: LEFT (script) and CENTER (call core / lead form).
+          Side-by-side at xl, stacked below (center first). */}
+			<div
+				className={cn(
+					'flex flex-col gap-8',
+					scriptOpen
+						? cn('xl:grid xl:min-h-0 xl:flex-1 xl:grid-rows-[auto_minmax(0,1fr)] xl:items-start xl:gap-3', scriptCollapsed ? 'xl:grid-cols-[2rem_minmax(0,1fr)]' : 'xl:grid-cols-[minmax(30rem,2fr)_minmax(0,3fr)]')
+						: 'xl:flex-row xl:flex-wrap xl:items-start xl:gap-x-3 xl:gap-y-3'
+				)}
+			>
 				{/* LEFT — errors, prominent active-lead notes, then returning-caller pane. */}
 				<div
 					className={cn(
 						'order-2 flex flex-col items-stretch gap-4 empty:hidden xl:order-none',
 						scriptOpen
-							? 'xl:min-w-[30rem] xl:flex-[2_1_0%]'
+							? 'xl:col-start-1 xl:row-start-2 xl:min-h-0 xl:min-w-0'
 							: 'xl:w-[30rem] xl:flex-none'
 					)}
 				>
-					{displayError && (
-						<div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-							{displayError}
-						</div>
+					{scriptOpen && scriptCollapsed && (
+						<Button type="button" variant="ghost" size="icon"
+							className="w-6 shrink-0 p-0 text-[#4338ca] hover:bg-[#eef2ff] hover:text-[#3730a3] dark:text-[#818cf8]"
+							aria-label="Expand script sidebar" title="Expand script sidebar" aria-expanded={false}
+							onClick={() => setScriptCollapsed(false)}>
+							<PanelLeftOpen className="size-4" />
+						</Button>
 					)}
-					{deviceError && (
-						<div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-							Softphone: {deviceError}
-						</div>
-					)}
+					<div className={scriptOpen && scriptCollapsed ? 'hidden' : 'contents'}>
+						{displayError && (
+							<div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+								{displayError}
+							</div>
+						)}
+						{deviceError && (
+							<div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+								Softphone: {deviceError}
+							</div>
+						)}
 
-					{/* Script | Notes tabs when the campaign has a call script (ENG-278);
-                  otherwise just the notes panel, as before. A script preview from
-                  the Campaigns menu shows here too, until a call starts. */}
-					{scriptPreviewCampaign && !workCall ? (
-						<ScriptPreviewPanel
-							campaign={scriptPreviewCampaign}
-							agentVars={scriptAgentVars}
-							onClose={() => setScriptPreviewCampaign(null)}
-						/>
-					) : (
-						<ScriptHost agentVars={scriptAgentVars} />
-					)}
+						{/* Script | Notes tabs when the campaign has a call script (ENG-278);
+	                  otherwise just the notes panel, as before. A script preview from
+	                  the Campaigns menu shows here too, until a call starts. */}
+						{scriptPreviewCampaign && !workCall ? (
+							<ScriptPreviewPanel
+								campaign={scriptPreviewCampaign}
+								agentVars={scriptAgentVars}
+								onClose={() => setScriptPreviewCampaign(null)}
+								onCollapse={() => setScriptCollapsed(true)}
+							/>
+						) : (
+							<ScriptHost agentVars={scriptAgentVars} onCollapse={() => setScriptCollapsed(true)} />
+						)}
 
-					{profile && provisioned && (
-						<>
-							{/* Outbound-only prior-history strip. Inbound calls deliberately skip
-                  the lookup and always use a fresh lead form. */}
-							{workCall?.direction === 'outbound' &&
-								!wrapUpCompleted &&
-								!priorHistoryDismissed && (
-									<ReturningCallerCard
-										result={outboundHistory.data}
-										direction="outbound"
-										onDismiss={() => setDismissedCallerKey(wrapUpCallKey)}
-									/>
-								)}
-						</>
-					)}
+						{profile && provisioned && (
+							<>
+								{/* Outbound-only prior-history strip. Inbound calls deliberately skip
+	                  the lookup and always use a fresh lead form. */}
+								{workCall?.direction === 'outbound' &&
+									!wrapUpCompleted &&
+									!priorHistoryDismissed && (
+										<ReturningCallerCard
+											result={outboundHistory.data}
+											direction="outbound"
+											onDismiss={() => setDismissedCallerKey(wrapUpCallKey)}
+										/>
+									)}
+							</>
+						)}
+					</div>
 				</div>
 
 				{/* CENTER — the interactive call core (banners + lead form). */}
 				<div
 					className={cn(
 						'order-1 flex w-full flex-col gap-5 xl:order-none xl:min-w-0',
-						scriptOpen ? 'xl:flex-[3_1_0%]' : 'mx-auto max-w-3xl xl:flex-1'
+						scriptOpen
+							? 'xl:col-start-2 xl:row-start-2 xl:h-full xl:min-h-0'
+							: 'mx-auto max-w-3xl xl:flex-1'
 					)}
 				>
 					<div className="flex flex-wrap items-center gap-4">
@@ -670,8 +698,14 @@ export default function Dial() {
 							{/* Lead capture — held open after hangup until the call is dispositioned.
                   Inbound always creates a new lead; outbound may update prior history. */}
 							{workCall && effectiveLeadCampaignId && !wrapUpCompleted && (
-								// Form, then notes below it (notes only when the form has a notes field).
-								<div className="flex flex-col gap-3">
+								// Notes first, then the form (notes only when the form has a notes field).
+								<section
+									aria-label="Lead notes and form"
+									className="flex max-h-[calc(100dvh-19rem)] min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain pr-1 xl:max-h-none xl:flex-1"
+								>
+									<div className="min-w-0 empty:hidden">
+										<LeadNotesPanel />
+									</div>
 									<div className="min-w-0">
 										<LeadForm
 											key={`${workCall.callSid || 'active-call'}:${editLead?.id ?? 'new'}`}
@@ -684,10 +718,7 @@ export default function Dial() {
 											publishToScript
 										/>
 									</div>
-									<div className="min-w-0 empty:hidden">
-										<LeadNotesPanel />
-									</div>
-								</div>
+								</section>
 							)}
 							{workCall && !effectiveLeadCampaignId && !wrapUpCompleted && (
 								<Card className="shadow-xs">
@@ -949,7 +980,7 @@ function DialSidebar({
 	);
 
 	return (
-		<aside className="order-first flex w-full basis-full flex-wrap items-center gap-2 rounded-lg border bg-card p-2 shadow-xs">
+		<aside className="order-first flex w-full basis-full flex-wrap items-center gap-2 rounded-lg border bg-card p-2 shadow-xs xl:col-span-2 xl:col-start-1 xl:row-start-1">
 			{readyControl}
 			<div className="min-w-36 flex-1">
 				<CampaignMenu

@@ -67,7 +67,7 @@ for (const [name, e] of Object.entries(admin ? {dialer, admin} : {dialer}))
 				ix.steps
 					.get(graph.start_node_id)
 					?.say?.fields?.map((field) => field.var)
-			).toEqual(expect.arrayContaining(['agent_state', 'agent_name']));
+			).toBeUndefined();
 		});
 	});
 const ix = dialer.indexGraph(graph);

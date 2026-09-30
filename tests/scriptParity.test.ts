@@ -121,9 +121,8 @@ for (const [name, engine] of Object.entries(
 			expect(s.current_node_id).toBe('pitch.quotes');
 			s = next(next(s), 'plan2');
 			s = next(s, 'yes');
-			expect(s.current_node_id).toBe('pitch.confirm');
-			expect(s.pending_choices?.['pitch.confirm']).toBe('yes');
-			expect(next(s, 'yes')).toBe(s);
+			expect(s.current_node_id).toBe('pitch.confirm_yes');
+			expect(s.pending_choices?.['pitch.confirm']).toBeUndefined();
 			expect(s.choice_uses['pitch.confirm:yes']).toBe(1);
 			s = next(s);
 			expect(s.current_node_id).toBe('app.identity');
@@ -131,6 +130,9 @@ for (const [name, engine] of Object.entries(
 			s = next(s);
 			expect(s.current_node_id).toBe('app.ssn');
 			s = next(s);
+			expect(s.current_node_id).toBe('app.ssn_confirm');
+			s = next(s);
+			expect(s.current_node_id).toBe('app.effective');
 			s = next(set(s, 'effective_date', 'October 3'));
 			s = next(next(next(s)));
 			expect(s.current_node_id).toBe('close.writedown');

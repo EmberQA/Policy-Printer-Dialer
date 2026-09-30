@@ -45,7 +45,7 @@ export function ScriptVarInput({
 		const isListed = options.some((o) => o.value === str);
 		const otherActive = withOther && (otherOpen || (str !== '' && !isListed));
 		return (
-			<div className="space-y-2">
+			<div className="space-y-2" role="group" aria-label={def.label}>
 				<div className="flex flex-wrap gap-2">
 					{options.map((o) => {
 						const selected = str === o.value;
