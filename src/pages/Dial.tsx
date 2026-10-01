@@ -54,8 +54,10 @@ import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {MicLevelMeter, useMicLevelMeter} from '@/twilio/MicLevelMeter';
 import {LeadForm} from '@/leads/LeadForm';
 import {LeadNotesPanel} from '@/leads/LeadNotesContext';
-import {ScriptHost} from '@/script/ScriptPanel';
-import {ScriptPreviewPanel} from '@/script/ScriptPreviewPanel';
+// Temp (tempScript branch): hyperlinked script doc replaces the script engine panel.
+// import {ScriptHost} from '@/script/ScriptPanel';
+// import {ScriptPreviewPanel} from '@/script/ScriptPreviewPanel';
+import {ScriptDoc} from '@/scriptDoc/ScriptDoc';
 import {useLeadFormBridge} from '@/leads/LeadFormBridgeContext';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
@@ -83,6 +85,14 @@ import {useHotStates} from '@/hotStates/useHotStates';
  * while on the call. The lead form uses the call's campaign (auto when a single campaign
  * is armed, otherwise the agent picks it).
  */
+// Temp (tempScript branch): extra script-doc panels (objections / triggers)
+// widen the script column; the page scrolls sideways rather than crushing it.
+const SCRIPT_DOC_COLS = [
+	'xl:grid-cols-[minmax(30rem,2fr)_minmax(0,3fr)]',
+	'xl:grid-cols-[minmax(58rem,4fr)_minmax(26rem,3fr)] xl:overflow-x-auto',
+	'xl:grid-cols-[minmax(86rem,6fr)_minmax(26rem,3fr)] xl:overflow-x-auto'
+];
+
 export default function Dial() {
 	// Shared session: the single Device + heartbeat + bootstrap (profile/campaigns/
 	// presence) live in the provider so they survive tab switches. Destructure using
@@ -494,9 +504,15 @@ export default function Dial() {
 	// otherwise the call column sits centered on the page.
 	const {view: leadFormView} = useLeadFormBridge();
 	const [scriptCollapsed, setScriptCollapsed] = useState(false);
-	const scriptOpen =
-		Boolean(scriptPreviewCampaign && !workCall) ||
-		Boolean(leadFormView?.script);
+	// Temp (tempScript branch): the script doc is always open.
+	// const scriptOpen =
+	// 	Boolean(scriptPreviewCampaign && !workCall) ||
+	// 	Boolean(leadFormView?.script);
+	void leadFormView;
+	void scriptAgentVars;
+	void scriptPreviewCampaign;
+	const scriptOpen = true;
+	const [scriptPanels, setScriptPanels] = useState(1);
 
 	return (
 		<div
@@ -538,7 +554,7 @@ export default function Dial() {
 				className={cn(
 					'flex flex-col gap-8',
 					scriptOpen
-						? cn('xl:grid xl:min-h-0 xl:flex-1 xl:grid-rows-[auto_minmax(0,1fr)] xl:items-start xl:gap-3', scriptCollapsed ? 'xl:grid-cols-[2rem_minmax(0,1fr)]' : 'xl:grid-cols-[minmax(30rem,2fr)_minmax(0,3fr)]')
+						? cn('xl:grid xl:min-h-0 xl:flex-1 xl:grid-rows-[auto_minmax(0,1fr)] xl:items-start xl:gap-3 xl:transition-[grid-template-columns] xl:duration-300 xl:ease-out', scriptCollapsed ? 'xl:grid-cols-[2rem_minmax(0,1fr)]' : SCRIPT_DOC_COLS[scriptPanels - 1])
 						: 'xl:flex-row xl:flex-wrap xl:items-start xl:gap-x-3 xl:gap-y-3'
 				)}
 			>
@@ -574,6 +590,7 @@ export default function Dial() {
 						{/* Script | Notes tabs when the campaign has a call script (ENG-278);
 	                  otherwise just the notes panel, as before. A script preview from
 	                  the Campaigns menu shows here too, until a call starts. */}
+						{/* Temp (tempScript branch): engine script panel swapped for the script doc.
 						{scriptPreviewCampaign && !workCall ? (
 							<ScriptPreviewPanel
 								campaign={scriptPreviewCampaign}
@@ -583,7 +600,8 @@ export default function Dial() {
 							/>
 						) : (
 							<ScriptHost agentVars={scriptAgentVars} onCollapse={() => setScriptCollapsed(true)} />
-						)}
+						)} */}
+						<ScriptDoc onCollapse={() => setScriptCollapsed(true)} onPanelCountChange={setScriptPanels} />
 
 						{profile && provisioned && (
 							<>
