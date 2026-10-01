@@ -294,6 +294,7 @@ export function importedContactToActivity(
 		started_at: contact.entryDate,
 		ended_at: contact.lastLocalCallTime,
 		has_recording: false,
+		score_uuid: null,
 		activity_at:
 			contact.lastLocalCallTime || contact.entryDate || contact.importedAt
 	};

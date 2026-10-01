@@ -53,6 +53,7 @@ import {
 	type ActivitySummary
 } from '@/lib/api';
 import {LeadForm} from '@/leads/LeadForm';
+import {PortalCallLink} from '@/leads/PortalCallLink';
 import {cn} from '@/lib/utils';
 import {normalizeDialInput} from '@/lib/phone';
 import {useDialerSession} from '@/session/DialerSessionProvider';
@@ -538,6 +539,7 @@ function ActivityRow({
 								)}
 							</Button>
 						)}
+						<PortalCallLink scoreUuid={item.score_uuid} iconOnly />
 						<Button size="sm" variant="outline" onClick={onToggle}>
 							{expanded ? 'Close' : item.kind === 'call' ? 'Log lead' : 'View'}
 						</Button>

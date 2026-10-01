@@ -886,6 +886,8 @@ export interface ActivityListItem {
 	started_at: string | null;
 	ended_at: string | null;
 	has_recording: boolean;
+	/** The scored call on the portal (`/dashboard/main?selected=`). Null until scored. */
+	score_uuid: string | null;
 	activity_at: string | null;
 }
 
