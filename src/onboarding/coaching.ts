@@ -1,17 +1,14 @@
 import type {CoachingStatus} from '@/lib/api';
 
-export const DAY_MS = 86_400_000;
 export const CALENDLY_URL = 'https://calendly.com/chrispolicyprinter/30min';
 
-export function coachingRequired(status: CoachingStatus | null, now: number): boolean {
-	if (!status?.purchased_at) return false;
-	const age = now - Date.parse(status.purchased_at);
-	return Number.isFinite(age) && age >= 0 && age <= 14 * DAY_MS &&
-		status.answered_calls >= 20 && status.has_sale_in_first_20_calls === false;
+export function coachingRequired(status: CoachingStatus | null): boolean {
+	return typeof status?.ai_sales === 'number' &&
+		Number.isFinite(status.ai_sales) && status.ai_sales >= 5;
 }
 
 export const bookingCookieName = (orgId: string, userId: string) =>
-	`pp_coaching_booked_${encodeURIComponent(orgId)}_${encodeURIComponent(userId)}`;
+	`pp_five_sale_feedback_booked_${encodeURIComponent(orgId)}_${encodeURIComponent(userId)}`;
 
 export const hasBookingCookie = (cookies: string, key: string) =>
 	cookies.split(';').some((entry) => entry.trim() === `${key}=1`);
