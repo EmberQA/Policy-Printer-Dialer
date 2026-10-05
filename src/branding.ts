@@ -107,14 +107,25 @@ export function isPlainBranding(): boolean {
 	}
 }
 
+function getPortalOrigin(branding: DialerBranding): string {
+	return import.meta.env.PROD ? branding.portalUrl : 'http://localhost:3001';
+}
+
 export function getRankSystemUrl(
 	branding: DialerBranding = getDialerBranding()
 ): string {
-	const portalUrl = import.meta.env.PROD
-		? branding.portalUrl
-		: 'http://localhost:3001';
-	const url = new URL('/dashboard/leaderboard', portalUrl);
+	const url = new URL('/dashboard/leaderboard', getPortalOrigin(branding));
 	url.searchParams.set('rank-system', '1');
+	return url.toString();
+}
+
+/** The scored call on the portal — `?selected=` auto-opens its call detail. */
+export function getPortalCallUrl(
+	scoreUuid: string,
+	branding: DialerBranding = getDialerBranding()
+): string {
+	const url = new URL('/dashboard/main', getPortalOrigin(branding));
+	url.searchParams.set('selected', scoreUuid);
 	return url.toString();
 }
 

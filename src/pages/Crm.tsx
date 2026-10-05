@@ -51,6 +51,7 @@ import {cn} from '@/lib/utils';
 import {useDialerSession} from '@/session/DialerSessionProvider';
 import {getUser} from '@/auth/session';
 import {FormRenderer, type LeadFormData} from '@/leads/FormRenderer';
+import {PortalCallLink} from '@/leads/PortalCallLink';
 import {getSavedDispositionFallback} from './crmDisposition';
 import {AddLeadDialog} from './AddLeadDialog';
 import {
@@ -463,6 +464,7 @@ function ContactCard({
 					<Button size="sm" variant="outline" onClick={onViewRecord}>
 						View record
 					</Button>
+					<PortalCallLink scoreUuid={contact.score_uuid} />
 				</div>
 			</CardContent>
 		</Card>
