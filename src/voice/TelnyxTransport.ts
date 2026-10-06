@@ -450,7 +450,9 @@ export class TelnyxTransport implements VoiceTransport {
 	async armAudio(): Promise<void> {
 		await this.microphone.ensure();
 		try {
-			await this.ensureRemoteAudio().play();
+			// With no call attached, play() can remain pending indefinitely.
+			// Ready must wait for the microphone, not for incoming call audio.
+			void this.ensureRemoteAudio().play().catch(() => {});
 		} catch {
 			/* non-fatal: mic is granted; playback may still start when a call attaches */
 		}

@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {TelnyxTransport} from './TelnyxTransport';
 import type {IncomingLeg} from './VoiceTransport';
+import {createAudioPresence} from '../presence/audioPresence';
 
 const sdk = vi.hoisted(() => ({clients: [] as any[], consultationHost: null as any}));
 vi.mock('@telnyx/webrtc', () => ({TelnyxRTC: class {
@@ -213,5 +214,27 @@ it('signals microphone failure at registration while allowing Audio Setup recove
 	expect(f.microphoneUnavailable).toHaveBeenCalledWith('unavailable');
 	await f.transport.armAudio();
 	const c = f.call(); f.incoming[0].accept(); expect(c.answer).toHaveBeenCalledOnce();
+	f.transport.destroy();
+});
+
+it('allows Ready while remote playback waits for an incoming call', async () => {
+	const f = await fixture();
+	sdk.clients.at(-1).remoteElement.play.mockImplementation(() => new Promise<void>(() => {}));
+	const write = vi.fn(async () => ({statusCode: 'SP100', statusMessage: 'OK'}));
+	const presence = createAudioPresence(write);
+	const ready = presence.change('ready', async () => {await f.transport.armAudio(); return true;});
+	await expect(ready).resolves.toBeDefined();
+	expect(write).toHaveBeenCalledWith('ready');
+	f.transport.destroy();
+});
+
+it('still blocks Ready when the selected microphone cannot be acquired', async () => {
+	const f = await fixture();
+	sources[0].track.stop();
+	capture.mockRejectedValueOnce(new Error('Microphone disconnected'));
+	const write = vi.fn(async () => ({statusCode: 'SP100', statusMessage: 'OK'}));
+	const presence = createAudioPresence(write);
+	await expect(presence.change('ready', async () => {await f.transport.armAudio(); return true;})).rejects.toThrow('Microphone disconnected');
+	expect(write).not.toHaveBeenCalled();
 	f.transport.destroy();
 });
