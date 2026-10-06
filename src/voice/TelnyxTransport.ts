@@ -98,6 +98,9 @@ const RTT_POLL_MS = 1_000;
 interface TelnyxCall {
 	id: string;
 	state: string;
+	cause?: string;
+	causeCode?: string | number;
+	sipCode?: string | number;
 	options: {
 		localStream?: MediaStream;
 		audio?: boolean;
@@ -156,6 +159,7 @@ export class TelnyxTransport implements VoiceTransport {
 		this.outputDeviceId = options.outputDeviceId ?? 'default';
 		this.microphone = new TelnyxMicrophone(this.inputDeviceId, () => {
 			this.options.onError?.('Your selected microphone disconnected. Reconnect it and select it in Audio Setup.');
+			this.options.onMicrophoneUnavailable?.('disconnected');
 		});
 		this.supervision = new TelnyxSupervision({
 			prepareAudio: call => {
@@ -202,7 +206,10 @@ export class TelnyxTransport implements VoiceTransport {
 	async register(token: string): Promise<void> {
 		this.statusCb?.('connecting');
 		try { await this.microphone.ensure(); }
-		catch { this.options.onError?.('Could not open your selected microphone. Select it in Audio Setup before taking calls.'); }
+		catch {
+			this.options.onError?.('Could not open your selected microphone. Select it in Audio Setup before taking calls.');
+			this.options.onMicrophoneUnavailable?.('unavailable');
+		}
 		if (this.destroyed) return;
 		this.client = await this.buildClient(token);
 		this.rememberTokenExpiry(token);
@@ -267,6 +274,7 @@ export class TelnyxTransport implements VoiceTransport {
 		};
 
 		if (payload?.type === 'userMediaError') {
+			this.options.onMicrophoneUnavailable?.('unavailable');
 			this.options.onError?.(
 				payload.error?.message || 'Could not access your microphone.'
 			);
@@ -284,6 +292,7 @@ export class TelnyxTransport implements VoiceTransport {
 				call.options.audio = false;
 				call.options.receiveOnlyAudio = false;
 				this.options.onError?.(error instanceof Error ? error.message : 'Could not restore your microphone.');
+				this.options.onMicrophoneUnavailable?.('unavailable');
 			}
 		}
 		// Supervision legs are claimed (or refused) before anything else can see them.
@@ -296,14 +305,17 @@ export class TelnyxTransport implements VoiceTransport {
 			// answer. Anything earlier (new/trying) carries no metadata yet.
 			if (!isNewIncomingState(call.state)) return;
 			const leg = new TelnyxLeg(call, () => this.consultation?.busy ? this.consultation : null, () => {
+				let audioPrepared = false;
 				try {
 					// Supplying localStream bypasses the SDK's default-device probing/fallback.
 					call.options.localStream = this.microphone.clone();
+					audioPrepared = true;
 					call.answer();
 				} catch (error) {
 					stopMicrophoneStream(call.options.localStream);
 					this.options.onError?.(error instanceof Error ? error.message : 'Could not open your selected microphone.');
-					leg.emit('error');
+					if (!audioPrepared) this.options.onMicrophoneUnavailable?.('unavailable');
+					leg.emit('error', error);
 					void call.hangup();
 				}
 			});
@@ -589,19 +601,24 @@ class TelnyxLeg implements IncomingLeg {
 		this.params = normalizeTelnyxHeaders(call.options?.customHeaders);
 	}
 
+	endDiagnostics() {
+		return {provider: 'telnyx' as const, sip_code: this.call.sipCode,
+			hangup_cause: this.call.cause, hangup_cause_code: this.call.causeCode};
+	}
+
 	markActive(): void {
 		this.everActive = true;
 	}
 
-	emit(event: LegEvent): void {
+	emit(event: LegEvent, payload?: unknown): void {
 		// Terminal events fire at most once. Telnyx walks hangup → destroy → purge, and
 		// each of those is a separate callUpdate that would otherwise re-run teardown.
-		if (event === 'disconnect' || event === 'cancel') {
+		if (event === 'disconnect' || event === 'cancel' || event === 'error') {
 			if (this.terminalEmitted) return;
 			this.terminalEmitted = true;
 			this.stopRtt();
 		}
-		for (const handler of this.handlers.get(event) ?? []) handler();
+		for (const handler of this.handlers.get(event) ?? []) handler(payload);
 	}
 
 	accept(): void {

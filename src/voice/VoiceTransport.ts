@@ -31,6 +31,19 @@ export type VoiceProvider = 'telnyx' | 'twilio';
 /** Mirrors `TwilioDeviceStatus` in lib/api.ts — the value posted on the heartbeat. */
 export type TransportStatus = 'registered' | 'connecting' | 'offline' | 'error';
 
+export type MicrophoneProblem = 'disconnected' | 'unavailable';
+
+export interface CallEndDiagnostics {
+	event?: string;
+	answered?: boolean;
+	error_name?: string;
+	error_message?: string;
+	sip_code?: string | number;
+	hangup_cause?: string;
+	hangup_cause_code?: string | number;
+	provider?: VoiceProvider;
+}
+
 export type LegEvent = 'accept' | 'disconnect' | 'cancel' | 'reject' | 'error';
 
 export type ParticipantPhase = 'preparing' | 'dialing' | 'ringing' | 'private' | 'merging' | 'merged' | 'ending' | 'completed' | 'failed';
@@ -118,6 +131,7 @@ export interface IncomingLeg {
 	 * joins a supervisor's Listen/Whisper against — the browser leg never learns its
 	 * own control id (Stage 2 of plans/dialer_supervision).
 	 */
+	endDiagnostics?(): CallEndDiagnostics;
 	carrierIds?(): {sessionId?: string; legId?: string};
 }
 
@@ -129,6 +143,7 @@ export interface VoiceTransportOptions {
 	refreshToken: () => Promise<string>;
 	/** Surfaced to the user; also the transport's channel for non-fatal problems. */
 	onError?: (message: string) => void;
+	onMicrophoneUnavailable?: (reason: MicrophoneProblem) => void;
 	/**
 	 * TELNYX ONLY — pins the signaling edge (`wss://<region>.rtc.telnyx.com`). Set from the
 	 * network wizard's outcome when the default host fails for this machine; omitted means

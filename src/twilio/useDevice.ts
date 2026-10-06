@@ -52,6 +52,7 @@ import {runNetworkProbe} from '@/voice/networkProbe';
 import {readWizardMarker, runNetworkWizard} from '@/voice/networkWizard';
 import {shouldRebuildTransport} from '@/voice/providerSync';
 import type {
+	MicrophoneProblem,
 	IncomingLeg,
 	CallParticipantState,
 	SupervisionRole,
@@ -112,6 +113,7 @@ export interface ActiveCall {
 }
 
 export interface UseDeviceState {
+	microphoneBlocked: boolean;
 	participant: CallParticipantState | null;
 	participantNotice: string | null;
 	canAddParticipant: boolean;
@@ -196,13 +198,26 @@ export interface UseDeviceOptions {
 	 * but outbound must not start against the legacy partial contract. */
 	outboundLifecycleEnabled?: boolean;
 	participantEnabled?: boolean;
+	onMicrophoneUnavailable?: (reason: MicrophoneProblem) => void;
 }
 
 export function useDevice({
 	enabled = true,
 	outboundLifecycleEnabled = false,
-	participantEnabled = false
+	participantEnabled = false,
+	onMicrophoneUnavailable
 }: UseDeviceOptions = {}): UseDeviceState {
+	const [microphoneBlocked, setMicrophoneBlocked] = useState(true);
+	const microphoneFailureVersion = useRef(0);
+	const reportedMicrophoneProblem = useRef<MicrophoneProblem | null>(null);
+	const microphoneProblemHandler = useRef(onMicrophoneUnavailable);
+	microphoneProblemHandler.current = onMicrophoneUnavailable;
+	const reportMicrophoneProblem = useCallback((reason: MicrophoneProblem) => {
+		reportedMicrophoneProblem.current = reportedMicrophoneProblem.current === 'disconnected' ? 'disconnected' : reason;
+		microphoneFailureVersion.current += 1;
+		setMicrophoneBlocked(true);
+		microphoneProblemHandler.current?.(reportedMicrophoneProblem.current);
+	}, []);
 	const [deviceStatus, setDeviceStatus] =
 		useState<TwilioDeviceStatus>('offline');
 	const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
@@ -477,6 +492,8 @@ export function useDevice({
 				throw new Error('Softphone audio is not ready yet.');
 			}
 			await transport.setInputDevice(deviceId);
+			reportedMicrophoneProblem.current = null;
+			setMicrophoneBlocked(false);
 			setError(null);
 			inputDeviceIdRef.current = deviceId;
 			setInputDeviceId(deviceId);
@@ -520,6 +537,12 @@ export function useDevice({
 		// inside the Ready-button gesture. It is a separate local graph and never
 		// replaces or delays Twilio's microphone or speaker streams.
 		armAnswerTone();
+		const failureVersion = microphoneFailureVersion.current;
+		const transport = transportRef.current;
+		if (!transport) {
+			setError('Softphone audio is not ready yet.');
+			return false;
+		}
 
 		try {
 			// (2) Mic permission + input priming. Release the tracks immediately;
@@ -535,22 +558,28 @@ export function useDevice({
 			stream.getTracks().forEach((t) => t.stop());
 		} catch (e) {
 			setError(micErrorMessage(e));
+			reportMicrophoneProblem('unavailable');
 			return false;
 		}
 
 		// (3) Unblock carrier playback, still within the gesture, so the auto-answered
 		// call has sound without a second click.
 		try {
-			await transportRef.current?.armAudio();
+			await transport.armAudio();
 		} catch (error) {
 			// Telnyx retains its actual call microphone here. A permission-only probe
 			// succeeding above does not mean that retained capture succeeded too.
 			setError(micErrorMessage(error));
+			reportMicrophoneProblem('unavailable');
 			return false;
 		}
 
+		if (failureVersion !== microphoneFailureVersion.current || transport !== transportRef.current) return false;
+		reportedMicrophoneProblem.current = null;
+		setMicrophoneBlocked(false);
+		setError(null);
 		return true;
-	}, [armAnswerTone]);
+	}, [armAnswerTone, reportMicrophoneProblem]);
 
 	const stopRingback = useCallback(() => {
 		ringbackRef.current?.stop();
@@ -1407,13 +1436,18 @@ export function useDevice({
 			// Ended is the one event with a durable consumer on the other side (presence
 			// release + ended_at). One delayed retry; total loss is backstopped by the
 			// Retreaver end-of-call webhook stamping ended_at server-side.
-			const reportInboundEnded = (event: CallTerminalEvent | 'error') => {
+			const reportInboundEnded = (event: CallTerminalEvent | 'error', error?: unknown) => {
 				if (!isDirectSipInbound) return;
 				const legId = call.legId as string;
 				console.info('[dialer][sip] ended', {legId, event});
-				void postInboundCallEnded(legId).catch(() => {
+				const diagnostics = {
+					...call.endDiagnostics?.(), event, answered: acceptedDirection !== null,
+					error_name: error instanceof Error ? error.name : undefined,
+					error_message: error instanceof Error ? error.message : (error as {message?: string} | undefined)?.message
+				};
+				void postInboundCallEnded(legId, diagnostics).catch(() => {
 					window.setTimeout(() => {
-						void postInboundCallEnded(legId).catch(() => undefined);
+						void postInboundCallEnded(legId, diagnostics).catch(() => undefined);
 					}, 2000);
 				});
 			};
@@ -1562,9 +1596,9 @@ export function useDevice({
 			call.on('cancel', () => finishCall('cancel'));
 			call.on('reject', () => finishCall('reject'));
 			call.on('error', (e?: unknown) => {
-				if (cancelled) return;
+				if (cancelled || terminalHandled) return;
 				terminalHandled = true;
-				reportInboundEnded('error');
+				reportInboundEnded('error', e);
 				setError((e as {message?: string} | undefined)?.message || 'Call error');
 				clearCall();
 			});
@@ -1625,13 +1659,15 @@ export function useDevice({
 						? new TelnyxTransport({
 								refreshToken: async () => (await fetchToken()).token,
 								onError: (message) => !cancelled && setError(message),
+								onMicrophoneUnavailable: reason => !cancelled && reportMicrophoneProblem(reason),
 								region: wizard.region ?? undefined,
 								inputDeviceId: inputDeviceIdRef.current,
 								outputDeviceId: outputDeviceIdRef.current
 							})
 						: new TwilioTransport({
 								refreshToken: async () => (await fetchToken()).token,
-								onError: (message) => !cancelled && setError(message)
+								onError: (message) => !cancelled && setError(message),
+								onMicrophoneUnavailable: reason => !cancelled && reportMicrophoneProblem(reason)
 							});
 				transportRef.current = transport;
 
@@ -1742,6 +1778,7 @@ export function useDevice({
 	]);
 
 	return {
+		microphoneBlocked,
 		participant,
 		participantNotice,
 		canAddParticipant: participantEnabled && !!transportRef.current?.startParticipant && !!activeCall &&

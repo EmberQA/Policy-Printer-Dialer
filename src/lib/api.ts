@@ -716,10 +716,12 @@ export const postInboundCallAnswered = (
  *  (paused for wrap-up). Idempotent — safe to retry and to race the Retreaver
  *  end-of-call webhook. */
 export const postInboundCallEnded = (
-	clientCallSid: string
+	clientCallSid: string,
+	diagnostics?: import('@/voice/VoiceTransport').CallEndDiagnostics
 ): Promise<{statusCode: string; statusMessage: string}> =>
 	qsPost('/policyPrinter/dialer/call/inboundEnded', {
-		client_call_sid: clientCallSid
+		client_call_sid: clientCallSid,
+		diagnostics
 	});
 
 /* -------------------------------------------------------------------------- */

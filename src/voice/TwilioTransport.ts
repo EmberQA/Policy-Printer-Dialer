@@ -46,7 +46,12 @@ export class TwilioTransport implements VoiceTransport {
 		// implementation. Bluetooth devices can settle on a concrete input/output while
 		// registration is in flight; subscribing afterward loses that transition and
 		// leaves the dialer pointing at `default` or a stale headset profile.
-		device.audio?.on('deviceChange', this.emitDeviceSelection);
+		device.audio?.on('deviceChange', (lostDevices: MediaDeviceInfo[] = []) => {
+			if (!this.destroyed && lostDevices.some(device => device.kind === 'audioinput')) {
+				this.options.onMicrophoneUnavailable?.('disconnected');
+			}
+			this.emitDeviceSelection();
+		});
 		this.emitDeviceSelection();
 
 		device.on('registered', () => {

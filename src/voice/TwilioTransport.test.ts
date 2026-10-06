@@ -18,8 +18,8 @@ const sdk = vi.hoisted(() => {
 			this.listeners.set(event, listeners);
 		}
 
-		emit(event: string): void {
-			for (const listener of this.listeners.get(event) ?? []) listener();
+		emit(event: string, ...args: unknown[]): void {
+			for (const listener of this.listeners.get(event) ?? []) listener(...args);
 		}
 	}
 
@@ -101,4 +101,14 @@ describe('TwilioTransport device selection', () => {
 		expect(sdk.FakeDevice.latest?.audio.incoming).toHaveBeenCalledWith(false);
 		expect(sdk.FakeDevice.latest?.audio.disconnect).toHaveBeenCalledWith(false);
 	});
+});
+
+it('pauses for a lost active microphone but not a speaker or ordinary device change', async () => {
+	const lost = vi.fn();
+	const transport = new TwilioTransport({refreshToken: async () => 'fresh', onMicrophoneUnavailable: lost});
+	await transport.register('token');
+	const audio = sdk.FakeDevice.latest!.audio;
+	audio.emit('deviceChange', [{kind: 'audiooutput'}]); expect(lost).not.toHaveBeenCalled();
+	audio.emit('deviceChange', [{kind: 'audioinput'}]); expect(lost).toHaveBeenCalledExactlyOnceWith('disconnected');
+	transport.destroy(); audio.emit('deviceChange', [{kind: 'audioinput'}]); expect(lost).toHaveBeenCalledTimes(1);
 });

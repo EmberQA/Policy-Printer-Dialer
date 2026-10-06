@@ -456,8 +456,7 @@ function AuthenticatedDialerApp({
 				onRequiredComplete={() => {
 					// The completion button is a browser gesture. Arm the post-answer
 					// tone here too, because a restored Ready state may never be toggled.
-					void device.armAudio();
-					completeAudioCheck();
+					void device.armAudio().then(ready => {if (ready) completeAudioCheck();});
 				}}
 				onInputDeviceChange={device.setInputDevice}
 				onOutputDeviceChange={device.setOutputDevice}

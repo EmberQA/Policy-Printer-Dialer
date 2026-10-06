@@ -181,13 +181,6 @@ export default function Dial() {
 
 	const onToggleReady = () => {
 		const next: PresenceStatus = status === 'ready' ? 'paused' : 'ready';
-		// Pre-arm audio on the way to Ready. The dialer auto-answers, so this click is
-		// our one chance to satisfy the browser's autoplay policy: armAudio() grants the
-		// mic and resumes the SDK's AudioContext. Fire it synchronously from the gesture
-		// (before any await); it self-reports mic errors via device.error.
-		if (next === 'ready') {
-			void device.armAudio();
-		}
 		const balanceRequest = ++readyBalanceRequest.current;
 		setBalanceWarning(null);
 		if (next === 'ready') {
@@ -206,7 +199,7 @@ export default function Dial() {
 		setReadyRequestSettled(false);
 		setBusy('status');
 		setError(null);
-		setPresence({status: next})
+		session.changePresence(next)
 			.then((res) => {
 				if (res.statusCode !== 'SP100') {
 					throw new Error(res.statusMessage || 'Could not update presence');

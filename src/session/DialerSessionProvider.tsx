@@ -26,6 +26,9 @@ import {
 } from 'react';
 import {
 	fetchDialerProfile,
+	setPresence as postPresence,
+	type PresenceStatus,
+	type PresenceResponse,
 	getPresence,
 	listCampaignRemainingCalls,
 	listCampaigns,
@@ -33,6 +36,9 @@ import {
 	type DialerCampaign,
 	type DialerPresence
 } from '@/lib/api';
+import {createAudioPresence} from '@/presence/audioPresence';
+import {MicrophonePausedDialog, type MicrophonePauseNotice} from '@/presence/MicrophonePausedDialog';
+import type {MicrophoneProblem} from '@/voice/VoiceTransport';
 import {useDevice, type UseDeviceState} from '@/twilio/useDevice';
 import {useHeartbeat, type HeartbeatState} from '@/presence/useHeartbeat';
 import {useCreditNotification} from '@/presence/useCreditNotification';
@@ -41,6 +47,7 @@ import {readError} from '@/lib/errors';
 import {useCoachingBooking} from '@/onboarding/useCoachingBooking';
 
 export interface DialerSession {
+	changePresence: (status: PresenceStatus) => Promise<PresenceResponse>;
 	// --- bootstrap / gating ---
 	profile: any;
 	bookingRequired: boolean;
@@ -101,6 +108,25 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 	const [audioCheckComplete, setAudioCheckComplete] = useState(false);
 	const [callUiBusy, setCallUiBusy] = useState(false);
 	const hadActiveCallRef = useRef(false);
+	const [microphoneNotice, setMicrophoneNotice] = useState<MicrophonePauseNotice | null>(null);
+	const audioPresence = useMemo(() => createAudioPresence(status => postPresence({status})), []);
+	const microphoneIncident = useRef(0);
+	const pauseForMicrophone = useCallback((reason: MicrophoneProblem) => {
+		const incident = ++microphoneIncident.current;
+		setMicrophoneNotice({reason, state: 'pausing'});
+		void audioPresence.change('paused').then(response => {
+			if (incident !== microphoneIncident.current) return;
+			if (response.presence) setPresence(response.presence);
+			setMicrophoneNotice({reason, state: 'paused'});
+		}).catch(() => {
+			if (incident === microphoneIncident.current) setMicrophoneNotice({reason, state: 'failed'});
+		});
+	}, [audioPresence]);
+	useEffect(() => {
+		if (microphoneNotice?.state !== 'failed') return;
+		const timer = window.setTimeout(() => pauseForMicrophone(microphoneNotice.reason), 5000);
+		return () => window.clearTimeout(timer);
+	}, [microphoneNotice, pauseForMicrophone]);
 
 	const accessPaused = Boolean(profile?.access_paused);
 	const provisioned = Boolean(profile?.provisioned) && !accessPaused;
@@ -113,16 +139,27 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 	const device = useDevice({
 		enabled: provisioned,
 		participantEnabled: Number(profile?.capabilities?.call_participant_version ?? 0) >= 1,
-		outboundLifecycleEnabled
+		outboundLifecycleEnabled,
+		onMicrophoneUnavailable: pauseForMicrophone
 	});
-	const onCall =
+	const changePresence = useCallback(async (status: PresenceStatus) => {
+		const response = await audioPresence.change(status, device.armAudio);
+		if (status === 'ready') {
+			microphoneIncident.current += 1;
+			setMicrophoneNotice(null);
+		}
+		if (response.presence) setPresence(response.presence);
+		return response;
+	}, [audioPresence, device.armAudio]);
+	// Wrap-up UI can stay open after a call ends; it must not defer the pause popup.
+	const callInProgress =
 		Boolean(device.supervision) ||
 		Boolean(device.participant) ||
 		Boolean(device.activeCall) ||
 		Boolean(device.outboundStarting) ||
 		Boolean(device.pendingOutbound) ||
-		Boolean(presence?.on_call) ||
-		callUiBusy;
+		Boolean(presence?.on_call);
+	const onCall = callInProgress || callUiBusy;
 	const {bookingRequired, completeBooking} = useCoachingBooking({
 		orgId: profile?.agent?.org_id ?? '',
 		userId: profile?.agent?.user_id ?? '',
@@ -136,7 +173,7 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		// between calls. The Device stays registered so the
 		// setup dialog can apply real input/output selections before confirmation.
 		deviceStatus:
-			audioCheckComplete && (!bookingRequired || onCall)
+			audioCheckComplete && !device.microphoneBlocked && (!bookingRequired || onCall)
 				? device.deviceStatus
 				: 'offline'
 	});
@@ -252,6 +289,7 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 	const canDialBase =
 		!bookingRequired &&
 		audioCheckComplete &&
+		!device.microphoneBlocked &&
 		provisioned &&
 		outboundLifecycleEnabled &&
 		device.deviceStatus === 'registered' &&
@@ -264,6 +302,7 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 
 	const value = useMemo<DialerSession>(
 		() => ({
+			changePresence,
 			profile,
 			bookingRequired,
 			completeBooking,
@@ -287,6 +326,7 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 			whisperNotice
 		}),
 		[
+			changePresence,
 			profile,
 			bookingRequired,
 			completeBooking,
@@ -308,6 +348,9 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 
 	return (
 		<DialerSessionContext.Provider value={value}>
+			<MicrophonePausedDialog notice={microphoneNotice} callInProgress={callInProgress}
+				onDismiss={() => setMicrophoneNotice(null)}
+				onRetry={() => {if (microphoneNotice) pauseForMicrophone(microphoneNotice.reason);}} />
 			{children}
 		</DialerSessionContext.Provider>
 	);

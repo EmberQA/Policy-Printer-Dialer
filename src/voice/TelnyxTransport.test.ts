@@ -53,8 +53,8 @@ beforeEach(() => {
 });
 afterEach(() => {vi.useRealTimers(); vi.unstubAllGlobals();});
 async function fixture() {
-	const error = vi.fn(); const incoming: IncomingLeg[] = [];
-	const transport = new TelnyxTransport({inputDeviceId: 'maono', onError: error, refreshToken: async () => 'token'});
+	const error = vi.fn(); const microphoneUnavailable = vi.fn(); const incoming: IncomingLeg[] = [];
+	const transport = new TelnyxTransport({inputDeviceId: 'maono', onError: error, onMicrophoneUnavailable: microphoneUnavailable, refreshToken: async () => 'token'});
 	transport.onIncoming(leg => incoming.push(leg));
 	await transport.register('token');
 	const notify = (call: unknown) => sdk.clients.at(-1).handlers.get('telnyx.notification')({type: 'callUpdate', call});
@@ -76,7 +76,7 @@ async function fixture() {
 		};
 		notify(c); return c;
 	};
-	return {transport, incoming, call, notify, error};
+	return {transport, incoming, call, notify, error, microphoneUnavailable};
 }
 
 describe('Telnyx retained input integration', () => {
@@ -123,7 +123,13 @@ describe('Telnyx retained input integration', () => {
 	});
 	it('rejects an answer after device removal without letting the SDK fall back', async () => {
 		const f = await fixture(); sources[0].track.readyState = 'ended'; sources[0].track.dispatchEvent(new Event('ended'));
-		const c = f.call(); f.incoming[0].accept();
+		expect(f.microphoneUnavailable).toHaveBeenCalledWith('disconnected');
+		const c = f.call();
+		const ended = vi.fn(); f.incoming[0].on('error', ended); f.incoming[0].on('cancel', ended);
+		f.incoming[0].accept();
+		expect(ended).toHaveBeenCalledTimes(1);
+		expect(ended.mock.calls[0][0]).toBeInstanceOf(Error);
+		expect(ended.mock.calls[0][0].message).toContain('selected microphone is unavailable');
 		expect(c.answer).not.toHaveBeenCalled(); expect(c.hangup).toHaveBeenCalled(); expect(f.error).toHaveBeenCalled();
 		await f.transport.armAudio();
 		expect(capture).toHaveBeenLastCalledWith({audio: {deviceId: {exact: 'maono'}}}); f.transport.destroy();
@@ -186,4 +192,26 @@ describe('Telnyx retained input integration', () => {
 		f.transport.destroy();
 	});
 
+});
+
+it('preserves available SIP disconnect details on the ended leg', async () => {
+	const f = await fixture(); const c = f.call(); const leg = f.incoming[0];
+	Object.assign(c, {state: 'hangup', sipCode: 480, cause: 'NO_ANSWER', causeCode: 19});
+	f.notify(c);
+	expect(leg.endDiagnostics?.()).toEqual({provider: 'telnyx', sip_code: 480, hangup_cause: 'NO_ANSWER', hangup_cause_code: 19});
+	f.transport.destroy();
+});
+
+it('does not report deliberate stream cleanup as a microphone disconnect', async () => {
+	const f = await fixture(); await f.transport.setInputDevice('usb-2'); f.transport.destroy();
+	expect(f.microphoneUnavailable).not.toHaveBeenCalled();
+});
+
+it('signals microphone failure at registration while allowing Audio Setup recovery', async () => {
+	capture.mockRejectedValueOnce(new Error('Permission denied'));
+	const f = await fixture();
+	expect(f.microphoneUnavailable).toHaveBeenCalledWith('unavailable');
+	await f.transport.armAudio();
+	const c = f.call(); f.incoming[0].accept(); expect(c.answer).toHaveBeenCalledOnce();
+	f.transport.destroy();
 });
