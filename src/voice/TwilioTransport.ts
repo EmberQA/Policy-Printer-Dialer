@@ -119,7 +119,9 @@ export class TwilioTransport implements VoiceTransport {
 			const audio = this.device?.audio as
 				{_audioContext?: AudioContext} | undefined;
 			const ctx = audio?._audioContext;
-			if (ctx && ctx.state === 'suspended') await ctx.resume();
+			// Playback priming can stay pending under autoplay restrictions.
+			// It must not hold up a successful microphone readiness check.
+			if (ctx && ctx.state === 'suspended') void ctx.resume().catch(() => {});
 		} catch {
 			/* non-fatal: mic is granted; playback may still resume on accept */
 		}

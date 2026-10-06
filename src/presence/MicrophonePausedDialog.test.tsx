@@ -22,4 +22,11 @@ describe('microphone notice during a call', () => {
 	it('does not warn during a healthy call', () => {
 		expect(renderActive(null)).toBe('');
 	});
+	it.each(['pausing', 'failed'] as const)('keeps Audio Setup accessible while idle and %s', state => {
+		const html = renderToStaticMarkup(<MicrophonePausedDialog
+			notice={{reason: 'disconnected', state}} onDismiss={() => {}} onRetry={() => {}} />);
+		expect(html).toContain('role="alert"');
+		expect(html).not.toContain('fixed');
+		expect(html).not.toContain('role="dialog"');
+	});
 });

@@ -225,6 +225,7 @@ it('allows Ready while remote playback waits for an incoming call', async () => 
 	const ready = presence.change('ready', async () => {await f.transport.armAudio(); return true;});
 	await expect(ready).resolves.toBeDefined();
 	expect(write).toHaveBeenCalledWith('ready');
+	expect(capture).toHaveBeenCalledTimes(1);
 	f.transport.destroy();
 });
 

@@ -13,9 +13,9 @@ export function MicrophonePausedDialog({notice, callInProgress = false, onDismis
 	onDismiss: () => void;
 	onRetry: () => void;
 }) {
-	// Keep the notice pending until the call ends. No portal, overlay, or focus trap
-	// during calls: Audio Setup and call controls must remain usable even if pausing fails.
-	if (callInProgress) {
+	// Keep Audio Setup and call controls accessible during calls and server failures.
+	// Show the confirmation popup only after the server has confirmed the pause.
+	if (callInProgress || notice?.state === 'pausing' || notice?.state === 'failed') {
 		if (!notice) return null;
 		return <div role="alert" className="flex flex-wrap items-center justify-center gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-3 text-sm">
 			<p>
@@ -34,23 +34,15 @@ export function MicrophonePausedDialog({notice, callInProgress = false, onDismis
 		<Dialog.Portal>
 			<Dialog.Overlay className="fixed inset-0 z-[60] bg-black/45" />
 			<Dialog.Content className="fixed left-1/2 top-1/2 z-[60] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-background p-6 shadow-xl">
-				<Dialog.Title className="text-lg font-semibold">
-					{notice?.state === 'paused' ? 'You’re paused' : notice?.state === 'failed' ? 'Could not confirm pause' : 'Pausing calls…'}
-				</Dialog.Title>
+				<Dialog.Title className="text-lg font-semibold">You’re paused</Dialog.Title>
 				<Dialog.Description className="mt-2 text-sm text-muted-foreground" aria-live="polite">
-					{notice?.state === 'paused'
-						? notice.reason === 'disconnected'
-							? 'You were paused because your microphone disconnected.'
-							: 'You were paused because your microphone is unavailable.'
-						: notice?.state === 'failed'
-							? 'Your microphone is unavailable. We could not confirm the pause with the server and are retrying.'
-							: 'Your microphone is unavailable. Pausing your availability for new calls.'}
+					{notice?.reason === 'disconnected'
+						? 'You were paused because your microphone disconnected.'
+						: 'You were paused because your microphone is unavailable.'}
 					{' '}Reconnect your microphone or select another one in Audio Setup, then click Go Ready when it works. Reconnecting will not make you Ready automatically.
 				</Dialog.Description>
 				<div className="mt-5 flex justify-end">
-					{notice?.state === 'failed'
-						? <Button onClick={onRetry}>Retry pause</Button>
-						: <Button disabled={notice?.state !== 'paused'} onClick={onDismiss}>Got it</Button>}
+					<Button onClick={onDismiss}>Got it</Button>
 				</div>
 			</Dialog.Content>
 		</Dialog.Portal>

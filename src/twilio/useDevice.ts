@@ -526,12 +526,8 @@ export function useDevice({
 
 	// Prime audio from a user gesture. The dialer auto-answers, so there's no
 	// per-call click to satisfy the browser's autoplay policy — we pre-arm here
-	// on the "Go ready" toggle. Three things must happen inside the gesture:
-	//   1) keep the local post-answer tone silently active,
-	//   2) getUserMedia({audio}) — grants mic + primes the input device,
-	//   3) transport.armAudio() — unblock carrier playback. What that MEANS differs by
-	//      provider (Twilio resumes a shared AudioContext, Telnyx plays its remote
-	//      media element), which is exactly why it sits behind the transport.
+	// on the "Go ready" toggle. Telnyx verifies its retained microphone; only Twilio
+	// needs a temporary permission probe. Playback priming must never block Ready.
 	const armAudio = useCallback(async (): Promise<boolean> => {
 		// This must happen before the first await so audio.play() is called directly
 		// inside the Ready-button gesture. It is a separate local graph and never
@@ -545,30 +541,16 @@ export function useDevice({
 		}
 
 		try {
-			// (2) Mic permission + input priming. Release the tracks immediately;
-			// the Twilio SDK opens its own stream on accept(). We only needed the
-			// permission grant + the user-gesture context.
-			const selectedInputDeviceId = inputDeviceIdRef.current;
-			const stream = await navigator.mediaDevices.getUserMedia({
-				audio:
-					selectedInputDeviceId === 'default'
-						? true
-						: {deviceId: {exact: selectedInputDeviceId}}
-			});
-			stream.getTracks().forEach((t) => t.stop());
-		} catch (e) {
-			setError(micErrorMessage(e));
-			reportMicrophoneProblem('unavailable');
-			return false;
-		}
-
-		// (3) Unblock carrier playback, still within the gesture, so the auto-answered
-		// call has sound without a second click.
-		try {
+			if (transport.provider === 'twilio') {
+				const selectedInputDeviceId = inputDeviceIdRef.current;
+				const stream = await navigator.mediaDevices.getUserMedia({
+					audio: selectedInputDeviceId === 'default'
+						? true : {deviceId: {exact: selectedInputDeviceId}}
+				});
+				stream.getTracks().forEach(t => t.stop());
+			}
 			await transport.armAudio();
 		} catch (error) {
-			// Telnyx retains its actual call microphone here. A permission-only probe
-			// succeeding above does not mean that retained capture succeeded too.
 			setError(micErrorMessage(error));
 			reportMicrophoneProblem('unavailable');
 			return false;

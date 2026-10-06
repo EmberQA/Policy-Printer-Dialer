@@ -112,3 +112,13 @@ it('pauses for a lost active microphone but not a speaker or ordinary device cha
 	audio.emit('deviceChange', [{kind: 'audioinput'}]); expect(lost).toHaveBeenCalledExactlyOnceWith('disconnected');
 	transport.destroy(); audio.emit('deviceChange', [{kind: 'audioinput'}]); expect(lost).toHaveBeenCalledTimes(1);
 });
+
+it('does not wait for suspended playback to resume before completing audio preparation', async () => {
+	const transport = new TwilioTransport({refreshToken: async () => 'fresh'});
+	await transport.register('token');
+	const resume = vi.fn(() => new Promise<void>(() => {}));
+	Object.assign(sdk.FakeDevice.latest!.audio, {_audioContext: {state: 'suspended', resume}});
+	await transport.armAudio();
+	expect(resume).toHaveBeenCalledOnce();
+	transport.destroy();
+});
