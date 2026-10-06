@@ -454,9 +454,11 @@ function AuthenticatedDialerApp({
 				inputDeviceId={device.inputDeviceId}
 				outputDeviceId={device.outputDeviceId}
 				onRequiredComplete={() => {
-					// The completion button is a browser gesture. Arm the post-answer
-					// tone here too, because a restored Ready state may never be toggled.
-					void device.armAudio().then(ready => {if (ready) completeAudioCheck();});
+					// The user has confirmed the echo test. Close it immediately; a
+					// separate transport check must not reset an already-passed test.
+					// Go Ready still requires successful microphone preparation.
+					completeAudioCheck();
+					void device.armAudio();
 				}}
 				onInputDeviceChange={device.setInputDevice}
 				onOutputDeviceChange={device.setOutputDevice}
