@@ -2,6 +2,9 @@ const DEFAULT_DEVICE_ID = 'default';
 
 export const ECHO_RECORDING_DURATION_MS = 3_000;
 const ECHO_PROGRESS_UPDATE_MS = 100;
+// Some Windows audio drivers leave MediaRecorder or playback pending forever
+// instead of failing. Surface an error so the agent can retry or switch devices.
+export const ECHO_STALL_TIMEOUT_MS = 5_000;
 
 export type RecordedEchoPhase = 'recording' | 'playing' | 'complete';
 
@@ -28,6 +31,7 @@ export class RecordedEcho {
 	private recordingTimer: number | null = null;
 	private recordingProgressTimer: number | null = null;
 	private playbackProgressTimer: number | null = null;
+	private stallTimer: number | null = null;
 	private cancelPlayback: (() => void) | null = null;
 	private stopped = false;
 
@@ -82,6 +86,7 @@ export class RecordedEcho {
 		}
 		this.clearRecordingProgress();
 		this.clearPlaybackProgress();
+		this.clearStallTimer();
 		if (this.recorder?.state === 'recording') {
 			this.recorder.stop();
 		}
@@ -107,6 +112,7 @@ export class RecordedEcho {
 			recorder.addEventListener(
 				'stop',
 				() => {
+					this.clearStallTimer();
 					const type = chunks.find((chunk) => chunk.type)?.type;
 					resolve(new Blob(chunks, type ? {type} : undefined));
 				},
@@ -132,6 +138,14 @@ export class RecordedEcho {
 					ECHO_RECORDING_DURATION_MS
 				);
 				this.clearRecordingProgress();
+				this.stallTimer = window.setTimeout(() => {
+					this.stallTimer = null;
+					reject(
+						new Error(
+							'The microphone stopped responding before the recording finished. Close other apps using the microphone or select a different microphone, then test again.'
+						)
+					);
+				}, ECHO_STALL_TIMEOUT_MS);
 				if (recorder.state === 'recording') recorder.stop();
 			}, ECHO_RECORDING_DURATION_MS);
 		});
@@ -158,6 +172,7 @@ export class RecordedEcho {
 			const finish = (error?: Error) => {
 				if (settled) return;
 				settled = true;
+				this.clearStallTimer();
 				this.cancelPlayback = null;
 				audio.removeEventListener('ended', handleEnded);
 				audio.removeEventListener('error', handleError);
@@ -176,10 +191,19 @@ export class RecordedEcho {
 			this.cancelPlayback = () => finish();
 			audio.addEventListener('ended', handleEnded, {once: true});
 			audio.addEventListener('error', handleError, {once: true});
+			this.stallTimer = window.setTimeout(() => {
+				this.stallTimer = null;
+				finish(
+					new Error(
+						'Your recording could not be played back. Select a different speaker or microphone, then test again.'
+					)
+				);
+			}, ECHO_STALL_TIMEOUT_MS);
 
 			void audio
 				.play()
 				.then(() => {
+					this.clearStallTimer();
 					if (this.stopped) return;
 					this.onPhaseChange('playing');
 					this.reportPlaybackProgress(audio);
@@ -247,6 +271,12 @@ export class RecordedEcho {
 		if (this.recordingProgressTimer === null) return;
 		window.clearInterval(this.recordingProgressTimer);
 		this.recordingProgressTimer = null;
+	}
+
+	private clearStallTimer() {
+		if (this.stallTimer === null) return;
+		window.clearTimeout(this.stallTimer);
+		this.stallTimer = null;
 	}
 
 	private clearPlaybackProgress() {

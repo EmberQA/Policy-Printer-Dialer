@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
 	ECHO_RECORDING_DURATION_MS,
+	ECHO_STALL_TIMEOUT_MS,
 	RecordedEcho,
 	type RecordedEchoPhase,
 	type RecordedEchoProgress
@@ -39,10 +40,15 @@ class FakeMediaRecorder extends EventTarget {
 
 class FakeAudio extends EventTarget {
 	static instances: FakeAudio[] = [];
+	static stallPlay = false;
 	src = '';
 	currentTime = 0;
 	duration = 3;
-	play = vi.fn(async () => undefined);
+	play = vi.fn(() =>
+		FakeAudio.stallPlay
+			? new Promise<void>(() => undefined)
+			: Promise.resolve()
+	);
 	pause = vi.fn();
 	load = vi.fn();
 	removeAttribute = vi.fn((name: string) => {
@@ -69,6 +75,7 @@ describe('RecordedEcho', () => {
 		revokeObjectURL.mockClear();
 		FakeMediaRecorder.instances.length = 0;
 		FakeAudio.instances.length = 0;
+		FakeAudio.stallPlay = false;
 		vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
 		vi.stubGlobal('Audio', FakeAudio);
 		vi.stubGlobal('navigator', {mediaDevices: {getUserMedia}});
@@ -192,5 +199,55 @@ describe('RecordedEcho', () => {
 		expect(audio.pause).toHaveBeenCalledTimes(1);
 		expect(revokeObjectURL).toHaveBeenCalledWith('blob:echo-recording');
 		expect(phases).toEqual(['recording', 'playing']);
+	});
+	it('fails instead of hanging when the recorder never reports stop', async () => {
+		const echo = new RecordedEcho('default', 'default', vi.fn());
+		const result = echo.start();
+		const failure = expect(result).rejects.toThrow(/microphone stopped responding/);
+
+		await vi.waitFor(() => expect(FakeMediaRecorder.instances).toHaveLength(1));
+		const recorder = FakeMediaRecorder.instances[0];
+		recorder.stop = vi.fn(() => {
+			recorder.state = 'inactive';
+		});
+		await vi.advanceTimersByTimeAsync(
+			ECHO_RECORDING_DURATION_MS + ECHO_STALL_TIMEOUT_MS
+		);
+
+		await failure;
+		expect(stopTrack).toHaveBeenCalled();
+		expect(FakeAudio.instances).toHaveLength(0);
+	});
+
+	it('fails instead of hanging when playback never starts', async () => {
+		const phases: RecordedEchoPhase[] = [];
+		const echo = new RecordedEcho('default', 'default', (phase) =>
+			phases.push(phase)
+		);
+		const result = echo.start();
+		const failure = expect(result).rejects.toThrow(/could not be played back/);
+
+		await vi.waitFor(() => expect(FakeMediaRecorder.instances).toHaveLength(1));
+		FakeAudio.stallPlay = true;
+		await vi.advanceTimersByTimeAsync(ECHO_RECORDING_DURATION_MS);
+		await vi.waitFor(() => expect(FakeAudio.instances).toHaveLength(1));
+		await vi.advanceTimersByTimeAsync(ECHO_STALL_TIMEOUT_MS);
+
+		await failure;
+		expect(phases).toEqual(['recording']);
+		expect(revokeObjectURL).toHaveBeenCalledWith('blob:echo-recording');
+	});
+
+	it('does not time out a playback that started normally', async () => {
+		const echo = new RecordedEcho('default', 'default', vi.fn());
+		const result = echo.start();
+
+		await vi.waitFor(() => expect(FakeMediaRecorder.instances).toHaveLength(1));
+		await vi.advanceTimersByTimeAsync(ECHO_RECORDING_DURATION_MS);
+		await vi.waitFor(() => expect(FakeAudio.instances).toHaveLength(1));
+		await vi.advanceTimersByTimeAsync(ECHO_STALL_TIMEOUT_MS * 2);
+		FakeAudio.instances[0].dispatchEvent(new Event('ended'));
+
+		await expect(result).resolves.toBeUndefined();
 	});
 });
