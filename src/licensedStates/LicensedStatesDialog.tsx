@@ -37,6 +37,17 @@ export function LicensedStatesDialog({
 	const [loading, setLoading] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	// ENG-292: "Save states" first swaps to a routing/credit notice; only its Confirm
+	// actually saves, and only once the agent has ticked the acknowledgment.
+	const [confirming, setConfirming] = useState(false);
+	const [acknowledged, setAcknowledged] = useState(false);
+
+	useEffect(() => {
+		if (!open) {
+			setConfirming(false);
+			setAcknowledged(false);
+		}
+	}, [open]);
 
 	const load = useCallback(async () => {
 		setLoading(true);
@@ -74,6 +85,7 @@ export function LicensedStatesDialog({
 			const res = await saveLicensedStates(selected);
 			if (res.statusCode !== 'SP100') {
 				setError(res.statusMessage || 'Could not save your states');
+				setConfirming(false);
 				return;
 			}
 			// Take the server's normalized list back, so what stays on screen is what was
@@ -82,6 +94,7 @@ export function LicensedStatesDialog({
 			onOpenChange(false);
 		} catch (err) {
 			setError(readError(err, 'Could not save your states'));
+			setConfirming(false);
 		} finally {
 			setSaving(false);
 		}
@@ -97,11 +110,14 @@ export function LicensedStatesDialog({
 					<div className="flex items-start justify-between gap-3">
 						<div className="space-y-1">
 							<DialogPrimitive.Title className="text-lg font-semibold">
-								States you&apos;re licensed in
+								{confirming
+									? 'Before you update your states'
+									: 'States you’re licensed in'}
 							</DialogPrimitive.Title>
 							<DialogPrimitive.Description className="text-sm text-muted-foreground">
-								Only select states you are licensed to sell in. Volume depends on
-								how many you cover — under 15 can mean 30+ minutes between calls.
+								{confirming
+									? `You're saving ${selected.length} state${selected.length === 1 ? '' : 's'}.`
+									: 'Only select states you are licensed to sell in. Volume depends on how many you cover — under 15 can mean 30+ minutes between calls.'}
 							</DialogPrimitive.Description>
 						</div>
 						<DialogPrimitive.Close asChild>
@@ -118,7 +134,30 @@ export function LicensedStatesDialog({
 					</div>
 
 					<div className="min-h-0 overflow-y-auto">
-						{loading ? (
+						{confirming ? (
+							<div className="space-y-4 text-sm">
+								<p className="leading-relaxed">
+									Calls are routed using location data such as area codes, which may
+									not match where a caller currently lives. You may occasionally
+									receive calls from outside your selected states. These limitations
+									are reflected in our pricing, and we don&apos;t issue credits solely
+									because a caller is outside your selected states.
+								</p>
+								<label className="flex cursor-pointer items-start gap-2 rounded-md border border-input bg-card px-3 py-3">
+									<input
+										type="checkbox"
+										checked={acknowledged}
+										disabled={saving}
+										onChange={(event) => setAcknowledged(event.target.checked)}
+										className="mt-0.5 size-4 shrink-0 accent-primary"
+									/>
+									<span>
+										I understand that I may receive out-of-state calls and that these
+										calls aren&apos;t eligible for a credit solely based on location.
+									</span>
+								</label>
+							</div>
+						) : loading ? (
 							<div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
 								<Loader2 className="size-4 animate-spin" />
 								Loading your states…
@@ -162,25 +201,50 @@ export function LicensedStatesDialog({
 								`${selected.length} of ${jurisdictions.length} selected`
 							)}
 						</div>
-						<div className="flex shrink-0 items-center gap-2">
-							<DialogPrimitive.Close asChild>
-								<Button type="button" variant="outline" disabled={saving}>
-									Cancel
+						{confirming ? (
+							<div className="flex shrink-0 items-center gap-2">
+								<Button
+									type="button"
+									variant="outline"
+									disabled={saving}
+									onClick={() => setConfirming(false)}
+								>
+									Back
 								</Button>
-							</DialogPrimitive.Close>
-							<Button
-								type="button"
-								variant="success"
-								// An empty list is refused by the API rather than stored: it could
-								// never reach Retreaver, which declines to strip a buyer's filters
-								// entirely.
-								disabled={saving || loading || selected.length === 0}
-								onClick={save}
-							>
-								{saving && <Loader2 className="size-4 animate-spin" />}
-								{saving ? 'Saving…' : 'Save states'}
-							</Button>
-						</div>
+								<Button
+									type="button"
+									variant="success"
+									disabled={saving || !acknowledged}
+									onClick={save}
+								>
+									{saving && <Loader2 className="size-4 animate-spin" />}
+									{saving ? 'Saving…' : 'Confirm'}
+								</Button>
+							</div>
+						) : (
+							<div className="flex shrink-0 items-center gap-2">
+								<DialogPrimitive.Close asChild>
+									<Button type="button" variant="outline" disabled={saving}>
+										Cancel
+									</Button>
+								</DialogPrimitive.Close>
+								<Button
+									type="button"
+									variant="success"
+									// An empty list is refused by the API rather than stored: it could
+									// never reach Retreaver, which declines to strip a buyer's filters
+									// entirely.
+									disabled={saving || loading || selected.length === 0}
+									onClick={() => {
+										setError(null);
+										setAcknowledged(false);
+										setConfirming(true);
+									}}
+								>
+									Save states
+								</Button>
+							</div>
+						)}
 					</div>
 				</DialogPrimitive.Content>
 			</DialogPrimitive.Portal>
