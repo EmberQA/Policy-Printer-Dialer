@@ -3,20 +3,26 @@
  * Think "text doc with jump links": every [link](#id) / choice button scrolls
  * to its target, and the place you jumped FROM is pushed on a back stack.
  *
- * The Script panel is always open. Objections / Emotional Triggers open as
- * their own panels to the LEFT (on demand — via a link or the header button),
- * so an agent can dig deeper without losing their place in the script.
- * Picking a path grays out its sibling paths. Far jumps are instant.
+ * The Script panel is always open. An objection REPLACES the script area (the
+ * script keeps its scroll underneath) with a "Back" to where the agent was and
+ * a "Continue" into the right next section. Emotional Triggers (training mode
+ * only) open as their own panel to the LEFT.
+ *
+ * Two modes (ENG-298), Live by default:
+ *  - live: spoken lines, choices, headings. No purple guidance, no triggers.
+ *  - training: everything.
+ * Branches stay grayed until picked; a picked branch can always be re-picked.
+ * Far jumps are instant.
  */
 
 import {useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
-import {ArrowLeft, Check, ArrowUpRight, PanelLeftClose, RotateCcw, X} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Check, ArrowUpRight, PanelLeftClose, RotateCcw, X} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Card, CardContent, CardHeader} from '@/components/ui/card';
 import {cn} from '@/lib/utils';
 import {DOC_TITLE, SCRIPT_DOC} from './content';
-import {buildAnchorIndex, buildPathGroups, findBrokenLinks, parseInline} from './core';
-import type {AnchorKind, Block, DocGroup, DocNode} from './types';
+import {buildAnchorIndex, buildPathGroups, exitOf, findBrokenLinks, isBlockVisible, parseInline} from './core';
+import type {AnchorKind, Block, DocGroup, DocNode, ScriptMode} from './types';
 
 const ANCHORS = buildAnchorIndex(SCRIPT_DOC);
 const PATH_GROUPS = buildPathGroups(SCRIPT_DOC, ANCHORS);
@@ -43,10 +49,11 @@ const LINK: Record<AnchorKind, string> = {
 	trigger: 'text-amber-700 decoration-amber-400 dark:text-amber-400',
 	reference: 'text-violet-700 decoration-violet-400 dark:text-violet-400'
 };
+/** Progression choices (branch or next section) are green; objections red. */
 const CHOICE: Record<AnchorKind, string> = {
 	objection: 'border-rose-200 text-rose-700 hover:border-rose-500 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10',
 	path: 'border-emerald-200 text-emerald-800 hover:border-emerald-500 hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-300 dark:hover:bg-emerald-500/10',
-	section: 'border-sky-200 text-sky-800 hover:border-sky-500 hover:bg-sky-50 dark:border-sky-500/30 dark:text-sky-300 dark:hover:bg-sky-500/10',
+	section: 'border-emerald-200 text-emerald-800 hover:border-emerald-500 hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-300 dark:hover:bg-emerald-500/10',
 	trigger: 'border-amber-200 text-amber-800 hover:border-amber-500 hover:bg-amber-50 dark:border-amber-500/30 dark:text-amber-300 dark:hover:bg-amber-500/10',
 	reference: 'border-violet-200 text-violet-800 hover:border-violet-500 hover:bg-violet-50 dark:border-violet-500/30 dark:text-violet-300 dark:hover:bg-violet-500/10'
 };
@@ -54,14 +61,14 @@ const CHOICE: Record<AnchorKind, string> = {
 const CHOICE_CLICKED: Record<AnchorKind, string> = {
 	objection: 'border-rose-500 bg-rose-100 dark:bg-rose-500/20',
 	path: 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/15',
-	section: 'border-sky-500 bg-sky-100 dark:bg-sky-500/20',
+	section: 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/15',
 	trigger: 'border-amber-500 bg-amber-100 dark:bg-amber-500/20',
 	reference: 'border-violet-500 bg-violet-100 dark:bg-violet-500/20'
 };
 const TITLE: Record<AnchorKind, string> = {
 	objection: 'text-rose-700 dark:text-rose-400',
 	path: 'text-emerald-700 dark:text-emerald-400',
-	section: 'text-foreground',
+	section: 'text-sky-700 dark:text-sky-400',
 	trigger: 'text-amber-700 dark:text-amber-400',
 	reference: 'text-violet-700 dark:text-violet-400'
 };
@@ -127,8 +134,10 @@ function returnLabel(id: string): string {
 type JumpFn = (to: string, from: HTMLElement | null) => void;
 
 interface Ctx {
+	mode: ScriptMode;
 	jump: JumpFn;
 	pick: (pathId: string, from: HTMLElement) => void;
+	/** A choice button whose sibling path was picked instead. */
 	isDimmed: (pathId: string) => boolean;
 	isPicked: (pathId: string) => boolean;
 	/** Non-path choices (objections, sections…) the agent has already clicked. */
@@ -148,7 +157,13 @@ export function ScriptDoc({
 	onPanelCountChange?: (count: number) => void;
 }) {
 	const scrollers = useRef<Partial<Record<DocGroup, HTMLDivElement | null>>>({});
-	/** Extra panels, newest first (renders leftmost). */
+	/** Starts Live on every load (ENG-298); the agent flips it from the header. */
+	const [mode, setMode] = useState<ScriptMode>('live');
+	/** Objections cover the script panel instead of opening beside it. */
+	const [objectionsOpen, setObjectionsOpen] = useState(false);
+	/** Objection currently at the top of the objections view. */
+	const [activeObjection, setActiveObjection] = useState(PANELS.objections.nodes[0].id);
+	/** Extra side panels (just Emotional Triggers today), newest first (renders leftmost). */
 	const [extra, setExtra] = useState<DocGroup[]>([]);
 	/** Panels mid slide-out; dropped from `extra` once the animation ends. */
 	const [closing, setClosing] = useState<ReadonlySet<DocGroup>>(() => new Set());
@@ -166,9 +181,17 @@ export function ScriptDoc({
 
 	useEffect(() => onPanelCountChange?.(1 + extra.length), [extra.length, onPanelCountChange]);
 
-	const isOpen = (g: DocGroup) => g === 'script' || (extra.includes(g) && !closing.has(g));
+	const isOpen = (g: DocGroup) => {
+		if (g === 'script') return true;
+		if (g === 'objections') return objectionsOpen;
+		return extra.includes(g) && !closing.has(g);
+	};
 	const open = (g: DocGroup) => {
 		if (g === 'script') return;
+		if (g === 'objections') {
+			setObjectionsOpen(true);
+			return;
+		}
 		window.clearTimeout(closeTimers.current[g]);
 		setClosing((c) => {
 			if (!c.has(g)) return c;
@@ -180,6 +203,10 @@ export function ScriptDoc({
 	};
 	const close = (g: DocGroup) => {
 		if (!isOpen(g)) return;
+		if (g === 'objections') {
+			setObjectionsOpen(false);
+			return;
+		}
 		setClosing((c) => new Set(c).add(g));
 		window.clearTimeout(closeTimers.current[g]);
 		closeTimers.current[g] = window.setTimeout(() => {
@@ -215,6 +242,8 @@ export function ScriptDoc({
 	/** Scroll now if the panel is open; otherwise open it and scroll after mount. */
 	const go = (id: string) => {
 		const g = groupOf(id);
+		// Anything landing in the script uncovers it (the script never unmounts, so its scroll is intact).
+		if (g === 'script') close('objections');
 		if (isOpen(g) && scrollers.current[g]) scrollTo(id);
 		else {
 			open(g);
@@ -224,10 +253,11 @@ export function ScriptDoc({
 
 	useLayoutEffect(() => {
 		if (pending && scrollTo(pending)) setPending(null);
-	}, [pending, extra, scrollTo]);
+	}, [pending, extra, objectionsOpen, scrollTo]);
 
 	const jump: JumpFn = (to, from) => {
 		if (!ANCHORS.has(to)) return;
+		if (mode === 'live' && groupOf(to) === 'triggers') return;
 		const fromGroup = (from?.closest('[data-panel]') as HTMLElement | null)?.dataset.panel as DocGroup | undefined;
 		const s = fromGroup && scrollers.current[fromGroup];
 		let origin: string | null = null;
@@ -239,13 +269,13 @@ export function ScriptDoc({
 		// Blue link within the script (not an objection's escape hatch) → offer a way straight back.
 		const blue = ANCHORS.get(to)?.kind === 'section' && fromGroup !== 'objections';
 		setReturnTo(blue && origin && origin !== to ? {at: to, origin} : null);
+		// Leaving an objection for the script (blue link / escape hatch) uncovers the script — see go().
 		go(to);
-		// Leaving an objection for the script (blue link / escape hatch) = objection handled: close it.
-		if (fromGroup === 'objections' && groupOf(to) === 'script') close('objections');
 	};
 
 	const groupKey = (pathId: string) => PATH_GROUPS.get(pathId)?.[0] ?? pathId;
 	const ctx: Ctx = {
+		mode,
 		jump,
 		pick: (pathId, from) => {
 			setPicked((p) => ({...p, [groupKey(pathId)]: pathId}));
@@ -294,8 +324,21 @@ export function ScriptDoc({
 		setClicked(new Set());
 		setStack([]);
 		setReturnTo(null);
+		close('objections');
 		for (const s of Object.values(scrollers.current)) s?.scrollTo({top: 0});
 	};
+
+	const switchMode = (next: ScriptMode) => {
+		setMode(next);
+		// Live has no Emotional Triggers; drop any stack entries that point into them.
+		if (next === 'live') {
+			close('triggers');
+			setStack((st) => st.filter((id) => groupOf(id) !== 'triggers'));
+		}
+	};
+
+	const objectionExit = exitOf(PANELS.objections.nodes.find((n) => n.id === activeObjection));
+	const backTarget = stack[stack.length - 1];
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
@@ -331,14 +374,16 @@ export function ScriptDoc({
 					</Panel>
 				</SlideFromLeft>
 			))}
+			<div className="relative min-w-[28rem] flex-1">
 			<Panel
 				group="script"
 				ctx={ctx}
 				scrollerRef={register('script')}
-				className="min-w-[28rem] flex-1"
+				// `invisible` (not unmounted) so the script keeps its scroll under an objection.
+				className={cn(objectionsOpen && 'invisible')}
 				subheader={
-					<div className="flex gap-1">
-						{(['objections', 'triggers'] as const).map((g) => (
+					<div className="flex items-center gap-1">
+						{(mode === 'training' ? (['objections', 'triggers'] as const) : (['objections'] as const)).map((g) => (
 							<button
 								key={g}
 								type="button"
@@ -352,6 +397,7 @@ export function ScriptDoc({
 								{isOpen(g) ? 'Hide' : 'Open'} {PANELS[g].title}
 							</button>
 						))}
+						<ModeToggle mode={mode} onChange={switchMode} />
 					</div>
 				}
 			>
@@ -376,6 +422,69 @@ export function ScriptDoc({
 					</Button>
 				)}
 			</Panel>
+			{objectionsOpen && (
+				<Panel
+					group="objections"
+					ctx={ctx}
+					scrollerRef={register('objections')}
+					onActiveChange={setActiveObjection}
+					className="absolute inset-0 h-full min-h-0 xl:h-full"
+					subheader={
+						<div className="flex flex-wrap gap-1.5">
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="h-8"
+								onClick={() => (backTarget ? back() : close('objections'))}
+								title="Back to where you were (Alt + ←)"
+							>
+								<ArrowLeft className="size-3.5" />
+								Back to – {backTarget ? returnLabel(backTarget) : 'script'}
+							</Button>
+							{objectionExit && (
+								<button
+									type="button"
+									onClick={(e) => ctx.jump(objectionExit.to, e.currentTarget)}
+									className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-3 text-sm font-medium text-white shadow-xs transition-colors hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+								>
+									Objection handled — continue to {objectionExit.label}
+									<ArrowRight className="size-4" />
+								</button>
+							)}
+						</div>
+					}
+				>
+					<Button type="button" variant="ghost" size="icon" className="size-7" aria-label="Close objections" title="Close objections" onClick={() => close('objections')}>
+						<X className="size-4" />
+					</Button>
+				</Panel>
+			)}
+			</div>
+		</div>
+	);
+}
+
+/** Live / Training switch. Live hides the coaching material for real calls. */
+function ModeToggle({mode, onChange}: {mode: ScriptMode; onChange: (m: ScriptMode) => void}) {
+	return (
+		<div role="radiogroup" aria-label="Script mode" className="ml-auto inline-flex rounded-md border p-0.5 text-xs font-medium">
+			{(['live', 'training'] as const).map((m) => (
+				<button
+					key={m}
+					type="button"
+					role="radio"
+					aria-checked={mode === m}
+					onClick={() => onChange(m)}
+					title={m === 'live' ? 'Real call: just what to say, choices and headings' : 'Practice: full guidance + Emotional Triggers'}
+					className={cn(
+						'rounded px-2 py-0.5 capitalize transition-colors',
+						mode === m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+					)}
+				>
+					{m}
+				</button>
+			))}
 		</div>
 	);
 }
@@ -421,6 +530,7 @@ function Panel({
 	scrollerRef,
 	className,
 	subheader,
+	onActiveChange,
 	children
 }: {
 	group: DocGroup;
@@ -428,12 +538,17 @@ function Panel({
 	scrollerRef: (el: HTMLDivElement | null) => void;
 	className?: string;
 	subheader?: ReactNode;
+	/** Fires with the top-level node now at the focus line. */
+	onActiveChange?: (nodeId: string) => void;
 	/** Header actions, right-aligned. */
 	children?: ReactNode;
 }) {
 	const {title, nodes} = PANELS[group];
 	const localRef = useRef<HTMLDivElement | null>(null);
 	const [active, setActive] = useState(nodes[0].id);
+	const onActiveRef = useRef(onActiveChange);
+	onActiveRef.current = onActiveChange;
+	useEffect(() => onActiveRef.current?.(active), [active]);
 
 	useEffect(() => {
 		const s = localRef.current;
@@ -524,7 +639,11 @@ function NodeView({node, ctx}: {node: DocNode; ctx: Ctx}) {
 }
 
 function Blocks({blocks, ctx}: {blocks: Block[]; ctx: Ctx}) {
-	return <div className="space-y-2.5">{blocks.map((b, i) => <BlockView key={i} block={b} ctx={ctx} />)}</div>;
+	return (
+		<div className="space-y-2.5">
+			{blocks.map((b, i) => (isBlockVisible(b, ctx.mode, SCRIPT_DOC, ANCHORS) ? <BlockView key={i} block={b} ctx={ctx} /> : null))}
+		</div>
+	);
 }
 
 function ChoiceButtons({options, ctx}: {options: {label: string; to: string}[]; ctx: Ctx}) {
@@ -635,20 +754,21 @@ function BlockView({block: b, ctx}: {block: Block; ctx: Ctx}) {
 				</button>
 			);
 		case 'path': {
-			const dimmed = ctx.isDimmed(b.id);
+			// Grayed until the agent picks it, so every option is visible up front.
+			const dimmed = !ctx.isPicked(b.id);
 			return (
 				<div
 					data-anchor={b.id}
 					className={cn(
 						'-mx-1 rounded-md border-l-2 py-1 pr-1 pl-3 transition-[opacity,background-color] duration-300',
-						dimmed ? 'border-muted opacity-35 grayscale' : 'border-emerald-400',
+						dimmed ? 'border-muted opacity-45 grayscale' : 'border-emerald-400',
 						flashCls(b.id, ctx.flash)
 					)}
 				>
 					<button
 						type="button"
 						onClick={(e) => ctx.pick(b.id, e.currentTarget)}
-						title={dimmed ? 'Switch to this path' : undefined}
+						title={dimmed ? 'Choose this path' : undefined}
 						className="mb-2 text-left text-sm font-semibold text-emerald-700 underline decoration-emerald-400 underline-offset-4 dark:text-emerald-400"
 					>
 						{b.label}
@@ -675,6 +795,8 @@ function Inline({text, ctx}: {text: string; ctx: Ctx}): ReactNode {
 				);
 			case 'link': {
 				const kind = ANCHORS.get(tok.to)?.kind ?? 'reference';
+				// Live mode has no Emotional Triggers to jump to.
+				if (ctx.mode === 'live' && groupOf(tok.to) === 'triggers') return tok.text;
 				return (
 					<a
 						key={i}

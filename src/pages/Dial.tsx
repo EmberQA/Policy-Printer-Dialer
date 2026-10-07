@@ -85,8 +85,9 @@ import {useHotStates} from '@/hotStates/useHotStates';
  * while on the call. The lead form uses the call's campaign (auto when a single campaign
  * is armed, otherwise the agent picks it).
  */
-// Temp (tempScript branch): extra script-doc panels (objections / triggers)
-// widen the script column; the page scrolls sideways rather than crushing it.
+// Temp (tempScript branch): the Emotional Triggers side panel (training mode)
+// widens the script column; the page scrolls sideways rather than crushing it.
+// Objections cover the script panel instead, so they never add a column.
 const SCRIPT_DOC_COLS = [
 	'xl:grid-cols-[minmax(30rem,2fr)_minmax(0,3fr)]',
 	'xl:grid-cols-[minmax(58rem,4fr)_minmax(26rem,3fr)] xl:overflow-x-auto',

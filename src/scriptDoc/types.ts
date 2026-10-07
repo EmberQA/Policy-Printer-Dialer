@@ -12,6 +12,12 @@ export type AnchorKind = 'section' | 'objection' | 'path' | 'trigger' | 'referen
 
 export type DocGroup = 'script' | 'objections' | 'triggers';
 
+/**
+ * live = real call: spoken lines, choices, headings only.
+ * training = everything, incl. purple guidance + Emotional Triggers.
+ */
+export type ScriptMode = 'live' | 'training';
+
 export type Block =
 	/** Sub-heading; give it an id to make it linkable. */
 	| {t: 'h'; text: string; id?: string}

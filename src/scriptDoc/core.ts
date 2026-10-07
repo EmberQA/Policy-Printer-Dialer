@@ -1,6 +1,6 @@
 /** Pure helpers for the hyperlinked script doc. */
 
-import type {AnchorInfo, Block, DocNode} from './types';
+import type {AnchorInfo, Block, DocNode, ScriptMode} from './types';
 
 export type InlineToken =
 	| {type: 'text'; text: string}
@@ -62,6 +62,33 @@ export function buildPathGroups(doc: DocNode[], index: Map<string, AnchorInfo>):
 	};
 	doc.forEach((n) => walk(n.blocks));
 	return groups;
+}
+
+/** True when `text` links to an Emotional Triggers node (training-only material). */
+function linksToTriggers(text: string, doc: DocNode[], index: Map<string, AnchorInfo>): boolean {
+	return parseInline(text).some((tok) => {
+		if (tok.type !== 'link') return false;
+		const nodeId = index.get(tok.to)?.nodeId;
+		return doc.some((n) => n.id === nodeId && n.group === 'triggers');
+	});
+}
+
+/**
+ * Live mode keeps what the agent says, the choices, and the headings. It drops
+ * the purple guidance boxes and any stage note that only points at
+ * emotional-trigger coaching. Training mode shows everything.
+ */
+export function isBlockVisible(b: Block, mode: ScriptMode, doc: DocNode[], index: Map<string, AnchorInfo>): boolean {
+	if (mode === 'training') return true;
+	if (b.t === 'inst') return false;
+	if (b.t === 'note') return !linksToTriggers(b.text, doc, index);
+	return true;
+}
+
+/** Where an objection's "Objection handled" button returns to, if it has one. */
+export function exitOf(node: DocNode | undefined): {to: string; label: string} | null {
+	const exit = node?.blocks.find((b) => b.t === 'exit');
+	return exit?.t === 'exit' ? {to: exit.to, label: exit.label} : null;
 }
 
 /** Link targets that don't resolve — handy while editing content. */
