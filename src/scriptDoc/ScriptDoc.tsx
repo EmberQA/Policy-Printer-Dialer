@@ -1,5 +1,5 @@
 /**
- * Hyperlinked script doc — a playground, NOT the ENG-278 script engine.
+ * Hyperlinked script doc (ENG-298).
  * Think "text doc with jump links": every [link](#id) / choice button scrolls
  * to its target, and the place you jumped FROM is pushed on a back stack.
  *

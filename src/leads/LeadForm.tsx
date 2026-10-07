@@ -39,7 +39,6 @@ import {FormRenderer, type LeadFormData} from './FormRenderer';
 import {DispositionSelect} from './DispositionSelect';
 import {useLeadNotes} from './LeadNotesContext';
 import {useLeadFormBridge} from './LeadFormBridgeContext';
-import type {DialerScript} from '@/script/types';
 
 export function LeadForm({
 	campaignId,
@@ -48,7 +47,7 @@ export function LeadForm({
 	onComplete,
 	showClear = true,
 	editLead = null,
-	publishToScript = false
+	publishToScriptDoc = false
 }: {
 	campaignId: string;
 	/** Tying the lead to the call. Null for a manual lead with no live call. */
@@ -64,14 +63,13 @@ export function LeadForm({
 	 */
 	editLead?: ReturningCallerLead | null;
 	/**
-	 * Publish this form to the call script (ENG-278 bridge). Only the Dial screen's
-	 * live-call form sets this — a second mounted LeadForm (manual lead logging)
-	 * must not take over the script's bindings.
+	 * Publish this form's schema + values to the call script doc (ENG-298) so its
+	 * linked blanks can show them. Only the Dial screen's live-call form sets this —
+	 * a second mounted LeadForm (manual lead logging) must not take over the view.
 	 */
-	publishToScript?: boolean;
+	publishToScriptDoc?: boolean;
 }) {
 	const [form, setForm] = useState<DialerForm | null>(null);
-	const [script, setScript] = useState<DialerScript | null>(null);
 	const [dispositions, setDispositions] = useState<DialerDisposition[]>([]);
 	const [callerState, setCallerState] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
@@ -88,7 +86,7 @@ export function LeadForm({
 	>(null);
 	const busy = saving || completingWithoutLead;
 	const {setNote} = useLeadNotes();
-	const {setView: setBridgeView, emitCommit} = useLeadFormBridge();
+	const {setView: setBridgeView} = useLeadFormBridge();
 
 	const initialFormData = (
 		nextForm: DialerForm | null,
@@ -191,7 +189,6 @@ export function LeadForm({
 					return;
 				}
 				setForm(res.form ?? null);
-				setScript(res.script ?? null);
 				setDispositions(res.dispositions ?? []);
 				setCallerState(res.caller_state ?? null);
 				// Edit-in-place seeds the prior lead's disposition; new leads start blank.
@@ -236,57 +233,19 @@ export function LeadForm({
 
 	useEffect(() => () => setNote(null), [setNote]);
 
-	// ENG-278 — publish the form to the call script. Re-published on every
-	// formData change so writeField/reads stay current; the script only ACTS on
-	// explicit commits (blur / pick / save), never on this republish.
+	// ENG-298 — publish the form's schema + values to the call script doc
+	// (read-only: the doc only displays them in its linked blanks).
 	useEffect(() => {
-		if (!publishToScript || loading) return;
-		setBridgeView({
-			callKey: `${callSid || 'active-call'}:${editLead?.id ?? 'new'}`,
-			formKey: form?.form_key ?? null,
-			schema: form?.schema ?? [],
-			formData,
-			callerPhone,
-			script,
-			writeField: onField,
-			updateField: (key, update) =>
-				setFormData((prev) => ({...prev, [key]: update(prev[key])}))
-		});
-	}, [
-		publishToScript,
-		loading,
-		form,
-		script,
-		formData,
-		callSid,
-		callerPhone,
-		editLead?.id,
-		setBridgeView
-	]);
+		if (!publishToScriptDoc || loading) return;
+		setBridgeView({schema: form?.schema ?? [], formData});
+	}, [publishToScriptDoc, loading, form, formData, setBridgeView]);
 
 	useEffect(
 		() => () => {
-			if (publishToScript) setBridgeView(null);
+			if (publishToScriptDoc) setBridgeView(null);
 		},
-		[publishToScript, setBridgeView]
+		[publishToScriptDoc, setBridgeView]
 	);
-
-	const commitField = (key: string, value: unknown) => {
-		if (publishToScript) emitCommit({target: 'form_field', key, value});
-	};
-
-	/** Save = every field is final, plus the derived `name` lead column. */
-	const commitAll = () => {
-		if (!publishToScript) return;
-		for (const field of form?.schema ?? []) {
-			emitCommit({
-				target: 'form_field',
-				key: field.key,
-				value: formData[field.key]
-			});
-		}
-		emitCommit({target: 'lead_column', column: 'name', value: derivedName()});
-	};
 
 	const selectedDisposition = useMemo(
 		() =>
@@ -318,7 +277,6 @@ export function LeadForm({
 	const onSave = async (): Promise<boolean> => {
 		setSaving(true);
 		setSaveError(null);
-		commitAll();
 		try {
 			// Edit-in-place (callback): UPDATE the prior lead so its info + timestamps
 			// refresh, rather than creating a duplicate. Otherwise create a new lead.
@@ -429,7 +387,6 @@ export function LeadForm({
 								schema={form.schema}
 								value={formData}
 								onChange={onField}
-								onCommit={commitField}
 								disabled={busy}
 								excludeKeys={noteField ? [noteField.key] : []}
 							/>

@@ -14,7 +14,6 @@ import {
 	Power,
 	Radar,
 	RadioTower,
-	ScrollText,
 	Wifi,
 	WifiOff,
 	Zap
@@ -54,13 +53,10 @@ import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {MicLevelMeter, useMicLevelMeter} from '@/twilio/MicLevelMeter';
 import {LeadForm} from '@/leads/LeadForm';
 import {LeadNotesPanel} from '@/leads/LeadNotesContext';
-// Temp (tempScript branch): hyperlinked script doc replaces the script engine panel.
-// import {ScriptHost} from '@/script/ScriptPanel';
-// import {ScriptPreviewPanel} from '@/script/ScriptPreviewPanel';
 import {ScriptDoc} from '@/scriptDoc/ScriptDoc';
+import {showsScriptDoc} from '@/scriptDoc/campaigns';
 import {useLeadFormBridge} from '@/leads/LeadFormBridgeContext';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {ReturningCallerCard} from '@/leads/ReturningCallerCard';
 import {useReturningCaller} from '@/leads/useReturningCaller';
 import {cn} from '@/lib/utils';
@@ -99,15 +95,6 @@ export default function Dial() {
 	const userName = [user?.first_name, user?.last_name]
 		.filter(Boolean)
 		.join(' ');
-	// Agent identity comes from the signed-in user. Caller state is bound to
-	// the lead form by the script, never inferred from the agent profile.
-	const scriptAgentVars = useMemo(
-		() => ({
-			agent_name: userName || undefined,
-			agent_cell: profile?.agent?.phone_number ?? undefined
-		}),
-		[userName, profile?.agent?.phone_number]
-	);
 	const showDebugCall = userName === 'dialer-test user';
 	const presence = session.presence;
 	const setCampaigns = session.setCampaigns;
@@ -129,9 +116,6 @@ export default function Dial() {
 		[]
 	);
 	const [error, setError] = useState<string | null>(null);
-	// Campaign whose call script is open in the preview sheet (ENG-278).
-	const [scriptPreviewCampaign, setScriptPreviewCampaign] =
-		useState<DialerCampaign | null>(null);
 	const [debugIncomingCall, setDebugIncomingCall] = useState(false);
 	const [debugCallMuted, setDebugCallMuted] = useState(false);
 	const [debugCallHeld, setDebugCallHeld] = useState(false);
@@ -315,11 +299,6 @@ export default function Dial() {
 		: null;
 	const activeCall = device.activeCall ?? debugCall;
 	const workCall = activeCall ?? wrapUpCall;
-	// A real call always takes the left column: drop any open script preview.
-	const hasWorkCall = Boolean(workCall);
-	useEffect(() => {
-		if (hasWorkCall) setScriptPreviewCampaign(null);
-	}, [hasWorkCall]);
 	const wrapUpCallKey = workCall ? callKey(workCall) : null;
 	const attributedCampaign = workCall?.campaignId
 		? campaigns.find((campaign) => campaign.id === workCall.campaignId)
@@ -488,14 +467,10 @@ export default function Dial() {
 		device.participant
 	]);
 
-	// With a script up (preview or live) the script + form split the width;
-	// otherwise the call column sits centered on the page.
+	// With the script doc up (a call on a script-doc campaign) the script + form
+	// split the width; otherwise the call column sits centered on the page.
 	const {view: leadFormView} = useLeadFormBridge();
 	const [scriptCollapsed, setScriptCollapsed] = useState(false);
-	// Temp (tempScript branch): the script doc is always open.
-	// const scriptOpen =
-	// 	Boolean(scriptPreviewCampaign && !workCall) ||
-	// 	Boolean(leadFormView?.script);
 	// ENG-298: the script doc's linked blanks read the live lead form + agent name.
 	const scriptValues = useMemo(
 		() => ({
@@ -505,9 +480,7 @@ export default function Dial() {
 		}),
 		[userName, leadFormView?.formData, leadFormView?.schema]
 	);
-	void scriptAgentVars;
-	void scriptPreviewCampaign;
-	const scriptOpen = true;
+	const scriptOpen = Boolean(workCall && showsScriptDoc(effectiveCampaign?.name));
 
 	return (
 		<div
@@ -582,21 +555,13 @@ export default function Dial() {
 							</div>
 						)}
 
-						{/* Script | Notes tabs when the campaign has a call script (ENG-278);
-	                  otherwise just the notes panel, as before. A script preview from
-	                  the Campaigns menu shows here too, until a call starts. */}
-						{/* Temp (tempScript branch): engine script panel swapped for the script doc.
-						{scriptPreviewCampaign && !workCall ? (
-							<ScriptPreviewPanel
-								campaign={scriptPreviewCampaign}
-								agentVars={scriptAgentVars}
-								onClose={() => setScriptPreviewCampaign(null)}
+						{scriptOpen && (
+							<ScriptDoc
+								key={wrapUpCallKey ?? 'call'}
 								onCollapse={() => setScriptCollapsed(true)}
+								values={scriptValues}
 							/>
-						) : (
-							<ScriptHost agentVars={scriptAgentVars} onCollapse={() => setScriptCollapsed(true)} />
-						)} */}
-						<ScriptDoc onCollapse={() => setScriptCollapsed(true)} values={scriptValues} />
+						)}
 
 						{profile && provisioned && (
 							<>
@@ -735,7 +700,7 @@ export default function Dial() {
 											onComplete={onWrapUpComplete}
 											showClear={false}
 											editLead={editLead}
-											publishToScript
+											publishToScriptDoc
 										/>
 									</div>
 								</section>
@@ -782,7 +747,6 @@ export default function Dial() {
 					onToggleReady={onToggleReady}
 					campaigns={campaigns}
 					onToggleCampaign={onToggleCampaign}
-					onPreviewScript={setScriptPreviewCampaign}
 					inputDeviceId={device.inputDeviceId}
 					outputDeviceId={device.outputDeviceId}
 					onInputDeviceChange={device.setInputDevice}
@@ -899,7 +863,6 @@ function DialSidebar({
 	onToggleReady,
 	campaigns,
 	onToggleCampaign,
-	onPreviewScript,
 	inputDeviceId,
 	outputDeviceId,
 	onInputDeviceChange,
@@ -931,7 +894,6 @@ function DialSidebar({
 	onToggleReady: () => void;
 	campaigns: DialerCampaign[];
 	onToggleCampaign: (campaignId: string, ready: boolean) => void;
-	onPreviewScript: (campaign: DialerCampaign) => void;
 	inputDeviceId: string;
 	outputDeviceId: string;
 	onInputDeviceChange: (deviceId: string) => Promise<void>;
@@ -1008,7 +970,6 @@ function DialSidebar({
 					busy={busy}
 					onCall={onCall}
 					onToggleCampaign={onToggleCampaign}
-					onPreviewScript={onPreviewScript}
 				/>
 			</div>
 			<div className="min-w-36 flex-1">
@@ -1164,21 +1125,17 @@ function CampaignMenu({
 	campaigns,
 	busy,
 	onCall,
-	onToggleCampaign,
-	onPreviewScript
+	onToggleCampaign
 }: {
 	campaigns: DialerCampaign[];
 	busy: 'status' | string | null;
 	onCall: boolean;
 	onToggleCampaign: (campaignId: string, ready: boolean) => void;
-	onPreviewScript: (campaign: DialerCampaign) => void;
 }) {
 	const readyCount = campaigns.filter((c) => c.ready).length;
-	// Controlled so opening a script preview closes the menu first.
-	const [open, setOpen] = useState(false);
 
 	return (
-		<DropdownMenu open={open} onOpenChange={setOpen}>
+		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
 				<Button
 					variant="outline"
@@ -1231,26 +1188,6 @@ function CampaignMenu({
 										</span>
 									</div>
 								</div>
-								{campaign.script_id && (
-									<Tooltip>
-										<TooltipTrigger asChild>
-											<Button
-												type="button"
-												variant="ghost"
-												size="icon"
-												className="-my-1 size-7 shrink-0 text-muted-foreground"
-												aria-label={`Preview script for ${campaign.name}`}
-												onClick={() => {
-													setOpen(false);
-													onPreviewScript(campaign);
-												}}
-											>
-												<ScrollText className="size-4" />
-											</Button>
-										</TooltipTrigger>
-										<TooltipContent side="left">Preview script</TooltipContent>
-									</Tooltip>
-								)}
 								{busy === campaign.id ? (
 									<Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
 								) : (

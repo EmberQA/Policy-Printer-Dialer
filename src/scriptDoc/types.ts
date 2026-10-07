@@ -1,7 +1,6 @@
 /**
- * Hyperlinked script doc (playground — separate from the ENG-278 script
- * engine). A doc is a flat list of nodes; any node, path, or heading with an
- * `id` is a jump target. Inline text supports a tiny markup:
+ * Hyperlinked script doc (ENG-298). A doc is a flat list of nodes; any node,
+ * path, or heading with an `id` is a jump target. Inline text supports a tiny markup:
  *   [label](#target-id)   link — colored by the TARGET's kind
  *   **bold**              emphasis
  *   {{blank}}             fill-in blank (agent name, amount, …)

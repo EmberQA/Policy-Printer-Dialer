@@ -8,8 +8,6 @@ import {
 	createContext,
 	useCallback,
 	useContext,
-	useLayoutEffect,
-	useRef,
 	useState,
 	type ReactNode
 } from 'react';
@@ -52,20 +50,6 @@ export function useLeadNotes() {
 /** Renders only while the active lead form has a `note` or `notes` field. */
 export function LeadNotesPanel() {
 	const {note, setNote} = useLeadNotes();
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const previousNote = useRef<ActiveLeadNote | null>(null);
-	useLayoutEffect(() => {
-		const previous = previousNote.current;
-		previousNote.current = note;
-		if (
-			note &&
-			previous?.key === note.key &&
-			note.value !== previous.value &&
-			textareaRef.current
-		) {
-			textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
-		}
-	}, [note]);
 	if (!note) return null;
 	const id = `active-lead-${note.key}`;
 	return (
@@ -81,14 +65,10 @@ export function LeadNotesPanel() {
 					{note.label || 'Notes'}
 				</Label>
 				<Textarea
-					ref={textareaRef}
 					id={id}
 					value={note.value}
 					onChange={(event) => {
 						const value = event.target.value;
-						// Manual edits keep the caret's scroll position; only incoming
-						// script updates should move the notes to the bottom.
-						previousNote.current = {...note, value};
 						// Update the controlled input in the same event as the keystroke.
 						// Waiting for LeadForm's effect to echo it back restores stale text.
 						setNote({...note, value});
