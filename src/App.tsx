@@ -592,7 +592,8 @@ function HeaderUserBlock({
 			{provisioned && callbackNumber && (
 				<CallbackNumber number={callbackNumber} />
 			)}
-			<span className="whitespace-nowrap font-mono text-[11px] text-muted-foreground">
+			{/* Fixed width (fits "9999 ms") so the header doesn't shift as the ping changes. */}
+			<span className="inline-block w-[7ch] shrink-0 overflow-hidden whitespace-nowrap text-right font-mono text-[11px] tabular-nums text-muted-foreground">
 				{pingMs === null ? '— ms' : `${pingMs} ms`}
 			</span>
 			<Button
