@@ -85,14 +85,8 @@ import {useHotStates} from '@/hotStates/useHotStates';
  * while on the call. The lead form uses the call's campaign (auto when a single campaign
  * is armed, otherwise the agent picks it).
  */
-// Temp (tempScript branch): the Emotional Triggers side panel (training mode)
-// widens the script column; the page scrolls sideways rather than crushing it.
-// Objections cover the script panel instead, so they never add a column.
-const SCRIPT_DOC_COLS = [
-	'xl:grid-cols-[minmax(30rem,2fr)_minmax(0,3fr)]',
-	'xl:grid-cols-[minmax(58rem,4fr)_minmax(26rem,3fr)] xl:overflow-x-auto',
-	'xl:grid-cols-[minmax(86rem,6fr)_minmax(26rem,3fr)] xl:overflow-x-auto'
-];
+// ENG-298: all three script views share one column, matching the training workspace.
+const SCRIPT_DOC_COLS = 'xl:grid-cols-[minmax(30rem,2fr)_minmax(0,3fr)]';
 
 export default function Dial() {
 	// Shared session: the single Device + heartbeat + bootstrap (profile/campaigns/
@@ -502,11 +496,18 @@ export default function Dial() {
 	// const scriptOpen =
 	// 	Boolean(scriptPreviewCampaign && !workCall) ||
 	// 	Boolean(leadFormView?.script);
-	void leadFormView;
+	// ENG-298: the script doc's linked blanks read the live lead form + agent name.
+	const scriptValues = useMemo(
+		() => ({
+			agentName: userName || null,
+			formData: leadFormView?.formData,
+			formSchema: leadFormView?.schema
+		}),
+		[userName, leadFormView?.formData, leadFormView?.schema]
+	);
 	void scriptAgentVars;
 	void scriptPreviewCampaign;
 	const scriptOpen = true;
-	const [scriptPanels, setScriptPanels] = useState(1);
 
 	return (
 		<div
@@ -548,7 +549,7 @@ export default function Dial() {
 				className={cn(
 					'flex flex-col gap-8',
 					scriptOpen
-						? cn('xl:grid xl:min-h-0 xl:flex-1 xl:grid-rows-[auto_minmax(0,1fr)] xl:items-start xl:gap-3 xl:transition-[grid-template-columns] xl:duration-300 xl:ease-out', scriptCollapsed ? 'xl:grid-cols-[2rem_minmax(0,1fr)]' : SCRIPT_DOC_COLS[scriptPanels - 1])
+						? cn('xl:grid xl:min-h-0 xl:flex-1 xl:grid-rows-[auto_minmax(0,1fr)] xl:items-start xl:gap-3 xl:transition-[grid-template-columns] xl:duration-300 xl:ease-out', scriptCollapsed ? 'xl:grid-cols-[2rem_minmax(0,1fr)]' : SCRIPT_DOC_COLS)
 						: 'xl:flex-row xl:flex-wrap xl:items-start xl:gap-x-3 xl:gap-y-3'
 				)}
 			>
@@ -557,7 +558,7 @@ export default function Dial() {
 					className={cn(
 						'order-2 flex flex-col items-stretch gap-4 empty:hidden xl:order-none',
 						scriptOpen
-							? 'xl:col-start-1 xl:row-start-2 xl:min-h-0 xl:min-w-0'
+							? 'xl:col-start-1 xl:row-start-2 xl:h-full xl:min-h-0 xl:min-w-0'
 							: 'xl:w-[30rem] xl:flex-none'
 					)}
 				>
@@ -595,7 +596,7 @@ export default function Dial() {
 						) : (
 							<ScriptHost agentVars={scriptAgentVars} onCollapse={() => setScriptCollapsed(true)} />
 						)} */}
-						<ScriptDoc onCollapse={() => setScriptCollapsed(true)} onPanelCountChange={setScriptPanels} />
+						<ScriptDoc onCollapse={() => setScriptCollapsed(true)} values={scriptValues} />
 
 						{profile && provisioned && (
 							<>

@@ -1,16 +1,17 @@
 /** Pure helpers for the hyperlinked script doc. */
 
-import type {AnchorInfo, Block, DocNode, ScriptMode} from './types';
+import type {AnchorInfo, Block, BlankSource, DocNode, ScriptMode, ScriptValues} from './types';
 
 export type InlineToken =
 	| {type: 'text'; text: string}
 	| {type: 'bold'; text: string}
-	| {type: 'blank'; text: string}
+	/** `{{placeholder}}` or `{{placeholder|source}}`; an empty placeholder renders nothing until filled. */
+	| {type: 'blank'; text: string; source?: string}
 	| {type: 'link'; text: string; to: string};
 
 const INLINE_RE = /\[([^\]]+)\]\(#([^)]+)\)|\*\*([^*]+)\*\*|\{\{([^}]+)\}\}/g;
 
-/** Split `[label](#id)`, `**bold**`, `{{blank}}` out of a plain string. */
+/** Split `[label](#id)`, `**bold**`, `{{blank}}` / `{{blank|source}}` out of a plain string. */
 export function parseInline(text: string): InlineToken[] {
 	const out: InlineToken[] = [];
 	let last = 0;
@@ -19,7 +20,10 @@ export function parseInline(text: string): InlineToken[] {
 		if (at > last) out.push({type: 'text', text: text.slice(last, at)});
 		if (m[1] !== undefined) out.push({type: 'link', text: m[1], to: m[2]});
 		else if (m[3] !== undefined) out.push({type: 'bold', text: m[3]});
-		else out.push({type: 'blank', text: m[4]});
+		else {
+			const [placeholder, source] = m[4].split('|');
+			out.push(source === undefined ? {type: 'blank', text: placeholder} : {type: 'blank', text: placeholder, source: source.trim()});
+		}
 		last = at + m[0].length;
 	}
 	if (last < text.length) out.push({type: 'text', text: text.slice(last)});
@@ -89,6 +93,79 @@ export function isBlockVisible(b: Block, mode: ScriptMode, doc: DocNode[], index
 export function exitOf(node: DocNode | undefined): {to: string; label: string} | null {
 	const exit = node?.blocks.find((b) => b.t === 'exit');
 	return exit?.t === 'exit' ? {to: exit.to, label: exit.label} : null;
+}
+
+/** Every source a `{{placeholder|source}}` blank may name (ENG-298). */
+export const BLANK_SOURCES: ReadonlySet<BlankSource> = new Set<BlankSource>([
+	'agent_name',
+	'lead_name',
+	'mailing_address',
+	'first_name',
+	'last_name',
+	'phone',
+	'email',
+	'state',
+	'sob',
+	'dob',
+	'height',
+	'weight'
+]);
+
+const asText = (v: unknown): string => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '');
+
+/** A form field's display text: a select's option label ("New Hampshire (NH)" → "New Hampshire"), else the raw value. */
+function formText(key: string, values: ScriptValues): string {
+	const raw = asText(values.formData?.[key]);
+	if (!raw) return '';
+	const option = values.formSchema?.find((f) => f.key === key)?.options?.find((o) => o.value === raw);
+	return option ? option.label.replace(/\s*\([A-Z]{2}\)$/, '').trim() : raw;
+}
+
+/** Live value for a blank's source, or '' (the placeholder shows) when it isn't known yet. */
+export function resolveBlank(source: string, values: ScriptValues): string {
+	const form = (key: string) => asText(values.formData?.[key]);
+	switch (source as BlankSource) {
+		case 'agent_name':
+			return asText(values.agentName);
+		case 'lead_name':
+			return [form('first_name'), form('last_name')].filter(Boolean).join(' ');
+		case 'mailing_address': {
+			const street = [form('address'), form('address2')].filter(Boolean).join(' ');
+			const region = [form('state'), form('zip')].filter(Boolean).join(' ');
+			return [street, form('city'), region].filter(Boolean).join(', ');
+		}
+		case 'first_name':
+		case 'last_name':
+		case 'phone':
+		case 'email':
+		case 'state':
+		case 'sob':
+		case 'dob':
+		case 'height':
+		case 'weight':
+			return formText(source, values);
+		default:
+			return '';
+	}
+}
+
+/** Blank sources that aren't in BLANK_SOURCES — handy while editing content. */
+export function findUnknownBlankSources(doc: DocNode[]): string[] {
+	const unknown: string[] = [];
+	const scan = (text: string) => {
+		for (const tok of parseInline(text))
+			if (tok.type === 'blank' && tok.source !== undefined && !BLANK_SOURCES.has(tok.source as BlankSource)) unknown.push(tok.source);
+	};
+	const walk = (blocks: Block[]) => {
+		for (const b of blocks) {
+			if (b.t === 'say' || b.t === 'note' || b.t === 'caller' || b.t === 'warn') scan(b.text);
+			else if (b.t === 'list') b.items.forEach(scan);
+			else if (b.t === 'inst') b.body.forEach(scan);
+			else if (b.t === 'path') walk(b.blocks);
+		}
+	};
+	doc.forEach((n) => walk(n.blocks));
+	return unknown;
 }
 
 /** Link targets that don't resolve — handy while editing content. */

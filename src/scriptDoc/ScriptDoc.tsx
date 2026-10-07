@@ -3,10 +3,9 @@
  * Think "text doc with jump links": every [link](#id) / choice button scrolls
  * to its target, and the place you jumped FROM is pushed on a back stack.
  *
- * The Script panel is always open. An objection REPLACES the script area (the
- * script keeps its scroll underneath) with a "Back" to where the agent was and
- * a "Continue" into the right next section. Emotional Triggers (training mode
- * only) open as their own panel to the LEFT.
+ * Main Flow, Objections, and Emotional Triggers share one persistent viewport,
+ * matching the training frontend. Back restores the exact saved scroll position;
+ * the blue outlined continuation moves into the next script section.
  *
  * Two modes (ENG-298), Live by default:
  *  - live: spoken lines, choices, headings. No purple guidance, no triggers.
@@ -15,28 +14,86 @@
  * Far jumps are instant.
  */
 
-import {useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
-import {ArrowLeft, ArrowRight, Check, ArrowUpRight, PanelLeftClose, RotateCcw, X} from 'lucide-react';
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+	type ReactNode
+} from 'react';
+import {
+	ArrowLeft,
+	ArrowRight,
+	Check,
+	ArrowUpRight,
+	PanelLeftClose,
+	MoreHorizontal,
+	RotateCcw
+} from 'lucide-react';
 import {Button} from '@/components/ui/button';
+import {
+	DropdownMenu,
+	DropdownMenuTrigger,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem
+} from '@/components/ui/dropdown-menu';
 import {Card, CardContent, CardHeader} from '@/components/ui/card';
 import {cn} from '@/lib/utils';
 import {DOC_TITLE, SCRIPT_DOC} from './content';
-import {buildAnchorIndex, buildPathGroups, exitOf, findBrokenLinks, isBlockVisible, parseInline} from './core';
-import type {AnchorKind, Block, DocGroup, DocNode, ScriptMode} from './types';
+import {
+	buildAnchorIndex,
+	buildPathGroups,
+	exitOf,
+	findBrokenLinks,
+	findUnknownBlankSources,
+	isBlockVisible,
+	parseInline,
+	resolveBlank
+} from './core';
+import type {
+	AnchorKind,
+	Block,
+	DocGroup,
+	DocNode,
+	ScriptMode,
+	ScriptValues
+} from './types';
+
+const NO_VALUES: ScriptValues = {};
 
 const ANCHORS = buildAnchorIndex(SCRIPT_DOC);
 const PATH_GROUPS = buildPathGroups(SCRIPT_DOC, ANCHORS);
 const NODE_GROUP = new Map(SCRIPT_DOC.map((n) => [n.id, n.group]));
-const groupOf = (anchorId: string): DocGroup => NODE_GROUP.get(ANCHORS.get(anchorId)?.nodeId ?? '') ?? 'script';
+const OBJECTION_PICKER = 'objection-picker';
+const groupOf = (anchorId: string): DocGroup =>
+	anchorId === OBJECTION_PICKER
+		? 'objections'
+		: (NODE_GROUP.get(ANCHORS.get(anchorId)?.nodeId ?? '') ?? 'script');
 if (import.meta.env.DEV) {
 	const broken = findBrokenLinks(SCRIPT_DOC, ANCHORS);
 	if (broken.length) console.warn('[ScriptDoc] broken links:', broken);
+	const unknown = findUnknownBlankSources(SCRIPT_DOC);
+	if (unknown.length) console.warn('[ScriptDoc] unknown blank sources:', unknown);
 }
 
 const PANELS: Record<DocGroup, {title: string; nodes: DocNode[]}> = {
-	script: {title: DOC_TITLE, nodes: SCRIPT_DOC.filter((n) => n.group === 'script')},
-	objections: {title: 'Common Objections', nodes: SCRIPT_DOC.filter((n) => n.group === 'objections')},
-	triggers: {title: 'Emotional Triggers', nodes: SCRIPT_DOC.filter((n) => n.group === 'triggers')}
+	script: {
+		title: DOC_TITLE,
+		nodes: SCRIPT_DOC.filter((n) => n.group === 'script')
+	},
+	objections: {
+		title: 'Common Objections',
+		nodes: SCRIPT_DOC.filter((n) => n.group === 'objections')
+	},
+	triggers: {
+		title: 'Emotional Triggers',
+		nodes: SCRIPT_DOC.filter((n) => n.group === 'triggers')
+	}
 };
 
 /** Where a jumped-to anchor lands, as a fraction of the scroller's height. */
@@ -51,11 +108,15 @@ const LINK: Record<AnchorKind, string> = {
 };
 /** Progression choices (branch or next section) are green; objections red. */
 const CHOICE: Record<AnchorKind, string> = {
-	objection: 'border-rose-200 text-rose-700 hover:border-rose-500 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10',
+	objection:
+		'border-rose-200 text-rose-700 hover:border-rose-500 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10',
 	path: 'border-emerald-200 text-emerald-800 hover:border-emerald-500 hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-300 dark:hover:bg-emerald-500/10',
-	section: 'border-emerald-200 text-emerald-800 hover:border-emerald-500 hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-300 dark:hover:bg-emerald-500/10',
-	trigger: 'border-amber-200 text-amber-800 hover:border-amber-500 hover:bg-amber-50 dark:border-amber-500/30 dark:text-amber-300 dark:hover:bg-amber-500/10',
-	reference: 'border-violet-200 text-violet-800 hover:border-violet-500 hover:bg-violet-50 dark:border-violet-500/30 dark:text-violet-300 dark:hover:bg-violet-500/10'
+	section:
+		'border-emerald-200 text-emerald-800 hover:border-emerald-500 hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-300 dark:hover:bg-emerald-500/10',
+	trigger:
+		'border-amber-200 text-amber-800 hover:border-amber-500 hover:bg-amber-50 dark:border-amber-500/30 dark:text-amber-300 dark:hover:bg-amber-500/10',
+	reference:
+		'border-violet-200 text-violet-800 hover:border-violet-500 hover:bg-violet-50 dark:border-violet-500/30 dark:text-violet-300 dark:hover:bg-violet-500/10'
 };
 /** Filled look for a choice that's already been clicked. */
 const CHOICE_CLICKED: Record<AnchorKind, string> = {
@@ -76,7 +137,9 @@ const TITLE: Record<AnchorKind, string> = {
 // ───────────────────────────── scroll helpers ─────────────────────────────
 
 const offsetIn = (scroller: HTMLElement, el: HTMLElement) =>
-	el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+	el.getBoundingClientRect().top -
+	scroller.getBoundingClientRect().top +
+	scroller.scrollTop;
 
 /** Last anchor in `scroller` starting at or above `y` (scroll coordinates). */
 function anchorAt(scroller: HTMLElement, y: number, fallback: string): string {
@@ -88,38 +151,9 @@ function anchorAt(scroller: HTMLElement, y: number, fallback: string): string {
 	return found;
 }
 
-/** Short-hop scroll duration — slower than the browser's native smooth scroll. */
-const SCROLL_MS = 750;
-/** Panel slide in/out duration. */
-const SLIDE_MS = 300;
-
-const scrollFrames = new WeakMap<HTMLElement, number>();
-const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
-
-/** rAF scroll with our own easing/duration; a wheel or touch by the agent cancels it. */
-function animateScroll(s: HTMLElement, top: number, ms = SCROLL_MS) {
-	cancelAnimationFrame(scrollFrames.get(s) ?? 0);
-	const from = s.scrollTop;
-	const delta = top - from;
-	const start = performance.now();
-	const stop = () => {
-		cancelAnimationFrame(scrollFrames.get(s) ?? 0);
-		s.removeEventListener('wheel', stop);
-		s.removeEventListener('touchstart', stop);
-	};
-	s.addEventListener('wheel', stop, {passive: true, once: true});
-	s.addEventListener('touchstart', stop, {passive: true, once: true});
-	const step = (now: number) => {
-		const t = Math.min(1, (now - start) / ms);
-		s.scrollTop = from + delta * easeInOutCubic(t);
-		if (t < 1) scrollFrames.set(s, requestAnimationFrame(step));
-		else stop();
-	};
-	scrollFrames.set(s, requestAnimationFrame(step));
-}
-
 /** Short name for an anchor: a heading's own text, or the section a path sits in. */
 function returnLabel(id: string): string {
+	if (id === OBJECTION_PICKER) return 'Choose an objection';
 	const a = ANCHORS.get(id);
 	if (!a) return id;
 	if (a.kind === 'path') {
@@ -135,6 +169,8 @@ type JumpFn = (to: string, from: HTMLElement | null) => void;
 
 interface Ctx {
 	mode: ScriptMode;
+	/** Live lead-form / agent values the `{{…|source}}` blanks show. */
+	values: ScriptValues;
 	jump: JumpFn;
 	pick: (pathId: string, from: HTMLElement) => void;
 	/** A choice button whose sibling path was picked instead. */
@@ -144,202 +180,180 @@ interface Ctx {
 	isClicked: (to: string) => boolean;
 	markClicked: (to: string) => void;
 	flash: string | null;
-	/** Inline "Back to – X" button for the header at `anchorId`, if we just jumped there via a blue link. */
-	returnButton: (anchorId: string) => ReactNode;
 }
+
+interface ScriptPosition {
+	view: DocGroup;
+	scrollTop: number;
+	anchor: string;
+	active: string;
+	from: HTMLElement | null;
+}
+
+const GROUPS: DocGroup[] = ['script', 'objections', 'triggers'];
+const VIEW_LABEL: Record<DocGroup, string> = {
+	script: 'Main Flow',
+	objections: 'Objections',
+	triggers: 'Emotional Triggers'
+};
+const VIEW_COLORS: Record<DocGroup, {idle: string; selected: string}> = {
+	script: {
+		idle: 'text-sky-800 bg-sky-50 hover:bg-sky-100 dark:text-sky-300 dark:bg-sky-500/10 dark:hover:bg-sky-500/20',
+		selected:
+			'border-sky-700 bg-sky-700 text-white dark:border-sky-300 dark:bg-sky-300 dark:text-sky-950'
+	},
+	objections: {
+		idle: 'text-rose-700 bg-rose-50 hover:bg-rose-100 dark:text-rose-300 dark:bg-rose-500/10 dark:hover:bg-rose-500/20',
+		selected:
+			'border-rose-700 bg-rose-700 text-white dark:border-rose-300 dark:bg-rose-300 dark:text-rose-950'
+	},
+	triggers: {
+		idle: 'text-amber-800 bg-amber-50 hover:bg-amber-100 dark:text-amber-300 dark:bg-amber-500/10 dark:hover:bg-amber-500/20',
+		selected:
+			'border-amber-700 bg-amber-700 text-white dark:border-amber-300 dark:bg-amber-300 dark:text-amber-950'
+	}
+};
+const CONTINUATION =
+	'border border-sky-400 bg-sky-50 text-sky-800 hover:border-sky-500 hover:bg-sky-100 dark:border-sky-400 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20';
 
 export function ScriptDoc({
 	onCollapse,
-	onPanelCountChange
+	initialMode = 'live',
+	values = NO_VALUES
 }: {
 	onCollapse?: () => void;
-	/** 1 = script only; 2–3 when objections / triggers panels are open. */
-	onPanelCountChange?: (count: number) => void;
+	/** Lead form + agent values for the linked blanks (read-only). */
+	values?: ScriptValues;
+	/** Practice previews may start in Training; real calls start in Live. */
+	initialMode?: ScriptMode;
 }) {
-	const scrollers = useRef<Partial<Record<DocGroup, HTMLDivElement | null>>>({});
-	/** Starts Live on every load (ENG-298); the agent flips it from the header. */
-	const [mode, setMode] = useState<ScriptMode>('live');
-	/** Objections cover the script panel instead of opening beside it. */
-	const [objectionsOpen, setObjectionsOpen] = useState(false);
-	/** Objection currently at the top of the objections view. */
-	const [activeObjection, setActiveObjection] = useState(PANELS.objections.nodes[0].id);
-	/** Extra side panels (just Emotional Triggers today), newest first (renders leftmost). */
-	const [extra, setExtra] = useState<DocGroup[]>([]);
-	/** Panels mid slide-out; dropped from `extra` once the animation ends. */
-	const [closing, setClosing] = useState<ReadonlySet<DocGroup>>(() => new Set());
-	const closeTimers = useRef<Partial<Record<DocGroup, number>>>({});
-	const [stack, setStack] = useState<string[]>([]);
-	/** Picked path per group, keyed by the group's first path id. */
+	const scrollers = useRef<Partial<Record<DocGroup, HTMLDivElement | null>>>(
+		{}
+	);
+	const [view, setView] = useState<DocGroup>('script');
+	const menuTrigger = useRef<HTMLButtonElement>(null);
+	const [mode, setMode] = useState<ScriptMode>(initialMode);
+	const [active, setActive] = useState<Record<DocGroup, string>>({
+		script: PANELS.script.nodes[0].id,
+		objections: OBJECTION_PICKER,
+		triggers: PANELS.triggers.nodes[0].id
+	});
+	const [stack, setStack] = useState<ScriptPosition[]>([]);
+	const [restore, setRestore] = useState<ScriptPosition | null>(null);
 	const [picked, setPicked] = useState<Record<string, string>>({});
 	const [clicked, setClicked] = useState<ReadonlySet<string>>(() => new Set());
 	const [flash, setFlash] = useState<string | null>(null);
 	const flashTimer = useRef<number | undefined>(undefined);
-	/** Target to scroll to once its (just-opened) panel has mounted. */
 	const [pending, setPending] = useState<string | null>(null);
-	/** Set after a blue-link (section) jump: show "Back to – origin" on the target's header. */
-	const [returnTo, setReturnTo] = useState<{at: string; origin: string} | null>(null);
-
-	useEffect(() => onPanelCountChange?.(1 + extra.length), [extra.length, onPanelCountChange]);
-
-	const isOpen = (g: DocGroup) => {
-		if (g === 'script') return true;
-		if (g === 'objections') return objectionsOpen;
-		return extra.includes(g) && !closing.has(g);
-	};
-	const open = (g: DocGroup) => {
-		if (g === 'script') return;
-		if (g === 'objections') {
-			setObjectionsOpen(true);
-			return;
-		}
-		window.clearTimeout(closeTimers.current[g]);
-		setClosing((c) => {
-			if (!c.has(g)) return c;
-			const next = new Set(c);
-			next.delete(g);
-			return next;
-		});
-		setExtra((e) => (e.includes(g) ? e : [g, ...e]));
-	};
-	const close = (g: DocGroup) => {
-		if (!isOpen(g)) return;
-		if (g === 'objections') {
-			setObjectionsOpen(false);
-			return;
-		}
-		setClosing((c) => new Set(c).add(g));
-		window.clearTimeout(closeTimers.current[g]);
-		closeTimers.current[g] = window.setTimeout(() => {
-			setExtra((e) => e.filter((x) => x !== g));
-			setClosing((c) => {
-				const next = new Set(c);
-				next.delete(g);
-				return next;
-			});
-		}, SLIDE_MS);
-	};
 
 	const scrollTo = useCallback((id: string) => {
 		const s = scrollers.current[groupOf(id)];
-		const el = s?.querySelector<HTMLElement>(`[data-anchor="${CSS.escape(id)}"]`);
+		const el = s?.querySelector<HTMLElement>(
+			`[data-anchor="${CSS.escape(id)}"]`
+		);
 		if (!s || !el) return false;
-		// Objections land flush at the top of their panel; everything else just below it.
+		if (id === OBJECTION_PICKER) {
+			s.scrollTo({top: 0, behavior: 'instant'});
+			return true;
+		}
 		const kind = ANCHORS.get(id)?.kind;
-		const top = offsetIn(s, el) - (kind === 'objection' ? 8 : s.clientHeight * FOCUS_LINE);
-		// Nearby: slow glide. Far (another section / objection): just go.
+		const top =
+			offsetIn(s, el) -
+			(kind === 'objection' ? 8 : s.clientHeight * FOCUS_LINE);
 		const far = Math.abs(top - s.scrollTop) > s.clientHeight * 1.5;
-		if (far) {
-			cancelAnimationFrame(scrollFrames.get(s) ?? 0);
-			s.scrollTop = top;
-		} else animateScroll(s, top);
-		el.closest('[data-panel]')?.scrollIntoView({block: 'nearest', inline: 'nearest'});
+		s.scrollTo({
+			top,
+			behavior: kind === 'objection' || far ? 'instant' : 'smooth'
+		});
 		setFlash(id);
 		window.clearTimeout(flashTimer.current);
-		flashTimer.current = window.setTimeout(() => setFlash(null), kind === 'objection' ? 1800 : 1200);
+		flashTimer.current = window.setTimeout(() => setFlash(null), 1400);
 		return true;
 	}, []);
 
-	/** Scroll now if the panel is open; otherwise open it and scroll after mount. */
 	const go = (id: string) => {
-		const g = groupOf(id);
-		// Anything landing in the script uncovers it (the script never unmounts, so its scroll is intact).
-		if (g === 'script') close('objections');
-		if (isOpen(g) && scrollers.current[g]) scrollTo(id);
-		else {
-			open(g);
-			setPending(id);
+		if (mode === 'live' && groupOf(id) === 'triggers') return;
+		setRestore(null);
+		setView(groupOf(id));
+		if (groupOf(id) === 'objections') {
+			setActive((current) => ({
+				...current,
+				objections: ANCHORS.get(id)?.nodeId ?? id
+			}));
 		}
+		setPending(id);
 	};
 
 	useLayoutEffect(() => {
-		if (pending && scrollTo(pending)) setPending(null);
-	}, [pending, extra, objectionsOpen, scrollTo]);
+		if (restore) {
+			const s = scrollers.current[restore.view];
+			// Restore the pixel offset after the destination header is laid out.
+			s?.scrollTo({top: restore.scrollTop, behavior: 'instant'});
+			setActive((current) => ({...current, [restore.view]: restore.active}));
+			if (restore.from?.isConnected) restore.from.focus({preventScroll: true});
+			setRestore(null);
+		} else if (pending && scrollTo(pending)) setPending(null);
+	}, [pending, restore, view, scrollTo]);
+
+	const remember = (from: HTMLElement | null) => {
+		const s = scrollers.current[view];
+		if (!s) return;
+		const position: ScriptPosition = {
+			view,
+			scrollTop: s.scrollTop,
+			anchor: anchorAt(
+				s,
+				from && s.contains(from)
+					? offsetIn(s, from)
+					: s.scrollTop + s.clientHeight * FOCUS_LINE,
+				PANELS[view].nodes[0].id
+			),
+			active: active[view],
+			from
+		};
+		s.scrollTo({top: position.scrollTop, behavior: 'instant'});
+		setStack((history) => [...history, position]);
+	};
 
 	const jump: JumpFn = (to, from) => {
-		if (!ANCHORS.has(to)) return;
-		if (mode === 'live' && groupOf(to) === 'triggers') return;
-		const fromGroup = (from?.closest('[data-panel]') as HTMLElement | null)?.dataset.panel as DocGroup | undefined;
-		const s = fromGroup && scrollers.current[fromGroup];
-		let origin: string | null = null;
-		if (s && from && s.contains(from)) {
-			origin = anchorAt(s, offsetIn(s, from), PANELS[fromGroup].nodes[0].id);
-			const o = origin;
-			if (o !== to) setStack((st) => (st[st.length - 1] === o ? st : [...st, o]));
-		}
-		// Blue link within the script (not an objection's escape hatch) → offer a way straight back.
-		const blue = ANCHORS.get(to)?.kind === 'section' && fromGroup !== 'objections';
-		setReturnTo(blue && origin && origin !== to ? {at: to, origin} : null);
-		// Leaving an objection for the script (blue link / escape hatch) uncovers the script — see go().
+		if (
+			(!ANCHORS.has(to) && to !== OBJECTION_PICKER) ||
+			(mode === 'live' && groupOf(to) === 'triggers')
+		)
+			return;
+		remember(from);
 		go(to);
 	};
 
-	const groupKey = (pathId: string) => PATH_GROUPS.get(pathId)?.[0] ?? pathId;
-	const ctx: Ctx = {
-		mode,
-		jump,
-		pick: (pathId, from) => {
-			setPicked((p) => ({...p, [groupKey(pathId)]: pathId}));
-			jump(pathId, from);
-		},
-		isPicked: (pathId) => picked[groupKey(pathId)] === pathId,
-		isDimmed: (pathId) => {
-			const chosen = picked[groupKey(pathId)];
-			return Boolean(chosen && chosen !== pathId);
-		},
-		returnButton: (anchorId) => {
-			if (returnTo?.at !== anchorId) return null;
-			const {origin} = returnTo;
-			return (
-				<button
-					type="button"
-					onClick={() => {
-						setReturnTo(null);
-						setStack((st) => (st[st.length - 1] === origin ? st.slice(0, -1) : st));
-						go(origin);
-					}}
-					className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-md bg-sky-600 px-2 py-0.5 align-middle text-xs font-medium text-white shadow-xs transition-colors hover:bg-sky-700 dark:bg-sky-500 dark:hover:bg-sky-400"
-				>
-					<ArrowUpRight className="size-3.5" />
-					Back to – {returnLabel(origin)}
-				</button>
-			);
-		},
-		isClicked: (to) => clicked.has(to),
-		markClicked: (to) => setClicked((c) => new Set(c).add(to)),
-		flash
+	const openPanel = (group: DocGroup, from: HTMLElement) => {
+		if (group === view) return;
+		remember(from);
+		if (group === 'objections') {
+			setFlash(null);
+			go(OBJECTION_PICKER);
+			return;
+		}
+		setPending(null);
+		setRestore(null);
+		setFlash(null);
+		setView(group);
 	};
 
 	const back = () => {
-		setReturnTo(null);
-		if (!stack.length) return;
+		setPending(null);
+		setFlash(null);
+		if (!stack.length) {
+			setView('script');
+			return;
+		}
 		const target = stack[stack.length - 1];
 		setStack(stack.slice(0, -1));
-		go(target);
+		setView(target.view);
+		setActive((current) => ({...current, [target.view]: target.active}));
+		setRestore(target);
 	};
 	const backRef = useRef(back);
 	backRef.current = back;
-
-	const reset = () => {
-		setPicked({});
-		setClicked(new Set());
-		setStack([]);
-		setReturnTo(null);
-		close('objections');
-		for (const s of Object.values(scrollers.current)) s?.scrollTo({top: 0});
-	};
-
-	const switchMode = (next: ScriptMode) => {
-		setMode(next);
-		// Live has no Emotional Triggers; drop any stack entries that point into them.
-		if (next === 'live') {
-			close('triggers');
-			setStack((st) => st.filter((id) => groupOf(id) !== 'triggers'));
-		}
-	};
-
-	const objectionExit = exitOf(PANELS.objections.nodes.find((n) => n.id === activeObjection));
-	const backTarget = stack[stack.length - 1];
-
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (e.altKey && e.key === 'ArrowLeft') {
@@ -351,262 +365,277 @@ export function ScriptDoc({
 		return () => window.removeEventListener('keydown', onKey);
 	}, []);
 
-	useEffect(
-		() => () => {
-			window.clearTimeout(flashTimer.current);
-			for (const t of Object.values(closeTimers.current)) window.clearTimeout(t);
-		},
-		[]
-	);
-
-	const register = (g: DocGroup) => (el: HTMLDivElement | null) => {
-		scrollers.current[g] = el;
+	const reset = () => {
+		setPicked({});
+		setClicked(new Set());
+		setStack([]);
+		setRestore(null);
+		setPending(null);
+		setFlash(null);
+		setView('script');
+		setActive({
+			script: PANELS.script.nodes[0].id,
+			objections: OBJECTION_PICKER,
+			triggers: PANELS.triggers.nodes[0].id
+		});
+		for (const s of Object.values(scrollers.current))
+			s?.scrollTo({top: 0, behavior: 'instant'});
 	};
 
+	const switchMode = (next: ScriptMode) => {
+		setMode(next);
+		if (next === 'live') {
+			if (view === 'triggers') setView('script');
+			setStack((history) =>
+				history.filter((position) => position.view !== 'triggers')
+			);
+			setRestore(null);
+			setPending(null);
+		}
+	};
+
+	useEffect(() => () => window.clearTimeout(flashTimer.current), []);
+	useEffect(() => {
+		const cleanups = GROUPS.map((g) => {
+			const s = scrollers.current[g];
+			if (!s) return () => {};
+			let frame = 0;
+			const onScroll = () => {
+				cancelAnimationFrame(frame);
+				frame = requestAnimationFrame(() => {
+					const id = anchorAt(
+						s,
+						s.scrollTop + s.clientHeight * FOCUS_LINE + 4,
+						g === 'objections' ? OBJECTION_PICKER : PANELS[g].nodes[0].id
+					);
+					const nodeId = ANCHORS.get(id)?.nodeId ?? id;
+					setActive((a) => (a[g] === nodeId ? a : {...a, [g]: nodeId}));
+				});
+			};
+			s.addEventListener('scroll', onScroll, {passive: true});
+			return () => {
+				s.removeEventListener('scroll', onScroll);
+				cancelAnimationFrame(frame);
+			};
+		});
+		return () => cleanups.forEach((c) => c());
+	}, []);
+
+	const groupKey = (pathId: string) => PATH_GROUPS.get(pathId)?.[0] ?? pathId;
+	const ctx: Ctx = {
+		mode,
+		values,
+		jump,
+		pick: (pathId, from) => {
+			setPicked((p) => ({...p, [groupKey(pathId)]: pathId}));
+			jump(pathId, from);
+		},
+		isPicked: (pathId) => picked[groupKey(pathId)] === pathId,
+		isDimmed: (pathId) => {
+			const chosen = picked[groupKey(pathId)];
+			return Boolean(chosen && chosen !== pathId);
+		},
+		isClicked: (to) => clicked.has(to),
+		markClicked: (to) => setClicked((c) => new Set(c).add(to)),
+		flash
+	};
+	const backTarget = stack[stack.length - 1];
+	const objectionExit =
+		view === 'objections'
+			? exitOf(PANELS.objections.nodes.find((n) => n.id === active.objections))
+			: null;
+
 	return (
-		<div className="flex items-start gap-3">
-			{extra.map((g) => (
-				<SlideFromLeft key={g} closing={closing.has(g)}>
-					<Panel group={g} ctx={ctx} scrollerRef={register(g)}>
-						<Button type="button" variant="ghost" size="icon" className="size-7" aria-label={`Close ${PANELS[g].title}`} onClick={() => close(g)}>
-							<X className="size-4" />
-						</Button>
-					</Panel>
-				</SlideFromLeft>
-			))}
-			<div className="relative min-w-[28rem] flex-1">
-			<Panel
-				group="script"
-				ctx={ctx}
-				scrollerRef={register('script')}
-				// `invisible` (not unmounted) so the script keeps its scroll under an objection.
-				className={cn(objectionsOpen && 'invisible')}
-				subheader={
-					<div className="flex items-center gap-1">
-						{(mode === 'training' ? (['objections', 'triggers'] as const) : (['objections'] as const)).map((g) => (
+		<Card className="flex h-[620px] min-h-0 min-w-0 flex-col gap-0 overflow-hidden py-0 shadow-xs xl:h-auto xl:flex-1 [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-offset-2 [&_button:focus-visible]:outline-primary [&_a:focus-visible]:outline-2 [&_a:focus-visible]:outline-offset-2 [&_a:focus-visible]:outline-primary">
+			<CardHeader className="shrink-0 space-y-3 border-b p-3">
+				<div className="flex items-center gap-2">
+					<p className="min-w-0 flex-1 truncate text-sm font-semibold">
+						{DOC_TITLE}
+					</p>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-8 shrink-0"
+						disabled={!stack.length && view === 'script'}
+						onClick={back}
+						title={`${backTarget ? `Back to ${returnLabel(backTarget.anchor)}` : 'Back'} (Alt + ←)`}
+					>
+						<ArrowLeft className="size-3.5" />
+						Back
+					</Button>
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<Button
+								ref={menuTrigger}
+								type="button"
+								variant="ghost"
+								size="icon"
+								className="size-8 shrink-0"
+								aria-label="Script options"
+								title="Script options"
+							>
+								<MoreHorizontal className="size-5" />
+							</Button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent
+							align="end"
+							className="w-72 [&_[role^=menuitem]]:min-h-10"
+						>
+							{view === 'objections' &&
+								active.objections !== OBJECTION_PICKER && (
+									<>
+										<DropdownMenuItem
+											onSelect={() =>
+												jump(OBJECTION_PICKER, menuTrigger.current)
+											}
+										>
+											Choose another objection
+										</DropdownMenuItem>
+										{objectionExit && (
+											<DropdownMenuItem
+												className="text-sky-800 dark:text-sky-300"
+												onSelect={() =>
+													jump(objectionExit.to, menuTrigger.current)
+												}
+											>
+												<ArrowRight />
+												Continue to {objectionExit.label}
+											</DropdownMenuItem>
+										)}
+									</>
+								)}
+							<DropdownMenuSeparator />
+							<DropdownMenuLabel>Script mode</DropdownMenuLabel>
+							<DropdownMenuRadioGroup
+								value={mode}
+								onValueChange={(next) => switchMode(next as ScriptMode)}
+								aria-label="Script mode"
+							>
+								<DropdownMenuRadioItem value="live">Live</DropdownMenuRadioItem>
+								<DropdownMenuRadioItem value="training">
+									Training
+								</DropdownMenuRadioItem>
+							</DropdownMenuRadioGroup>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem onSelect={reset}>
+								<RotateCcw />
+								Reset choices
+							</DropdownMenuItem>
+							{onCollapse && (
+								<DropdownMenuItem onSelect={onCollapse}>
+									<PanelLeftClose />
+									Collapse script sidebar
+								</DropdownMenuItem>
+							)}
+						</DropdownMenuContent>
+					</DropdownMenu>
+				</div>
+				<div className="flex flex-col gap-3">
+					<div
+						role="group"
+						aria-label="Script view"
+						className="grid min-w-0 auto-cols-fr grid-flow-col gap-2"
+					>
+						{(mode === 'training'
+							? GROUPS
+							: (['script', 'objections'] as const)
+						).map((g) => (
 							<button
 								key={g}
 								type="button"
-								onClick={() => (isOpen(g) ? close(g) : open(g))}
+								aria-pressed={view === g}
+								onClick={(e) => openPanel(g, e.currentTarget)}
 								className={cn(
-									'rounded-md border px-2 py-0.5 text-xs font-medium transition-colors',
-									g === 'objections' ? CHOICE.objection : CHOICE.trigger,
-									isOpen(g) && (g === 'objections' ? 'bg-rose-50 dark:bg-rose-500/15' : 'bg-amber-50 dark:bg-amber-500/15')
+									'min-h-10 min-w-0 rounded-md border px-3 py-2 text-sm font-semibold leading-5 transition-colors',
+									view === g
+										? cn(VIEW_COLORS[g].selected, 'shadow-xs')
+										: cn(
+												VIEW_COLORS[g].idle,
+												g === 'script'
+													? 'border-sky-200 dark:border-sky-500/30'
+													: g === 'objections'
+														? 'border-rose-200 dark:border-rose-500/30'
+														: 'border-amber-200 dark:border-amber-500/30'
+											)
 								)}
 							>
-								{isOpen(g) ? 'Hide' : 'Open'} {PANELS[g].title}
+								{VIEW_LABEL[g]}
 							</button>
 						))}
-						<ModeToggle mode={mode} onChange={switchMode} />
 					</div>
-				}
-			>
-				<Button type="button" variant="outline" size="sm" className="h-7" disabled={!stack.length} onClick={back} title="Back to where you jumped from (Alt + ←)">
-					<ArrowLeft className="size-3.5" />
-					Back
-				</Button>
-				<Button type="button" variant="ghost" size="icon" className="size-7" title="Reset choices" onClick={reset}>
-					<RotateCcw className="size-4" />
-				</Button>
-				{onCollapse && (
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon"
-						className="w-6 shrink-0 p-0 text-[#4338ca] hover:bg-[#eef2ff] hover:text-[#3730a3] dark:text-[#818cf8]"
-						aria-label="Collapse script sidebar"
-						title="Collapse script sidebar"
-						onClick={onCollapse}
-					>
-						<PanelLeftClose className="size-4" />
-					</Button>
-				)}
-			</Panel>
-			{objectionsOpen && (
-				<Panel
-					group="objections"
-					ctx={ctx}
-					scrollerRef={register('objections')}
-					onActiveChange={setActiveObjection}
-					className="absolute inset-0 h-full min-h-0 xl:h-full"
-					subheader={
-						<div className="flex flex-wrap gap-1.5">
-							<Button
+				</div>
+				{view !== 'objections' && (
+					<div className="flex flex-wrap gap-1">
+						{PANELS[view].nodes.map((n) => (
+							<button
+								key={n.id}
 								type="button"
-								variant="outline"
-								size="sm"
-								className="h-8"
-								onClick={() => (backTarget ? back() : close('objections'))}
-								title="Back to where you were (Alt + ←)"
+								aria-current={active[view] === n.id ? 'location' : undefined}
+								onClick={(e) => jump(n.id, e.currentTarget)}
+								className={cn(
+									'rounded px-1.5 py-0.5 text-xs transition-colors',
+									active[view] === n.id
+										? 'bg-primary/10 font-medium text-primary'
+										: 'text-muted-foreground hover:bg-muted hover:text-foreground'
+								)}
 							>
-								<ArrowLeft className="size-3.5" />
-								Back to – {backTarget ? returnLabel(backTarget) : 'script'}
-							</Button>
-							{objectionExit && (
-								<button
-									type="button"
-									onClick={(e) => ctx.jump(objectionExit.to, e.currentTarget)}
-									className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-3 text-sm font-medium text-white shadow-xs transition-colors hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
-								>
-									Objection handled — continue to {objectionExit.label}
-									<ArrowRight className="size-4" />
-								</button>
-							)}
-						</div>
-					}
-				>
-					<Button type="button" variant="ghost" size="icon" className="size-7" aria-label="Close objections" title="Close objections" onClick={() => close('objections')}>
-						<X className="size-4" />
-					</Button>
-				</Panel>
-			)}
-			</div>
-		</div>
-	);
-}
-
-/** Live / Training switch. Live hides the coaching material for real calls. */
-function ModeToggle({mode, onChange}: {mode: ScriptMode; onChange: (m: ScriptMode) => void}) {
-	return (
-		<div role="radiogroup" aria-label="Script mode" className="ml-auto inline-flex rounded-md border p-0.5 text-xs font-medium">
-			{(['live', 'training'] as const).map((m) => (
-				<button
-					key={m}
-					type="button"
-					role="radio"
-					aria-checked={mode === m}
-					onClick={() => onChange(m)}
-					title={m === 'live' ? 'Real call: just what to say, choices and headings' : 'Practice: full guidance + Emotional Triggers'}
-					className={cn(
-						'rounded px-2 py-0.5 capitalize transition-colors',
-						mode === m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
-					)}
-				>
-					{m}
-				</button>
-			))}
-		</div>
-	);
-}
-
-/**
- * Slides an extra panel in from the left on mount and back out when `closing`.
- * The outer width animates too, so the script panel eases over instead of jumping.
- */
-function SlideFromLeft({closing, children}: {closing: boolean; children: ReactNode}) {
-	const [entered, setEntered] = useState(false);
-	useEffect(() => {
-		// Two frames so the collapsed start state paints before transitioning.
-		let f2 = 0;
-		const f1 = requestAnimationFrame(() => {
-			f2 = requestAnimationFrame(() => setEntered(true));
-		});
-		return () => {
-			cancelAnimationFrame(f1);
-			cancelAnimationFrame(f2);
-		};
-	}, []);
-	const shown = entered && !closing;
-	return (
-		<div
-			className="shrink-0 overflow-hidden transition-[width,margin-right] ease-out"
-			// -0.75rem cancels the flex gap while collapsed.
-			style={{width: shown ? '27rem' : 0, marginRight: shown ? 0 : '-0.75rem', transitionDuration: `${SLIDE_MS}ms`}}
-		>
-			<div
-				className="w-[27rem] transition-[transform,opacity] ease-out"
-				style={{transform: shown ? 'none' : 'translateX(-100%)', opacity: shown ? 1 : 0, transitionDuration: `${SLIDE_MS}ms`}}
-			>
-				{children}
-			</div>
-		</div>
-	);
-}
-
-/** One scrollable card: header (title + actions + section chips) and its group's nodes. */
-function Panel({
-	group,
-	ctx,
-	scrollerRef,
-	className,
-	subheader,
-	onActiveChange,
-	children
-}: {
-	group: DocGroup;
-	ctx: Ctx;
-	scrollerRef: (el: HTMLDivElement | null) => void;
-	className?: string;
-	subheader?: ReactNode;
-	/** Fires with the top-level node now at the focus line. */
-	onActiveChange?: (nodeId: string) => void;
-	/** Header actions, right-aligned. */
-	children?: ReactNode;
-}) {
-	const {title, nodes} = PANELS[group];
-	const localRef = useRef<HTMLDivElement | null>(null);
-	const [active, setActive] = useState(nodes[0].id);
-	const onActiveRef = useRef(onActiveChange);
-	onActiveRef.current = onActiveChange;
-	useEffect(() => onActiveRef.current?.(active), [active]);
-
-	useEffect(() => {
-		const s = localRef.current;
-		if (!s) return;
-		let frame = 0;
-		const onScroll = () => {
-			cancelAnimationFrame(frame);
-			frame = requestAnimationFrame(() => {
-				const id = anchorAt(s, s.scrollTop + s.clientHeight * FOCUS_LINE + 4, nodes[0].id);
-				setActive(ANCHORS.get(id)?.nodeId ?? id);
-			});
-		};
-		s.addEventListener('scroll', onScroll, {passive: true});
-		return () => {
-			s.removeEventListener('scroll', onScroll);
-			cancelAnimationFrame(frame);
-		};
-	}, [nodes]);
-
-	return (
-		<Card data-panel={group} className={cn('flex h-[70vh] min-h-[28rem] flex-col gap-0 py-0 shadow-xs xl:h-[calc(100dvh-10rem)]', className)}>
-			<CardHeader className="space-y-1.5 border-b px-2 pt-1.5 pb-2">
-				<div className="flex items-center gap-1">
-					<p className={cn('min-w-0 flex-1 truncate text-sm font-semibold', group === 'objections' && TITLE.objection, group === 'triggers' && TITLE.trigger)}>{title}</p>
-					{children}
-				</div>
-				{subheader}
-				<div className="flex flex-wrap gap-1">
-					{nodes.map((n) => (
-						<button
-							key={n.id}
-							type="button"
-							onClick={(e) => ctx.jump(n.id, e.currentTarget)}
-							className={cn(
-								'rounded px-1.5 py-0.5 text-xs transition-colors',
-								active === n.id ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-							)}
-						>
-							{n.short ?? n.title}
-						</button>
-					))}
-				</div>
+								{n.short ?? n.title}
+							</button>
+						))}
+					</div>
+				)}
 			</CardHeader>
-			<CardContent className="min-h-0 flex-1 px-0 pb-0">
-				<div
-					ref={(el) => {
-						localRef.current = el;
-						scrollerRef(el);
-					}}
-					className="h-full overflow-y-auto overscroll-contain px-3 pt-4"
-					style={{
-						maskImage: 'linear-gradient(to bottom, transparent 0, black 1.5rem, black calc(100% - 4rem), transparent 100%)',
-						WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, black 1.5rem, black calc(100% - 4rem), transparent 100%)'
-					}}
-				>
-					{nodes.map((n) => <NodeView key={n.id} node={n} ctx={ctx} />)}
-					<div aria-hidden className="h-[60vh]" />
-				</div>
+			<CardContent className="relative min-h-0 flex-1 px-0 pb-0">
+				{GROUPS.map((g) => (
+					<div
+						key={g}
+						data-panel={g}
+						ref={(el) => {
+							scrollers.current[g] = el;
+						}}
+						className={cn(
+							'absolute inset-0 overflow-y-auto overscroll-contain px-3 pt-4 [overflow-anchor:none]',
+							view !== g && 'invisible'
+						)}
+						aria-hidden={view !== g}
+					>
+						{g === 'objections' && (
+							<section
+								data-anchor={OBJECTION_PICKER}
+								aria-label="Choose an objection"
+								className="min-h-full pb-8"
+							>
+								<h2 className="mb-2 text-xl font-bold text-rose-700 dark:text-rose-300">
+									Which objection are you hearing?
+								</h2>
+								<p className="mb-5 text-sm text-muted-foreground">
+									Choose one below to jump straight to the response.
+								</p>
+								<div className="flex flex-col gap-3">
+									{PANELS.objections.nodes.map((n) => (
+										<button
+											key={n.id}
+											type="button"
+											onClick={(e) => jump(n.id, e.currentTarget)}
+											className={cn(
+												'flex min-h-14 w-full items-center justify-between gap-4 rounded-lg border bg-background px-4 py-3 text-left text-base font-semibold transition-colors',
+												CHOICE.objection
+											)}
+										>
+											<span>{n.title}</span>
+											<ArrowRight aria-hidden className="size-5 shrink-0" />
+										</button>
+									))}
+								</div>
+							</section>
+						)}
+						{PANELS[g].nodes.map((n) => (
+							<NodeView key={n.id} node={n} ctx={ctx} />
+						))}
+						<div aria-hidden className="h-[60%]" />
+					</div>
+				))}
 			</CardContent>
 		</Card>
 	);
@@ -627,11 +656,20 @@ const flashCls = (id: string | undefined, flash: string | null) =>
 
 function NodeView({node, ctx}: {node: DocNode; ctx: Ctx}) {
 	return (
-		<section data-anchor={node.id} className={cn('-mx-1.5 mb-8 rounded-md px-1.5 py-1 transition-colors duration-500', flashCls(node.id, ctx.flash))}>
-			{node.eyebrow && <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{node.eyebrow}</p>}
+		<section
+			data-anchor={node.id}
+			className={cn(
+				'-mx-1.5 mb-8 rounded-md px-1.5 py-1 transition-colors duration-500',
+				flashCls(node.id, ctx.flash)
+			)}
+		>
+			{node.eyebrow && (
+				<p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+					{node.eyebrow}
+				</p>
+			)}
 			<h2 className={cn('mb-3 text-base font-semibold', TITLE[node.kind])}>
 				{node.title}
-				{ctx.returnButton(node.id)}
 			</h2>
 			<Blocks blocks={node.blocks} ctx={ctx} />
 		</section>
@@ -641,12 +679,22 @@ function NodeView({node, ctx}: {node: DocNode; ctx: Ctx}) {
 function Blocks({blocks, ctx}: {blocks: Block[]; ctx: Ctx}) {
 	return (
 		<div className="space-y-2.5">
-			{blocks.map((b, i) => (isBlockVisible(b, ctx.mode, SCRIPT_DOC, ANCHORS) ? <BlockView key={i} block={b} ctx={ctx} /> : null))}
+			{blocks.map((b, i) =>
+				isBlockVisible(b, ctx.mode, SCRIPT_DOC, ANCHORS) ? (
+					<BlockView key={i} block={b} ctx={ctx} />
+				) : null
+			)}
 		</div>
 	);
 }
 
-function ChoiceButtons({options, ctx}: {options: {label: string; to: string}[]; ctx: Ctx}) {
+function ChoiceButtons({
+	options,
+	ctx
+}: {
+	options: {label: string; to: string}[];
+	ctx: Ctx;
+}) {
 	return (
 		<div className="flex flex-wrap gap-1.5">
 			{options.map((o) => {
@@ -658,6 +706,7 @@ function ChoiceButtons({options, ctx}: {options: {label: string; to: string}[]; 
 					<button
 						key={o.to + o.label}
 						type="button"
+						aria-pressed={chosen}
 						onClick={(e) => {
 							if (isPath) ctx.pick(o.to, e.currentTarget);
 							else {
@@ -685,33 +734,70 @@ function BlockView({block: b, ctx}: {block: Block; ctx: Ctx}) {
 	switch (b.t) {
 		case 'h':
 			return (
-				<h3 data-anchor={b.id} className={cn('-mx-1 rounded px-1 pt-2 text-sm font-semibold text-sky-700 transition-colors duration-500 dark:text-sky-400', flashCls(b.id, ctx.flash))}>
+				<h3
+					data-anchor={b.id}
+					className={cn(
+						'-mx-1 rounded px-1 pt-2 text-sm font-semibold text-sky-700 transition-colors duration-500 dark:text-sky-400',
+						flashCls(b.id, ctx.flash)
+					)}
+				>
 					{b.text}
-					{b.id && ctx.returnButton(b.id)}
 				</h3>
 			);
 		case 'say':
-			return <p className="text-[15px] leading-6 text-foreground"><Inline text={b.text} ctx={ctx} /></p>;
+			return (
+				<p className="text-[15px] leading-6 text-foreground">
+					<Inline text={b.text} ctx={ctx} />
+				</p>
+			);
 		case 'caller':
-			return <p className="text-[15px] leading-6 text-muted-foreground"><span className="font-semibold text-foreground">Caller: </span>“<Inline text={b.text} ctx={ctx} />”</p>;
+			return (
+				<p className="text-[15px] leading-6 text-muted-foreground">
+					<span className="font-semibold text-foreground">Caller: </span>“
+					<Inline text={b.text} ctx={ctx} />”
+				</p>
+			);
 		case 'note':
-			return <p className="text-xs leading-5 text-muted-foreground italic"><Inline text={b.text} ctx={ctx} /></p>;
+			return (
+				<p className="text-xs leading-5 text-muted-foreground italic">
+					<Inline text={b.text} ctx={ctx} />
+				</p>
+			);
 		case 'step':
-			return <p className="pt-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{b.text}</p>;
+			return (
+				<p className="pt-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+					{b.text}
+				</p>
+			);
 		case 'list': {
 			const Tag = b.ordered ? 'ol' : 'ul';
 			return (
-				<Tag className={cn('space-y-1 pl-5 text-[15px] leading-6 marker:text-muted-foreground', b.ordered ? 'list-decimal' : 'list-disc')}>
-					{b.items.map((item, i) => <li key={i}><Inline text={item} ctx={ctx} /></li>)}
+				<Tag
+					className={cn(
+						'space-y-1 pl-5 text-[15px] leading-6 marker:text-muted-foreground',
+						b.ordered ? 'list-decimal' : 'list-disc'
+					)}
+				>
+					{b.items.map((item, i) => (
+						<li key={i}>
+							<Inline text={item} ctx={ctx} />
+						</li>
+					))}
 				</Tag>
 			);
 		}
 		case 'inst':
 			return (
 				<div className="rounded-md border border-violet-200 bg-violet-50 px-2.5 py-2 dark:border-violet-500/30 dark:bg-violet-500/10">
-					<p className="mb-1 text-xs font-semibold text-violet-800 dark:text-violet-300">{b.title}</p>
+					<p className="mb-1 text-xs font-semibold text-violet-800 dark:text-violet-300">
+						{b.title}
+					</p>
 					<div className="space-y-1 text-sm leading-5 text-violet-950 dark:text-violet-100">
-						{b.body.map((line, i) => <p key={i}><Inline text={line} ctx={ctx} /></p>)}
+						{b.body.map((line, i) => (
+							<p key={i}>
+								<Inline text={line} ctx={ctx} />
+							</p>
+						))}
 					</div>
 				</div>
 			);
@@ -723,19 +809,27 @@ function BlockView({block: b, ctx}: {block: Block; ctx: Ctx}) {
 			);
 		case 'choices': {
 			// Objection options always sit under their own "Common objections" label.
-			const objections = b.options.filter((o) => ANCHORS.get(o.to)?.kind === 'objection');
-			const rest = b.options.filter((o) => ANCHORS.get(o.to)?.kind !== 'objection');
+			const objections = b.options.filter(
+				(o) => ANCHORS.get(o.to)?.kind === 'objection'
+			);
+			const rest = b.options.filter(
+				(o) => ANCHORS.get(o.to)?.kind !== 'objection'
+			);
 			return (
 				<div className="space-y-2">
 					{rest.length > 0 && (
 						<div>
-							{b.prompt && <p className="mb-1 text-xs text-muted-foreground">{b.prompt}</p>}
+							{b.prompt && (
+								<p className="mb-1 text-xs text-muted-foreground">{b.prompt}</p>
+							)}
 							<ChoiceButtons options={rest} ctx={ctx} />
 						</div>
 					)}
 					{objections.length > 0 && (
 						<div>
-							<p className="mb-1 text-xs font-medium text-rose-700 dark:text-rose-400">Common objections</p>
+							<p className="mb-1 text-xs font-medium text-rose-700 dark:text-rose-400">
+								Common objections
+							</p>
 							<ChoiceButtons options={objections} ctx={ctx} />
 						</div>
 					)}
@@ -747,7 +841,10 @@ function BlockView({block: b, ctx}: {block: Block; ctx: Ctx}) {
 				<button
 					type="button"
 					onClick={(e) => ctx.jump(b.to, e.currentTarget)}
-					className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-sky-300 bg-sky-50 px-2 py-1.5 text-sm font-medium text-sky-800 transition-colors hover:border-sky-500 hover:bg-sky-100 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300"
+					className={cn(
+						'mt-2 flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors',
+						CONTINUATION
+					)}
 				>
 					Objection handled — return to {b.label}
 					<ArrowUpRight className="size-4" />
@@ -786,17 +883,39 @@ function Inline({text, ctx}: {text: string; ctx: Ctx}): ReactNode {
 			case 'text':
 				return tok.text;
 			case 'bold':
-				return <strong key={i} className="font-semibold">{tok.text}</strong>;
-			case 'blank':
 				return (
-					<span key={i} className="mx-0.5 rounded border border-dashed border-amber-400 bg-amber-50 px-1 text-[0.9em] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
+					<strong key={i} className="font-semibold">
+						{tok.text}
+					</strong>
+				);
+			case 'blank': {
+				const value = tok.source ? resolveBlank(tok.source, ctx.values) : '';
+				if (value)
+					return (
+						<span
+							key={i}
+							title={tok.text || undefined}
+							className="mx-0.5 rounded bg-sky-100 px-1 font-medium text-sky-900 dark:bg-sky-500/20 dark:text-sky-100"
+						>
+							{value}
+						</span>
+					);
+				// A value-only blank (`{{|source}}`) shows nothing until the form has it.
+				if (!tok.text) return null;
+				return (
+					<span
+						key={i}
+						className="mx-0.5 rounded border border-dashed border-amber-400 bg-amber-50 px-1 text-[0.9em] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200"
+					>
 						{tok.text}
 					</span>
 				);
+			}
 			case 'link': {
 				const kind = ANCHORS.get(tok.to)?.kind ?? 'reference';
 				// Live mode has no Emotional Triggers to jump to.
-				if (ctx.mode === 'live' && groupOf(tok.to) === 'triggers') return tok.text;
+				if (ctx.mode === 'live' && groupOf(tok.to) === 'triggers')
+					return tok.text;
 				return (
 					<a
 						key={i}
@@ -805,7 +924,10 @@ function Inline({text, ctx}: {text: string; ctx: Ctx}): ReactNode {
 							e.preventDefault();
 							ctx.jump(tok.to, e.currentTarget);
 						}}
-						className={cn('font-medium underline decoration-2 underline-offset-2', LINK[kind])}
+						className={cn(
+							'font-medium underline decoration-2 underline-offset-2',
+							LINK[kind]
+						)}
 					>
 						{tok.text}
 					</a>

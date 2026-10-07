@@ -18,6 +18,33 @@ export type DocGroup = 'script' | 'objections' | 'triggers';
  */
 export type ScriptMode = 'live' | 'training';
 
+/**
+ * What a `{{placeholder|source}}` blank shows (ENG-298). agent_name = the
+ * signed-in agent; lead_name = first + last; mailing_address = address,
+ * address2, city, state, zip; the rest are lead-form keys (form_key 'default').
+ */
+export type BlankSource =
+	| 'agent_name'
+	| 'lead_name'
+	| 'mailing_address'
+	| 'first_name'
+	| 'last_name'
+	| 'phone'
+	| 'email'
+	| 'state'
+	| 'sob'
+	| 'dob'
+	| 'height'
+	| 'weight';
+
+/** Live values the blanks read from. Read-only: the lead form stays the place to type. */
+export interface ScriptValues {
+	agentName?: string | null;
+	formData?: Record<string, unknown>;
+	/** Lets select fields (state) show their option label, not the stored code. */
+	formSchema?: Array<{key: string; options?: Array<{value: string; label: string}>}>;
+}
+
 export type Block =
 	/** Sub-heading; give it an id to make it linkable. */
 	| {t: 'h'; text: string; id?: string}

@@ -20,9 +20,9 @@ export const SCRIPT_DOC: DocNode[] = [
 			{t: 'h', text: 'Opening'},
 			{t: 'say', text: 'Hi. Are you calling to qualify for an affordable funeral coverage plan today?'},
 			{t: 'note', text: 'Wait for confirmation.'},
-			{t: 'say', text: 'Ok perfect, my name is {{your name}}. I’m the Benefits Coordinator for the state of {{state}}.'},
+			{t: 'say', text: 'Ok perfect, my name is {{your name|agent_name}}. I’m the Benefits Coordinator for the state of {{state|state}}.'},
 			{t: 'say', text: 'My job is to simply explain these plans to you, answer any questions you have about the coverage, and help you find the most affordable option as well.'},
-			{t: 'say', text: 'For compliance purposes, may I ask who I am speaking with?'},
+			{t: 'say', text: 'For compliance purposes, may I ask who I am speaking with? {{|lead_name}}'},
 			{t: 'choices', prompt: 'Caller opens with…', options: [
 				{label: '“I thought it was free”', to: 'obj-free'},
 				{label: '“I want to claim the $25k / $40k”', to: 'obj-claim-25k'},
@@ -86,7 +86,7 @@ export const SCRIPT_DOC: DocNode[] = [
 			{t: 'say', text: 'These carriers are very easy to get approved for because there are no doctor visits, nurses, or medical exams required. Isn’t that great?'},
 			{t: 'h', text: 'Beneficiary DQ', id: 'dq-beneficiary'},
 			{t: 'note', text: 'Surface who the policy protects, then use the rapport follow-ups to build emotional attachment. Let them talk.'},
-			{t: 'say', text: 'Now, {{lead name}}, let me ask you this — if something unexpected were to happen… who would be the loved one stepping in to hold everything together and pick up the pieces?'},
+			{t: 'say', text: 'Now, {{lead name|lead_name}}, let me ask you this — if something unexpected were to happen… who would be the loved one stepping in to hold everything together and pick up the pieces?'},
 			{t: 'say', text: 'Got it… tell me a little about {{beneficiary}}.'},
 			{t: 'list', items: [
 				'**Spouse:** “How did you two meet?” & “How long have you been married?”',
@@ -106,7 +106,7 @@ export const SCRIPT_DOC: DocNode[] = [
 				'The consequence question makes the cost of doing nothing real. Deliver it gently, then pause and let the silence work.',
 				'**IMPORTANT:** write their benefit answer down **word-for-word** — you’ll call it back in the [Pitch](#pitch) on Plans 2 and 3.'
 			]},
-			{t: 'say', text: '{{lead name}}, I was just wondering. If you did not have an insurance policy in place and heaven forbid you died in a car wreck tomorrow, would that be a heavy burden on {{beneficiary}}? They would not have to go through the embarrassment of opening up a GoFundMe account… would they?'},
+			{t: 'say', text: '{{lead name|lead_name}}, I was just wondering. If you did not have an insurance policy in place and heaven forbid you died in a car wreck tomorrow, would that be a heavy burden on {{beneficiary}}? They would not have to go through the embarrassment of opening up a GoFundMe account… would they?'},
 			{t: 'say', text: 'And let’s say we do get you approved today — what would you want {{beneficiary}} to be able to do with that money, aside from covering your funeral expenses?'}
 		]
 	},
@@ -122,11 +122,11 @@ export const SCRIPT_DOC: DocNode[] = [
 			{t: 'say', text: 'Perfect. It’s good that you have a clear picture of how you want the funeral to go — that makes our job a lot easier. So, I’ll bring up a few plans here shortly.'},
 			{t: 'h', text: 'Health Questions (Eligibility)'},
 			{t: 'say', text: 'Now, these plans are based on 2 things. The first is your age and the second is your health, and even if your health isn’t perfect, these plans do have generous underwriting guidelines that help you get approved, so it isn’t a huge deal.'},
-			{t: 'list', items: ['Now as far as your age goes, how young are you?', 'What is your actual date of birth?']},
+			{t: 'list', items: ['Now as far as your age goes, how young are you?', 'What is your actual date of birth? {{|dob}}']},
 			{t: 'say', text: 'Ok great. And then as far as your health goes…'},
 			{t: 'list', ordered: true, items: [
 				'Have you used tobacco or nicotine in the last 12 months?',
-				'And my mom would kill me for asking you this, but what’s a good height & weight for you?',
+				'And my mom would kill me for asking you this, but what’s a good height & weight for you? {{|height}} {{|weight}}',
 				'Have you ever been diagnosed with Congestive Heart Failure?',
 				'Any Heart Attack, Stroke, Cancer, TIA (Transient Ischemic Attack), or Stents?',
 				'COPD or inhaler use like albuterol? Oxygen?',
@@ -158,7 +158,7 @@ export const SCRIPT_DOC: DocNode[] = [
 		blocks: [
 			{t: 'h', text: 'Benefits of the Policy'},
 			{t: 'say', text: 'Thank you for answering those questions. You’re making my job a lot easier. If you have a pen and paper nearby, go ahead and grab those so you can take down some notes while we go over these plans.'},
-			{t: 'say', text: 'My full name is {{full name}}.'},
+			{t: 'say', text: 'My full name is {{full name|agent_name}}.'},
 			{t: 'say', text: 'My personal cell phone number, so you can always reach me, is {{cell number}}.'},
 			{t: 'say', text: 'My national insurance producer ID number — similar to a Social Security number in the insurance industry — is {{NPN}}.'},
 			{t: 'note', text: 'Call your NPN your “insurance ID number,” like an SSN for the insurance industry — “NPN” is jargon to most callers.'},
@@ -225,11 +225,11 @@ export const SCRIPT_DOC: DocNode[] = [
 		blocks: [
 			{t: 'h', text: 'Client Information'},
 			{t: 'say', text: 'Now, when we get pre-approval, the first thing the carrier will ask us for is the spelling of your first and last name. Please spell that for me whenever you’re ready.'},
-			{t: 'list', ordered: true, items: ['First Name', 'Last Name', 'Phone Number']},
+			{t: 'list', ordered: true, items: ['First Name {{|first_name}}', 'Last Name {{|last_name}}', 'Phone Number {{|phone}}']},
 			{t: 'say', text: 'Is this a cell phone or a home phone?'},
 			{t: 'note', text: 'Confirm cell. If home, ask if they can get an email.'},
 			{t: 'say', text: 'Ok, and if I send you a text message on this phone you can get it, right? Ok, perfect. And then what’s the best email for you?'},
-			{t: 'list', ordered: true, items: ['Email', 'Complete Home/Mailing Address', 'Birth State']},
+			{t: 'list', ordered: true, items: ['Email {{|email}}', 'Complete Home/Mailing Address {{|mailing_address}}', 'Birth State {{|sob}}']},
 			{t: 'h', text: 'Beneficiary'},
 			{t: 'say', text: 'Ok, and who did you want to be your beneficiary?'},
 			{t: 'list', ordered: true, items: ['Beneficiary Relation', 'Beneficiary Name', 'Beneficiary DOB']},
