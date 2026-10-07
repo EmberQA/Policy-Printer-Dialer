@@ -14,6 +14,7 @@ import {
 	Power,
 	Radar,
 	RadioTower,
+	ScrollText,
 	Wifi,
 	WifiOff,
 	Zap
@@ -57,6 +58,7 @@ import {ScriptDoc} from '@/scriptDoc/ScriptDoc';
 import {showsScriptDoc} from '@/scriptDoc/campaigns';
 import {useLeadFormBridge} from '@/leads/LeadFormBridgeContext';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {ReturningCallerCard} from '@/leads/ReturningCallerCard';
 import {useReturningCaller} from '@/leads/useReturningCaller';
 import {cn} from '@/lib/utils';
@@ -126,6 +128,9 @@ export default function Dial() {
 	// Which campaign the active call's lead form is for. Defaults to the sole armed
 	// campaign; when several are armed the agent picks (the call can be from any buyer).
 	const [leadCampaignId, setLeadCampaignId] = useState<string>('');
+	// Whitelisted campaign whose script the agent opened from the Campaigns menu while idle (ENG-298).
+	const [scriptPreviewCampaign, setScriptPreviewCampaign] =
+		useState<DialerCampaign | null>(null);
 	const [wrapUpCall, setWrapUpCall] = useState<ActiveCall | null>(null);
 	const [completedWrapUpCallKey, setCompletedWrapUpCallKey] = useState<
 		string | null
@@ -299,6 +304,11 @@ export default function Dial() {
 		: null;
 	const activeCall = device.activeCall ?? debugCall;
 	const workCall = activeCall ?? wrapUpCall;
+	// A real call takes over the script column: drop any open preview.
+	const hasWorkCall = Boolean(workCall);
+	useEffect(() => {
+		if (hasWorkCall) setScriptPreviewCampaign(null);
+	}, [hasWorkCall]);
 	const wrapUpCallKey = workCall ? callKey(workCall) : null;
 	const attributedCampaign = workCall?.campaignId
 		? campaigns.find((campaign) => campaign.id === workCall.campaignId)
@@ -480,7 +490,11 @@ export default function Dial() {
 		}),
 		[userName, leadFormView?.formData, leadFormView?.schema]
 	);
-	const scriptOpen = Boolean(workCall && showsScriptDoc(effectiveCampaign?.name));
+	// Whitelisted campaigns only (src/scriptDoc/campaigns.ts): on a call, the
+	// call's campaign decides; idle, a preview opened from the Campaigns menu.
+	const scriptOpen = workCall
+		? showsScriptDoc(effectiveCampaign?.name)
+		: Boolean(scriptPreviewCampaign);
 
 	return (
 		<div
@@ -559,6 +573,7 @@ export default function Dial() {
 							<ScriptDoc
 								key={wrapUpCallKey ?? 'call'}
 								onCollapse={() => setScriptCollapsed(true)}
+								onClose={workCall ? undefined : () => setScriptPreviewCampaign(null)}
 								values={scriptValues}
 							/>
 						)}
@@ -747,6 +762,7 @@ export default function Dial() {
 					onToggleReady={onToggleReady}
 					campaigns={campaigns}
 					onToggleCampaign={onToggleCampaign}
+					onPreviewScript={setScriptPreviewCampaign}
 					inputDeviceId={device.inputDeviceId}
 					outputDeviceId={device.outputDeviceId}
 					onInputDeviceChange={device.setInputDevice}
@@ -863,6 +879,7 @@ function DialSidebar({
 	onToggleReady,
 	campaigns,
 	onToggleCampaign,
+	onPreviewScript,
 	inputDeviceId,
 	outputDeviceId,
 	onInputDeviceChange,
@@ -894,6 +911,7 @@ function DialSidebar({
 	onToggleReady: () => void;
 	campaigns: DialerCampaign[];
 	onToggleCampaign: (campaignId: string, ready: boolean) => void;
+	onPreviewScript: (campaign: DialerCampaign) => void;
 	inputDeviceId: string;
 	outputDeviceId: string;
 	onInputDeviceChange: (deviceId: string) => Promise<void>;
@@ -970,6 +988,7 @@ function DialSidebar({
 					busy={busy}
 					onCall={onCall}
 					onToggleCampaign={onToggleCampaign}
+					onPreviewScript={onPreviewScript}
 				/>
 			</div>
 			<div className="min-w-36 flex-1">
@@ -1125,17 +1144,21 @@ function CampaignMenu({
 	campaigns,
 	busy,
 	onCall,
-	onToggleCampaign
+	onToggleCampaign,
+	onPreviewScript
 }: {
 	campaigns: DialerCampaign[];
 	busy: 'status' | string | null;
 	onCall: boolean;
 	onToggleCampaign: (campaignId: string, ready: boolean) => void;
+	onPreviewScript: (campaign: DialerCampaign) => void;
 }) {
 	const readyCount = campaigns.filter((c) => c.ready).length;
+	// Controlled so opening a script preview closes the menu first.
+	const [open, setOpen] = useState(false);
 
 	return (
-		<DropdownMenu>
+		<DropdownMenu open={open} onOpenChange={setOpen}>
 			<DropdownMenuTrigger asChild>
 				<Button
 					variant="outline"
@@ -1188,6 +1211,26 @@ function CampaignMenu({
 										</span>
 									</div>
 								</div>
+								{showsScriptDoc(campaign.name) && (
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<Button
+												type="button"
+												variant="ghost"
+												size="icon"
+												className="-my-1 size-7 shrink-0 text-muted-foreground"
+												aria-label={`Preview script for ${campaign.name}`}
+												onClick={() => {
+													setOpen(false);
+													onPreviewScript(campaign);
+												}}
+											>
+												<ScrollText className="size-4" />
+											</Button>
+										</TooltipTrigger>
+										<TooltipContent side="left">Preview script</TooltipContent>
+									</Tooltip>
+								)}
 								{busy === campaign.id ? (
 									<Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
 								) : (

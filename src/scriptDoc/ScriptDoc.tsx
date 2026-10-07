@@ -29,7 +29,8 @@ import {
 	ArrowUpRight,
 	PanelLeftClose,
 	MoreHorizontal,
-	RotateCcw
+	RotateCcw,
+	X
 } from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {
@@ -218,10 +219,13 @@ const CONTINUATION =
 
 export function ScriptDoc({
 	onCollapse,
+	onClose,
 	initialMode = 'live',
 	values = NO_VALUES
 }: {
 	onCollapse?: () => void;
+	/** Shown as an X when the script is an idle preview opened from the Campaigns menu. */
+	onClose?: () => void;
 	/** Lead form + agent values for the linked blanks (read-only). */
 	values?: ScriptValues;
 	/** Practice previews may start in Training; real calls start in Live. */
@@ -530,6 +534,19 @@ export function ScriptDoc({
 							)}
 						</DropdownMenuContent>
 					</DropdownMenu>
+					{onClose && (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							className="size-8 shrink-0"
+							aria-label="Close script preview"
+							title="Close script preview"
+							onClick={onClose}
+						>
+							<X className="size-4" />
+						</Button>
+					)}
 				</div>
 				<div className="flex flex-col gap-3">
 					<div
