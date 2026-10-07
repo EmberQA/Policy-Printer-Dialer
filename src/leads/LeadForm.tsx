@@ -38,6 +38,7 @@ import {stateFormValueFromCode, stateFormValueFromPhone} from '@/lib/phone';
 import {FormRenderer, type LeadFormData} from './FormRenderer';
 import {DispositionSelect} from './DispositionSelect';
 import {useLeadNotes} from './LeadNotesContext';
+import {useLeadFormBridge} from './LeadFormBridgeContext';
 
 export function LeadForm({
 	campaignId,
@@ -45,7 +46,8 @@ export function LeadForm({
 	callerPhone,
 	onComplete,
 	showClear = true,
-	editLead = null
+	editLead = null,
+	publishToScriptDoc = false
 }: {
 	campaignId: string;
 	/** Tying the lead to the call. Null for a manual lead with no live call. */
@@ -60,6 +62,12 @@ export function LeadForm({
 	 * timestamps) instead of creating a new one. Null → normal blank New-Lead behavior.
 	 */
 	editLead?: ReturningCallerLead | null;
+	/**
+	 * Publish this form's schema + values to the call script doc (ENG-298) so its
+	 * linked blanks can show them. Only the Dial screen's live-call form sets this —
+	 * a second mounted LeadForm (manual lead logging) must not take over the view.
+	 */
+	publishToScriptDoc?: boolean;
 }) {
 	const [form, setForm] = useState<DialerForm | null>(null);
 	const [dispositions, setDispositions] = useState<DialerDisposition[]>([]);
@@ -78,6 +86,7 @@ export function LeadForm({
 	>(null);
 	const busy = saving || completingWithoutLead;
 	const {setNote} = useLeadNotes();
+	const {setView: setBridgeView} = useLeadFormBridge();
 
 	const initialFormData = (
 		nextForm: DialerForm | null,
@@ -113,6 +122,14 @@ export function LeadForm({
 		);
 		const stateField = schema.find((field) => field.key === 'state');
 		const initialData: LeadFormData = editLead ? {...matchingPriorAnswers} : {};
+		// Always-on call notes (a plain `notes` key when the form has none).
+		if (
+			editLead &&
+			typeof priorAnswers.notes === 'string' &&
+			initialData.notes === undefined
+		) {
+			initialData.notes = priorAnswers.notes;
+		}
 
 		// The live caller number always wins for the current form's phone field.
 		if (phoneField && callerPhone) {
@@ -156,7 +173,7 @@ export function LeadForm({
 		() =>
 			(form?.schema ?? []).find(
 				(field) => field.key === 'notes' || field.key === 'note'
-			) ?? null,
+			) ?? {key: 'notes', label: 'Notes'},
 		[form]
 	);
 
@@ -215,6 +232,20 @@ export function LeadForm({
 	}, [formData, noteField, setNote]);
 
 	useEffect(() => () => setNote(null), [setNote]);
+
+	// ENG-298 — publish the form's schema + values to the call script doc
+	// (read-only: the doc only displays them in its linked blanks).
+	useEffect(() => {
+		if (!publishToScriptDoc || loading) return;
+		setBridgeView({schema: form?.schema ?? [], formData});
+	}, [publishToScriptDoc, loading, form, formData, setBridgeView]);
+
+	useEffect(
+		() => () => {
+			if (publishToScriptDoc) setBridgeView(null);
+		},
+		[publishToScriptDoc, setBridgeView]
+	);
 
 	const selectedDisposition = useMemo(
 		() =>
@@ -332,15 +363,15 @@ export function LeadForm({
 
 	return (
 		<Card className="shadow-xs">
-			<CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
-				{savedLeadId && (
+			{savedLeadId && (
+				<CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0 px-4 pb-0 pt-3">
 					<Badge className="bg-success text-success-foreground">
 						<CheckCircle2 className="size-3" />
 						saved
 					</Badge>
-				)}
-			</CardHeader>
-			<CardContent className="space-y-5 text-sm">
+				</CardHeader>
+			)}
+			<CardContent className="space-y-5 p-4 text-sm">
 				{loading && (
 					<p className="flex items-center gap-2 text-muted-foreground">
 						<Loader2 className="size-4 animate-spin" />
