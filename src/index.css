@@ -44,6 +44,36 @@
 	--ring: hsl(221 83% 53%);
 }
 
+.emberqa-quote {
+	/* ENG-286 quote comparison: the LIVE EmberQA palette. EmberQA-Frontend
+	   themes/index.tsx hard-codes Palette(mode, 'theme2') — theme/theme2.ts:
+	   primary #7265E6 (lighter #EEEDFC, 700 #5F53DF), error #F04134,
+	   success #00A854; palette.ts: page #f8fafc, paper #fff, text grey 900/600,
+	   input border grey 300 (#d9d9d9), divider grey 200 (#f0f0f0). */
+	--radius: 0.5rem;
+	--background: hsl(210 40% 98%);
+	--foreground: hsl(0 0% 8%);
+	--card: hsl(0 0% 100%);
+	--card-foreground: hsl(0 0% 8%);
+	--popover: hsl(0 0% 100%);
+	--popover-foreground: hsl(0 0% 8%);
+	--primary: hsl(246 72% 65%);
+	--primary-foreground: hsl(0 0% 100%);
+	--secondary: hsl(244 72% 96%);
+	--secondary-foreground: hsl(245 69% 60%);
+	--muted: hsl(0 0% 96%);
+	--muted-foreground: hsl(0 0% 35%);
+	--accent: hsl(244 72% 96%);
+	--accent-foreground: hsl(245 69% 60%);
+	--destructive: hsl(4 86% 57%);
+	--destructive-foreground: hsl(0 0% 100%);
+	--success: hsl(150 100% 33%);
+	--success-foreground: hsl(0 0% 100%);
+	--border: hsl(0 0% 92%);
+	--input: hsl(0 0% 85%);
+	--ring: hsl(246 72% 65%);
+}
+
 .dark {
 	--background: hsl(222 47% 11%);
 	--foreground: hsl(210 40% 98%);

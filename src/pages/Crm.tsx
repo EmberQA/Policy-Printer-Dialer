@@ -6,7 +6,9 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
+import {openQuoteComparison, openQuoteFromForm} from '@/quotes/quoteLink';
 import {
+	Calculator,
 	Check,
 	Copy,
 	Loader2,
@@ -409,6 +411,25 @@ export default function Crm({
 	);
 }
 
+/**
+ * CRM "Quote" (ENG-286). A contact with a saved lead opens that lead's quote —
+ * the backend creates one on first open. A contact with no lead in the
+ * database (TLD import, or a call that never saved a lead) can't hold a
+ * persisted quote, so it opens a scratch quote prefilled with name + phone.
+ */
+function openContactQuote(contact: ActivityListItem, importedFromTld: boolean) {
+	if (contact.lead_id && !importedFromTld) {
+		openQuoteComparison(contact.lead_id);
+		return;
+	}
+	const [first = '', ...rest] = (contact.name ?? '').trim().split(/\s+/);
+	openQuoteFromForm(null, {
+		first_name: first,
+		last_name: rest.join(' '),
+		phone: contact.caller_phone ?? ''
+	});
+}
+
 function ContactCard({
 	contact,
 	onCall,
@@ -463,6 +484,14 @@ function ContactCard({
 					)}
 					<Button size="sm" variant="outline" onClick={onViewRecord}>
 						View record
+					</Button>
+					<Button
+						size="sm"
+						variant="outline"
+						onClick={() => openContactQuote(contact, importedFromTld)}
+					>
+						<Calculator className="size-4" />
+						Quote
 					</Button>
 					<PortalCallLink scoreUuid={contact.score_uuid} />
 				</div>
@@ -1067,6 +1096,16 @@ function LeadRecordDialog({
 								</Button>
 							) : (
 								<>
+									{leadId && (
+										<Button
+											size="sm"
+											variant="outline"
+											onClick={() => openQuoteComparison(leadId)}
+										>
+											<Calculator className="size-4" />
+											Quote
+										</Button>
+									)}
 									<Button
 										size="sm"
 										variant="outline"
