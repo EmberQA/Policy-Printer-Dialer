@@ -165,11 +165,13 @@ export interface QuoteSessionState {
 	presentation: PinnedQuote[];
 }
 
+/** One quote per (org, agent, caller phone). */
 export interface QuoteSession {
 	id: string;
 	org_id: string;
-	lead_id: string;
-	lead_source: LeadSource;
+	agent_id: string;
+	/** E.164 */
+	phone: string;
 	state: QuoteSessionState;
 	version: number;
 	created_by: string;
@@ -187,6 +189,9 @@ export interface LeadPrefill {
 }
 
 export const COMPARE_SLOTS = 3;
+export const DEFAULT_COVERAGE_AMOUNT = 10_000;
+/** Preset coverage amounts; anything else is "Other" with a typed amount. */
+export const COVERAGE_PRESETS = [5_000, 10_000, 15_000] as const;
 export const MAX_PINNED_QUOTES = 3;
 
 export const emptySessionState = (): QuoteSessionState => ({
@@ -205,15 +210,16 @@ export const emptySessionState = (): QuoteSessionState => ({
 		tobacco: 'None',
 		paymentType: 'Bank Draft/EFT'
 	},
-	coverage: {mode: 'face', amount: null, coverageType: 'Level'},
+	// New quotes open on coverage amount, preset to the common $10,000.
+	coverage: {mode: 'face', amount: DEFAULT_COVERAGE_AMOUNT, coverageType: 'Level'},
 	underwritingItems: [],
 	pendingTraversal: null,
 	compare: {
 		company: null,
 		coverageType: null,
 		values: [
+			{type: 'FACE_AMOUNT', value: 5000},
 			{type: 'FACE_AMOUNT', value: 10000},
-			{type: 'FACE_AMOUNT', value: 12500},
 			{type: 'FACE_AMOUNT', value: 15000}
 		]
 	},

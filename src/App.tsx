@@ -9,6 +9,7 @@ import {
 	useNavigate
 } from 'react-router-dom';
 import {
+	Building2,
 	CalendarDays,
 	Check,
 	Copy,
@@ -16,6 +17,7 @@ import {
 	MapPinned,
 	Phone,
 	PhoneOff,
+	Settings,
 	Sparkles,
 	X
 } from 'lucide-react';
@@ -40,6 +42,14 @@ import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {CoachingBookingDialog} from '@/onboarding/CoachingBookingDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
 import {LicensedStatesDialog} from '@/licensedStates/LicensedStatesDialog';
+import {CarriersDialog} from '@/quotes/CarriersDialog';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import {CreditNotificationDialog} from '@/components/CreditNotificationDialog';
 import {NewLeadBanner} from '@/outboundLeads/NewLeadBanner';
 import {ReadyUnavailableBanner} from '@/presence/ReadyUnavailableBanner';
@@ -568,21 +578,40 @@ function HeaderUserBlock({
 		profile?.agent?.phone_number ?? profile?.agent?.twilio_phone_number;
 	const pingMs = device.activeCall ? device.twilioRttMs : device.apiPingMs;
 	const [statesOpen, setStatesOpen] = useState(false);
+	const [carriersOpen, setCarriersOpen] = useState(false);
 
 	return (
 		<div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-			<Button
-				type="button"
-				variant="ghost"
-				size="icon"
-				className="size-7"
-				onClick={() => setStatesOpen(true)}
-				title="Adjust states"
-				aria-label="Adjust the states you are licensed in"
-			>
-				<MapPinned className="size-3.5" />
-			</Button>
+			{/* Agent settings: everything saved on the agent's dialer profile. */}
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon"
+						className="size-7"
+						title="Settings"
+						aria-label="Agent settings"
+					>
+						<Settings className="size-3.5" />
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end" className="w-56">
+					<DropdownMenuLabel className="text-xs text-muted-foreground">
+						Agent settings
+					</DropdownMenuLabel>
+					<DropdownMenuItem onSelect={() => setStatesOpen(true)}>
+						<MapPinned className="size-4" />
+						Licensed states
+					</DropdownMenuItem>
+					<DropdownMenuItem onSelect={() => setCarriersOpen(true)}>
+						<Building2 className="size-4" />
+						My carriers
+					</DropdownMenuItem>
+				</DropdownMenuContent>
+			</DropdownMenu>
 			<LicensedStatesDialog open={statesOpen} onOpenChange={setStatesOpen} />
+			<CarriersDialog open={carriersOpen} onOpenChange={setCarriersOpen} />
 			<span
 				className="hidden max-w-40 truncate text-xs font-medium text-muted-foreground sm:block"
 				title={`Logged in as ${userName}`}

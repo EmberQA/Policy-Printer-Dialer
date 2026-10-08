@@ -7,7 +7,6 @@
 import {useEffect, useState} from 'react';
 import {Columns3, ExternalLink, Loader2} from 'lucide-react';
 import {Button, buttonVariants} from '@/components/ui/button';
-import {cn} from '@/lib/utils';
 import {QS_SUCCESS, getCompareOptions, runCompare} from './api';
 import {
 	ClientFields,
@@ -22,16 +21,25 @@ import {
 	wholeMoney
 } from './fields';
 import {CarrierLogo, hasEapp} from './QuoteResults';
-import {emptySessionState, type ItkCompareOptions, type QuoteSessionState} from './types';
+import {
+	emptySessionState,
+	type ItkCompareOptions,
+	type QuoteSessionState
+} from './types';
 
 const OPTION_LABELS = ['Option A', 'Option B', 'Option C'];
 
 export function CompareTab({
 	state,
-	update
+	update,
+	autoRun = false,
+	onAutoRunDone
 }: {
 	state: QuoteSessionState;
 	update: (fn: (s: QuoteSessionState) => QuoteSessionState) => void;
+	/** Arrived from step 1's Compare: run the comparison immediately, once. */
+	autoRun?: boolean;
+	onAutoRunDone?: () => void;
 }) {
 	const {client, compare} = state;
 	const [options, setOptions] = useState<ItkCompareOptions>({});
@@ -83,9 +91,17 @@ export function CompareTab({
 		}
 	};
 
+	useEffect(() => {
+		if (!autoRun) return;
+		onAutoRunDone?.();
+		if (canCompare) void go();
+		// Fires on arrival only; `go` reads the state step 1 just set.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [autoRun]);
+
 	return (
-		<div className="grid items-start gap-4 lg:grid-cols-5">
-			<aside className="space-y-3 lg:sticky lg:top-20 lg:col-span-2">
+		<div className="grid items-start gap-4 lg:h-full lg:grid-cols-5">
+			<aside className="space-y-3 lg:col-span-2 lg:h-full lg:overflow-y-auto lg:pb-6 lg:pr-1 [scrollbar-gutter:stable]">
 				<Panel title="Plan">
 					<div className="space-y-3">
 						<Field label="Carrier">
@@ -143,7 +159,7 @@ export function CompareTab({
 									size="sm"
 									value={v.type}
 									options={[
-										{value: 'FACE_AMOUNT', label: 'Face'},
+										{value: 'FACE_AMOUNT', label: 'Coverage'},
 										{value: 'PREMIUM', label: 'Premium'}
 									]}
 									onChange={(type) =>
@@ -180,17 +196,31 @@ export function CompareTab({
 				</div>
 			</aside>
 
-			<section className="min-w-0 space-y-3 lg:col-span-3">
+			<section className="min-w-0 space-y-3 pb-6 lg:col-span-3 lg:h-full lg:overflow-y-auto lg:pr-1 [scrollbar-gutter:stable]">
 				<div>
-					<h2 className="text-lg font-semibold tracking-tight">Side-by-side</h2>
+					<h2 className="text-lg font-semibold tracking-tight">Plans</h2>
 					<p className="text-sm text-muted-foreground">
 						{compare.company
 							? `${compare.company}${compare.coverageType ? ` · ${compare.coverageType}` : ''}`
 							: 'One plan at up to three amounts.'}
 					</p>
 				</div>
-				{state.lastCompare && state.lastCompare.data.length > 0 ? (
-					<div className={cn('grid gap-4 md:grid-cols-3', busy && 'opacity-50')}>
+				{busy ? (
+					<div className="flex flex-col items-center justify-center gap-3 rounded-xl border bg-card py-20 shadow-xs">
+						<Loader2 className="size-7 animate-spin text-primary" />
+						<div className="text-center">
+							<p className="text-sm font-semibold">Comparing plans…</p>
+							<p className="text-xs text-muted-foreground">
+								{compare.company ?? 'This carrier'} at{' '}
+								{compare.values
+									.filter((v) => v.value)
+									.map((v) => (v.type === 'PREMIUM' ? `${wholeMoney(v.value)}/mo` : wholeMoney(v.value)))
+									.join(', ')}
+							</p>
+						</div>
+					</div>
+				) : state.lastCompare && state.lastCompare.data.length > 0 ? (
+					<div className="grid gap-4 md:grid-cols-3">
 						{state.lastCompare.data.map((q, i) => (
 							<div
 								key={i}
@@ -210,7 +240,7 @@ export function CompareTab({
 								</div>
 								<dl className="mt-5 space-y-2.5 border-t pt-4 text-sm">
 									<div className="flex justify-between">
-										<dt className="text-muted-foreground">Face amount</dt>
+										<dt className="text-muted-foreground">Coverage amount</dt>
 										<dd className="font-medium tabular-nums">{wholeMoney(q.face_amount)}</dd>
 									</div>
 									<div className="flex justify-between">
@@ -244,7 +274,7 @@ export function CompareTab({
 					<EmptyState icon={<Columns3 className="size-5" />} title="Nothing to compare yet">
 						{state.lastCompare
 							? 'No results for these inputs.'
-							: 'Pick a carrier and coverage type, set up to three amounts, then compare. Tip: use Compare on any Quoter result.'}
+							: 'Pick a carrier in step 1 (See plans on any result), or choose one here and compare up to three amounts.'}
 					</EmptyState>
 				)}
 			</section>

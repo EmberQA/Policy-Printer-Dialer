@@ -1,8 +1,8 @@
 /**
  * Quoter results (ENG-286): one row per carrier plan, cheapest first as ITK
  * returns them. Each row shows the carrier, plan, status chips (commission,
- * warning, plan info, E-App) and the premium; actions are Compare (seeds Quote
- * Compare), Pin (Presentation) and an expander with AD&D, limited-pay options
+ * warning, plan info, E-App) and the premium; actions are See plans (opens
+ * step 2, Plans, for that carrier) and an expander with AD&D, limited-pay options
  * and the underwriting reasons. Carriers that declined sit in the Excluded
  * panel below.
  */
@@ -10,12 +10,12 @@
 import {Fragment, useState} from 'react';
 import {
 	ChevronDown,
+	Check,
 	CircleAlert,
 	DollarSign,
 	ExternalLink,
 	Info,
-	Pin,
-	PinOff
+	X
 } from 'lucide-react';
 import {Button, buttonVariants} from '@/components/ui/button';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
@@ -66,7 +66,7 @@ function Chip({
 	children,
 	tip
 }: {
-	tone: 'neutral' | 'success' | 'warning' | 'info';
+	tone: 'neutral' | 'success' | 'warning' | 'info' | 'danger';
 	icon: React.ReactNode;
 	children: React.ReactNode;
 	tip?: React.ReactNode;
@@ -77,6 +77,7 @@ function Chip({
 				'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium',
 				tone === 'success' && 'bg-success/10 text-success',
 				tone === 'warning' && 'bg-amber-50 text-amber-700',
+				tone === 'danger' && 'bg-destructive/10 text-destructive',
 				tone === 'info' && 'bg-secondary text-secondary-foreground',
 				tone === 'neutral' && 'bg-muted text-muted-foreground',
 				tip && 'cursor-help'
@@ -110,16 +111,12 @@ export function QuoteResults({
 	quotes,
 	excluded,
 	period,
-	pinnedKeys,
-	onCompare,
-	onTogglePin
+	onCompare
 }: {
 	quotes: ItkQuoteResult[];
 	excluded: ItkExcluded[];
 	period: 'monthly' | 'yearly';
-	pinnedKeys: Set<string>;
 	onCompare: (q: ItkQuoteResult) => void;
-	onTogglePin: (q: ItkQuoteResult) => void;
 }) {
 	const [open, setOpen] = useState<number | null>(null);
 	const [showExcluded, setShowExcluded] = useState(false);
@@ -129,7 +126,6 @@ export function QuoteResults({
 			<div className="overflow-hidden rounded-xl border bg-card shadow-xs">
 				{quotes.map((q, i) => {
 					const key = quoteKey(q);
-					const pinned = pinnedKeys.has(key);
 					const reduced = !q.full_comp || (!!q.comp_percent_lower && q.comp_percent_lower !== '0');
 					const expanded = open === i;
 					return (
@@ -142,7 +138,7 @@ export function QuoteResults({
 								)}
 							>
 								<CarrierLogo src={q.logo} name={q.company} />
-								<div className="min-w-0 flex-1 space-y-1.5">
+								<div className="min-w-0 flex-1 space-y-1">
 									<div className="flex items-center gap-2">
 										<span className="truncate text-sm font-semibold">
 											{q.plan_name || q.tier_name}
@@ -153,8 +149,17 @@ export function QuoteResults({
 											</span>
 										)}
 									</div>
+									<div className="truncate text-xs text-muted-foreground">{q.company}</div>
 									<div className="flex flex-wrap items-center gap-1.5">
-										<span className="text-xs text-muted-foreground">{q.company}</span>
+										{hasEapp(q) ? (
+											<Chip tone="success" icon={<Check className="size-3" />}>
+												E-App
+											</Chip>
+										) : (
+											<Chip tone="danger" icon={<X className="size-3" />}>
+												No E-App
+											</Chip>
+										)}
 										<Chip
 											tone={reduced ? 'warning' : 'success'}
 											icon={<DollarSign className="size-3" />}
@@ -201,31 +206,10 @@ export function QuoteResults({
 									</div>
 								</div>
 								<div className="flex items-center gap-1">
-									<div className="flex w-[4.75rem] justify-end">
-										{hasEapp(q) && (
-											<a
-												href={q.eapp_link}
-												target="_blank"
-												rel="noopener noreferrer"
-												className={buttonVariants({size: 'sm', variant: 'ghost'})}
-											>
-												E-App <ExternalLink className="size-3" />
-											</a>
-										)}
-									</div>
 									<Button size="sm" variant="outline" onClick={() => onCompare(q)}>
-										Compare
+										See plans
 									</Button>
-									<Button
-										size="icon"
-										variant="ghost"
-										className={cn('size-9', pinned && 'text-primary')}
-										aria-label={pinned ? 'Unpin from presentation' : 'Pin to presentation'}
-										title={pinned ? 'Unpin from presentation' : 'Pin to presentation'}
-										onClick={() => onTogglePin(q)}
-									>
-										{pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
-									</Button>
+
 									<Button
 										size="icon"
 										variant="ghost"
@@ -240,7 +224,21 @@ export function QuoteResults({
 								</div>
 							</div>
 							{expanded && (
-								<div className="grid gap-6 border-t bg-muted/40 px-4 py-4 pl-[8.75rem] sm:grid-cols-3">
+								<div className="grid gap-6 border-t bg-muted/40 px-4 py-4 pl-[8.75rem] sm:grid-cols-2 xl:grid-cols-4">
+									<Detail label="E-App">
+										{hasEapp(q) ? (
+											<a
+												href={q.eapp_link}
+												target="_blank"
+												rel="noopener noreferrer"
+												className={buttonVariants({size: 'sm', className: 'h-8'})}
+											>
+												Open E-App <ExternalLink className="size-3" />
+											</a>
+										) : (
+											<span className="text-muted-foreground">No E-App link from this carrier</span>
+										)}
+									</Detail>
 									<Detail label="Accidental death">
 										{q.addnd ? (
 											<>

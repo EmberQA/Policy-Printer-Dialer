@@ -87,6 +87,18 @@ import {useHotStates} from '@/hotStates/useHotStates';
 // ENG-298: all three script views share one column, matching the training workspace.
 const SCRIPT_DOC_COLS = 'xl:grid-cols-[minmax(30rem,2fr)_minmax(0,3fr)]';
 
+/**
+ * A fake caller number per debug call, stable for that call. A single fixed
+ * number made every debug call the SAME caller — and quotes are keyed by the
+ * caller's number (ENG-286), so each "new" debug caller resumed the last one's
+ * quote. +1 555 2XX-XXXX: a valid NANP shape in the fictional 555 range.
+ */
+const debugCallerNumber = (callSid: string): string => {
+	let h = 0;
+	for (const ch of callSid) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+	return `+15552${String(h % 1_000_000).padStart(6, '0')}`;
+};
+
 export default function Dial() {
 	// Shared session: the single Device + heartbeat + bootstrap (profile/campaigns/
 	// presence) live in the provider so they survive tab switches. Destructure using
@@ -292,7 +304,7 @@ export default function Dial() {
 		debugIncomingCall && !device.activeCall && Boolean(debugCallSid);
 	const debugCall: ActiveCall | null = debugCallActive
 		? {
-				from: '+15555550100',
+				from: debugCallerNumber(debugCallSid!),
 				callSid: debugCallSid!,
 				campaignId: null,
 				retreaverUuid: null,

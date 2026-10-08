@@ -15,7 +15,9 @@ export const SCRIPT_DOC_CAMPAIGNS: ReadonlySet<string> = new Set([
 	'Final Expense (Pre Screened)',
 	'XFG Final Expense',
 	'Haydn (CTV)',
-	'Haydn (Social)'
+	'Haydn (Social)',
+	'Haydn CTV Campaign',
+	'Haydn Social Campaign'
 ]);
 
 export const showsScriptDoc = (

@@ -26,7 +26,11 @@ interface Envelope {
 export const QS_SUCCESS = 'SP100';
 
 export interface OpenSessionResponse extends Envelope {
-	lead_source?: LeadSource;
+	/** The E.164 number the quote is keyed by — every save uses it. */
+	phone?: string;
+	/** True when this open created the quote; false = resumed an existing one. */
+	created?: boolean;
+	lead_source?: LeadSource | null;
 	prefill?: LeadPrefill;
 	session?: QuoteSession | null;
 	carriers?: string[] | null;
@@ -37,15 +41,22 @@ export interface SaveSessionResponse extends Envelope {
 	current?: QuoteSession | null;
 }
 
-export const openQuoteSession = (leadId: string): Promise<OpenSessionResponse> =>
-	qsPost('/policyPrinter/quotes/session/open', {lead_id: leadId});
+/** Open (creating on first open) the quote for a caller — by phone, or by a saved lead's id. */
+export const openQuoteSession = (target: {
+	leadId?: string | null;
+	phone?: string | null;
+}): Promise<OpenSessionResponse> =>
+	qsPost('/policyPrinter/quotes/session/open', {
+		...(target.leadId ? {lead_id: target.leadId} : {}),
+		...(target.phone ? {phone: target.phone} : {})
+	});
 
 export const saveQuoteSession = (
-	leadId: string,
+	phone: string,
 	state: QuoteSessionState,
 	version: number
 ): Promise<SaveSessionResponse> =>
-	qsPost('/policyPrinter/quotes/session/save', {lead_id: leadId, state, version});
+	qsPost('/policyPrinter/quotes/session/save', {phone, state, version});
 
 export const runQuote = (
 	state: QuoteSessionState
