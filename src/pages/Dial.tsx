@@ -561,12 +561,31 @@ export default function Dial() {
 				{/* LEFT — errors, prominent active-lead notes, then returning-caller pane. */}
 				<div
 					className={cn(
-						'order-2 flex flex-col items-stretch gap-4 empty:hidden xl:order-none',
+						'order-2 flex flex-col items-stretch gap-5 empty:hidden xl:order-none',
 						scriptOpen
 							? 'xl:col-start-1 xl:row-start-2 xl:h-full xl:min-h-0 xl:min-w-0'
 							: 'mx-auto w-full max-w-3xl'
 					)}
 				>
+					{scriptOpen && (
+						<div className="flex min-h-8 shrink-0 items-center">
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								aria-controls="call-script"
+								aria-expanded={!scriptCollapsed}
+								onClick={() => setScriptCollapsed((collapsed) => !collapsed)}
+							>
+								{scriptCollapsed ? (
+									<PanelLeftOpen className="size-4" />
+								) : (
+									<PanelLeftClose className="size-4" />
+								)}
+								{scriptCollapsed ? 'Show script' : 'Hide script'}
+							</Button>
+						</div>
+					)}
 					{displayError && (
 						<div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
 							{displayError}
@@ -624,30 +643,12 @@ export default function Dial() {
 							: 'mx-auto max-w-3xl'
 					)}
 				>
-					<div className="flex flex-wrap items-center gap-4">
+					<div className="flex min-h-8 shrink-0 flex-wrap items-center gap-4">
 						<h1 className="text-2xl font-semibold tracking-tight">Calls</h1>
 						<CallsMicMeter
 							enabled={provisioned}
 							deviceId={device.inputDeviceId}
 						/>
-						{scriptOpen && (
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								className="ml-auto"
-								aria-controls="call-script"
-								aria-expanded={!scriptCollapsed}
-								onClick={() => setScriptCollapsed((collapsed) => !collapsed)}
-							>
-								{scriptCollapsed ? (
-									<PanelLeftOpen className="size-4" />
-								) : (
-									<PanelLeftClose className="size-4" />
-								)}
-								{scriptCollapsed ? 'Show script' : 'Hide script'}
-							</Button>
-						)}
 					</div>
 
 					{!session.bootstrapped && !displayError && (
