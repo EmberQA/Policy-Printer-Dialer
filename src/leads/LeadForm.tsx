@@ -11,12 +11,13 @@
  * caller pre-filled.
  */
 
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {
 	AlertTriangle,
 	Ban,
 	Calculator,
 	CheckCircle2,
+	ExternalLink,
 	Loader2,
 	RotateCcw,
 	Save
@@ -87,9 +88,39 @@ export function LeadForm({
 		'save' | 'skip' | null
 	>(null);
 	const busy = saving || completingWithoutLead;
-	// The lead a quote attaches to (so it saves + resumes): the one just saved,
-	// else the returning caller's existing lead. Unsaved → a prefilled scratch quote.
-	const quoteLeadId = savedLeadId ?? editLead?.id ?? null;
+	// Quotes are keyed by the caller's number (ENG-286): the live caller ID,
+	// else the phone typed on the form. Saving the lead doesn't matter — any
+	// lead / CRM record with this number opens the same quote.
+	const quotePhone =
+		callerPhone ||
+		(typeof (formData as Record<string, unknown>).phone === 'string'
+			? ((formData as Record<string, unknown>).phone as string)
+			: null);
+
+	// The quote tab this form opened. A stable window NAME per call lets the bar
+	// focus it, or reopen it (reloading the saved quote) if the agent closed it.
+	const newQuoteWindowName = () =>
+		`pp-quote-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now()}`;
+	const quoteWindowName = useRef(newQuoteWindowName());
+	const quoteWindowRef = useRef<Window | null>(null);
+	const [quoteOpened, setQuoteOpened] = useState(false);
+
+	const onGetQuote = () => {
+		const win = quoteWindowRef.current;
+		if (quoteOpened && win && !win.closed) {
+			win.focus();
+			return;
+		}
+		quoteWindowRef.current = openQuoteFromForm(formData, quotePhone, quoteWindowName.current);
+		setQuoteOpened(true);
+	};
+
+	// A new call (or a different returning lead) starts a fresh quote.
+	useEffect(() => {
+		setQuoteOpened(false);
+		quoteWindowRef.current = null;
+		quoteWindowName.current = newQuoteWindowName();
+	}, [callSid, editLead?.id]);
 	const {setNote} = useLeadNotes();
 	const {setView: setBridgeView} = useLeadFormBridge();
 
@@ -402,21 +433,30 @@ export function LeadForm({
 							</p>
 						)}
 
-						<div className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-3 py-2.5">
-							<p className="text-xs text-muted-foreground">
-								{quoteLeadId
-									? 'Opens quotes prefilled from this form — progress saves to the lead.'
-									: 'Opens quotes prefilled from this form. Save the lead to keep quote progress.'}
-							</p>
-							<Button
+						{quoteOpened ? (
+							<button
 								type="button"
-								size="sm"
-								onClick={() => openQuoteFromForm(quoteLeadId, formData)}
+								onClick={onGetQuote}
+								className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-left transition-colors hover:bg-primary/10"
 							>
-								<Calculator className="size-4" />
+								<span className="flex items-center gap-2.5">
+									<span className="relative flex size-2">
+										<span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60" />
+										<span className="relative inline-flex size-2 rounded-full bg-primary" />
+									</span>
+									<span className="text-sm font-medium">Quote in progress</span>
+								</span>
+								<span className="flex items-center gap-1 text-sm font-medium text-primary">
+									Open quote
+									<ExternalLink className="size-3.5" />
+								</span>
+							</button>
+						) : (
+							<Button type="button" className="h-11 w-full text-base" onClick={onGetQuote}>
+								<Calculator className="size-5" />
 								Get a quote
 							</Button>
-						</div>
+						)}
 
 						{saveError && <p className="text-destructive">{saveError}</p>}
 

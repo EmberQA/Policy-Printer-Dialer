@@ -1,7 +1,8 @@
 /**
- * My Carriers (ENG-286): the carriers this agent is appointed with, opened
- * from the page header. Saved on the agent (dialer_agents.quote_carriers) and
- * sent as ITK's carriersFilter on every Quoter run. None selected = all.
+ * My Carriers (ENG-286): the carriers this agent is appointed with. Opened
+ * from the dialer header's settings menu, next to Licensed states — both are
+ * saved on the agent's dialer profile (dialer_agents.quote_carriers). Sent as
+ * ITK's carriersFilter on every quote. None selected = all carriers.
  */
 
 import {useEffect, useMemo, useState} from 'react';
@@ -19,7 +20,7 @@ export function CarriersDialog({
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	onSaved: (carriers: string[] | null) => void;
+	onSaved?: (carriers: string[] | null) => void;
 }) {
 	const [companies, setCompanies] = useState<string[]>([]);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -67,7 +68,7 @@ export function CarriersDialog({
 				setError(res.statusMessage || 'Save failed');
 				return;
 			}
-			onSaved(res.selected ?? null);
+			onSaved?.(res.selected ?? null);
 			onOpenChange(false);
 		} catch (err: any) {
 			setError(err?.message || 'Save failed');

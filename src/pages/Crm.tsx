@@ -412,10 +412,10 @@ export default function Crm({
 }
 
 /**
- * CRM "Quote" (ENG-286). A contact with a saved lead opens that lead's quote —
- * the backend creates one on first open. A contact with no lead in the
- * database (TLD import, or a call that never saved a lead) can't hold a
- * persisted quote, so it opens a scratch quote prefilled with name + phone.
+ * CRM "Quote" (ENG-286). Quotes belong to the caller's number, so every card
+ * with a phone opens (or, first time, creates) that number's quote — a saved
+ * lead resolves its number on the backend; a TLD-import / lead-less contact
+ * sends its number through the prefill handoff along with the name.
  */
 function openContactQuote(contact: ActivityListItem, importedFromTld: boolean) {
 	if (contact.lead_id && !importedFromTld) {
@@ -423,11 +423,11 @@ function openContactQuote(contact: ActivityListItem, importedFromTld: boolean) {
 		return;
 	}
 	const [first = '', ...rest] = (contact.name ?? '').trim().split(/\s+/);
-	openQuoteFromForm(null, {
-		first_name: first,
-		last_name: rest.join(' '),
-		phone: contact.caller_phone ?? ''
-	});
+	openQuoteFromForm(
+		{first_name: first, last_name: rest.join(' ')},
+		contact.caller_phone ?? null,
+		`pp-quote-contact-${contact.id}`
+	);
 }
 
 function ContactCard({

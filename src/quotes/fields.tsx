@@ -4,7 +4,7 @@
  * Quoter and Quote Compare workspaces.
  */
 
-import type {ReactNode} from 'react';
+import {useState, type ReactNode} from 'react';
 import {Input} from '@/components/ui/input';
 import {
 	Select,
@@ -16,6 +16,7 @@ import {
 import {US_JURISDICTION_NAMES} from '@/lib/phone';
 import {cn} from '@/lib/utils';
 import {
+	COVERAGE_PRESETS,
 	ITK_PAYMENT_TYPES,
 	TOBACCO_OPTIONS,
 	type ItkPaymentType,
@@ -230,6 +231,46 @@ export function Segmented<T extends string>({
 					{o.label}
 				</button>
 			))}
+		</div>
+	);
+}
+
+/**
+ * Coverage amount: the common presets in a dropdown, or "Other" with a typed
+ * amount. Stays on "Other" while the agent types, even through a preset value.
+ */
+export function CoverageAmountField({
+	value,
+	onChange
+}: {
+	value: number | null;
+	onChange: (v: number | null) => void;
+}) {
+	const isPreset = value !== null && (COVERAGE_PRESETS as readonly number[]).includes(value);
+	const [other, setOther] = useState(value !== null && !isPreset);
+	const showOther = other || (value !== null && !isPreset);
+	return (
+		<div className="space-y-2">
+			<SimpleSelect
+				value={showOther ? 'other' : value !== null ? String(value) : null}
+				placeholder="Select amount"
+				onChange={(v) => {
+					if (v === 'other') {
+						setOther(true);
+						onChange(null);
+					} else {
+						setOther(false);
+						onChange(Number(v));
+					}
+				}}
+				options={[
+					...COVERAGE_PRESETS.map((n) => ({value: String(n), label: wholeMoney(n)})),
+					{value: 'other', label: 'Other amount'}
+				]}
+			/>
+			{showOther && (
+				<NumberInput prefix="$" placeholder="e.g. 7,500" value={value} onChange={onChange} />
+			)}
 		</div>
 	);
 }

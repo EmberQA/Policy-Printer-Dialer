@@ -10,11 +10,23 @@
 
 import {useEffect, useState} from 'react';
 import {Dialog as DialogPrimitive} from 'radix-ui';
-import {ChevronLeft, Loader2, RotateCcw, X} from 'lucide-react';
+import {
+	Check,
+	ChevronLeft,
+	ChevronRight,
+	HeartPulse,
+	Loader2,
+	Pill,
+	RotateCcw,
+	Search,
+	X
+} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {cn} from '@/lib/utils';
 import {QS_SUCCESS, traversalStep} from './api';
+import {DateField} from './DateField';
+import {Segmented} from './fields';
 import type {ItkTraversalResponse, ItkUnderwritingItem, TraversalAction} from './types';
 
 export interface TraversalTarget {
@@ -31,7 +43,12 @@ const buildItem = (t: ItkTraversalResponse): ItkUnderwritingItem => ({
 	type: t.is_drug ? 'Drug' : 'Health Condition',
 	hospitalization: false,
 	hospitalizationReason: null,
-	answers: (t.underwriting_items || []).map((a) => ({answer: a.answer, type: a.type}))
+	// Keep `question`: several yes_no answers are only distinguishable by it.
+	answers: (t.underwriting_items || []).map((a) => ({
+		answer: a.answer,
+		type: a.type,
+		...(a.question ? {question: a.question} : {})
+	}))
 });
 
 export function TraversalDialog({
@@ -51,11 +68,13 @@ export function TraversalDialog({
 	const [first, setFirst] = useState('');
 	const [second, setSecond] = useState('');
 	const [currently, setCurrently] = useState(false);
+	const [optionFilter, setOptionFilter] = useState('');
 
 	const resetInputs = (t: ItkTraversalResponse | null) => {
 		setFirst(t?.answer?.[0] && t.answer[0] !== 'current' ? t.answer[0] : '');
 		setSecond(t?.answer?.[1] ?? '');
 		setCurrently(t?.answer?.[0] === 'current');
+		setOptionFilter('');
 	};
 
 	const apply = (t: ItkTraversalResponse) => {
@@ -140,126 +159,190 @@ export function TraversalDialog({
 		}
 	};
 
-	const choice = (opt: string, onPick: (v: string) => void, selected: boolean) => (
-		<button
-			key={opt}
-			type="button"
-			disabled={busy}
-			onClick={() => onPick(opt)}
-			className={cn(
-				'w-full cursor-pointer rounded-lg border px-3.5 py-2.5 text-left text-sm font-medium transition-colors',
-				selected ? 'border-primary bg-secondary text-foreground' : 'hover:border-primary/40 hover:bg-muted'
-			)}
-		>
-			{opt}
-		</button>
-	);
+	const options = q?.options ?? [];
+	const searchable = options.length > 8;
+	const visibleOptions = searchable
+		? options.filter((o) => o.toLowerCase().includes(optionFilter.trim().toLowerCase()))
+		: options;
+	const isDate = q?.input_type === 'DATE' || q?.input_type === 'DOUBLE_DATE';
+	const questionNumber = (step?.underwriting_items?.length ?? 0) + 1;
+	const Icon = target?.isDrug ? Pill : HeartPulse;
 
 	return (
 		<DialogPrimitive.Root open={!!target} onOpenChange={(o) => !o && onClose()}>
 			<DialogPrimitive.Portal>
-				<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40" />
-				<DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 grid max-h-[85vh] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-xl border bg-popover p-5 text-popover-foreground shadow-xl">
-					<div className="flex items-start justify-between gap-3">
-						<div>
-							<DialogPrimitive.Title className="text-base font-semibold">
+				<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+				<DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border bg-popover text-popover-foreground shadow-2xl data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
+					{/* Header */}
+					<div className="flex items-center gap-3 border-b px-5 py-4">
+						<span
+							className={cn(
+								'flex size-10 shrink-0 items-center justify-center rounded-xl',
+								target?.isDrug ? 'bg-secondary text-primary' : 'bg-orange-50 text-orange-600'
+							)}
+						>
+							<Icon className="size-5" />
+						</span>
+						<div className="min-w-0 flex-1">
+							<DialogPrimitive.Title className="truncate text-base font-semibold">
 								{target?.name}
 							</DialogPrimitive.Title>
 							<DialogPrimitive.Description className="text-xs text-muted-foreground">
-								{target?.isDrug ? 'Medication' : 'Health condition'} questionnaire
+								{target?.isDrug ? 'Medication' : 'Health condition'} · Question {questionNumber}
 							</DialogPrimitive.Description>
 						</div>
 						<DialogPrimitive.Close asChild>
-							<Button variant="ghost" size="icon" aria-label="Close">
+							<Button variant="ghost" size="icon" className="size-8 text-muted-foreground" aria-label="Close">
 								<X className="size-4" />
 							</Button>
 						</DialogPrimitive.Close>
 					</div>
 
-					{!step && busy && (
-						<p className="flex items-center gap-2 text-sm text-muted-foreground">
-							<Loader2 className="size-4 animate-spin" /> Loading questions…
-						</p>
-					)}
+					{/* Body */}
+					<div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+						{!step && busy && (
+							<div className="space-y-3">
+								<div className="h-5 w-2/3 animate-pulse rounded bg-muted" />
+								<div className="h-12 animate-pulse rounded-xl bg-muted" />
+								<div className="h-12 animate-pulse rounded-xl bg-muted" />
+							</div>
+						)}
 
-					{q && (
-						<div className="space-y-3">
-							<p className="text-sm font-medium">{q.text}</p>
+						{q && (
+							<div className={cn('space-y-4 transition-opacity', busy && 'opacity-60')}>
+								<p className="text-[15px] font-medium leading-snug">{q.text}</p>
 
-							{(q.input_type === 'RADIO' || q.input_type === 'DROPDOWN') && (
-								<div className="grid gap-2">
-									{(q.options ?? []).map((opt) =>
-										choice(opt, (v) => void submit([v]), first === opt)
-									)}
-								</div>
-							)}
+								{(q.input_type === 'RADIO' || q.input_type === 'DROPDOWN') && (
+									<div className="space-y-2">
+										{searchable && (
+											<div className="relative">
+												<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+												<Input
+													value={optionFilter}
+													onChange={(e) => setOptionFilter(e.target.value)}
+													placeholder={`Search ${options.length} options`}
+													className="h-10 pl-9"
+													autoFocus
+												/>
+											</div>
+										)}
+										<div className="grid gap-2">
+											{visibleOptions.map((opt) => {
+												const selected = first === opt;
+												return (
+													<button
+														key={opt}
+														type="button"
+														disabled={busy}
+														onClick={() => void submit([opt])}
+														className={cn(
+															'group flex w-full cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-medium transition-all',
+															selected
+																? 'border-primary bg-secondary ring-1 ring-primary'
+																: 'hover:border-primary/50 hover:bg-muted/60'
+														)}
+													>
+														<span
+															className={cn(
+																'flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors',
+																selected ? 'border-primary bg-primary' : 'group-hover:border-primary/60'
+															)}
+														>
+															{selected && <span className="size-1.5 rounded-full bg-white" />}
+														</span>
+														<span className="flex-1">{opt}</span>
+														<ChevronRight className="size-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+													</button>
+												);
+											})}
+											{!visibleOptions.length && (
+												<p className="py-4 text-center text-sm text-muted-foreground">No matching options</p>
+											)}
+										</div>
+									</div>
+								)}
 
-							{q.input_type === 'YES_NO' && (
-								<div className="grid grid-cols-2 gap-2">
-									{['Yes', 'No'].map((opt) =>
-										choice(opt, (v) => void submit([v]), first === opt)
-									)}
-								</div>
-							)}
+								{q.input_type === 'YES_NO' && (
+									<div className="grid grid-cols-2 gap-3">
+										{['Yes', 'No'].map((opt) => (
+											<button
+												key={opt}
+												type="button"
+												disabled={busy}
+												onClick={() => void submit([opt])}
+												className={cn(
+													'flex h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border text-base font-semibold transition-all',
+													first === opt
+														? 'border-primary bg-secondary text-primary ring-1 ring-primary'
+														: 'hover:border-primary/50 hover:bg-muted/60'
+												)}
+											>
+												{opt === 'Yes' ? (
+													<Check className="size-5 text-success" />
+												) : (
+													<X className="size-5 text-destructive" />
+												)}
+												{opt}
+											</button>
+										))}
+									</div>
+								)}
 
-							{(q.input_type === 'DATE' || q.input_type === 'DOUBLE_DATE') && (
-								<div className="space-y-3">
-									{q.currently_checkbox !== undefined && (
-										<label className="flex items-center gap-2 text-sm">
-											<input
-												type="checkbox"
-												checked={currently}
-												onChange={(e) => setCurrently(e.target.checked)}
+								{isDate && (
+									<div className="space-y-4">
+										{q.currently_checkbox !== undefined && (
+											<Segmented
+												className="w-full"
+												value={currently ? 'current' : 'past'}
+												options={[
+													{value: 'current', label: q.currently_text || 'Currently'},
+													{value: 'past', label: 'Pick a date'}
+												]}
+												onChange={(v) => setCurrently(v === 'current')}
 											/>
-											{q.currently_text || 'Currently'}
-										</label>
-									)}
-									{!currently && (
-										<Input
-											type="date"
-											value={first}
-											onChange={(e) => setFirst(e.target.value)}
-										/>
-									)}
-									{q.input_type === 'DOUBLE_DATE' && (
-										<>
-											{q.text2 && <p className="text-sm font-medium">{q.text2}</p>}
-											<Input
-												type="date"
-												value={second}
-												onChange={(e) => setSecond(e.target.value)}
-											/>
-										</>
-									)}
-									<Button onClick={() => void submit()} disabled={busy || !answerValues()}>
-										{busy && <Loader2 className="size-4 animate-spin" />}
-										Next
-									</Button>
-								</div>
-							)}
-						</div>
-					)}
+										)}
+										{!currently && <DateField value={first} onChange={setFirst} autoFocus label={q.text} />}
+										{q.input_type === 'DOUBLE_DATE' && (
+											<div className="space-y-2">
+												{q.text2 && <p className="text-sm font-medium">{q.text2}</p>}
+												<DateField value={second} onChange={setSecond} label={q.text2 ?? 'Second date'} />
+											</div>
+										)}
+									</div>
+								)}
+							</div>
+						)}
 
-					{error && <p className="text-sm text-destructive">{error}</p>}
+						{error && (
+							<p className="mt-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+						)}
+					</div>
 
+					{/* Footer */}
 					{step && (
-						<div className="flex gap-2 border-t pt-3">
-							<Button
-								variant="outline"
-								size="sm"
-								disabled={busy || !step.has_prev}
-								onClick={() => void nav('prev')}
-							>
-								<ChevronLeft className="size-4" /> Back
-							</Button>
-							<Button
-								variant="ghost"
-								size="sm"
-								disabled={busy}
-								onClick={() => void nav('edit')}
-							>
-								<RotateCcw className="size-4" /> Start over
-							</Button>
+						<div className="flex items-center justify-between gap-2 border-t bg-muted/30 px-5 py-3">
+							<div className="flex gap-1">
+								<Button
+									variant="ghost"
+									size="sm"
+									disabled={busy || !step.has_prev}
+									onClick={() => void nav('prev')}
+								>
+									<ChevronLeft className="size-4" /> Back
+								</Button>
+								<Button variant="ghost" size="sm" disabled={busy} onClick={() => void nav('edit')}>
+									<RotateCcw className="size-3.5" /> Start over
+								</Button>
+							</div>
+							{isDate ? (
+								<Button size="sm" onClick={() => void submit()} disabled={busy || !answerValues()}>
+									{busy && <Loader2 className="size-4 animate-spin" />}
+									Continue
+									{!busy && <ChevronRight className="size-4" />}
+								</Button>
+							) : (
+								busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />
+							)}
 						</div>
 					)}
 				</DialogPrimitive.Content>

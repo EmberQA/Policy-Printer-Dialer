@@ -10,6 +10,7 @@
  */
 
 import {US_JURISDICTION_NAMES} from '@/lib/phone';
+import {parseDob, parseHeight, parseWeight} from './parse';
 import type {QuoteClientInputs} from './types';
 
 export interface FormQuotePrefill {
@@ -40,39 +41,14 @@ export function stateCodeFromForm(raw: unknown): string | null {
 	return NAME_TO_CODE.get(s.toLowerCase()) ?? null;
 }
 
-/** "MM/DD/YYYY", "M-D-YYYY", or ISO "YYYY-MM-DD" → parts. Calendar strings only, no Date math. */
-export function dobPartsFromForm(raw: unknown): {month: number; day: number; year: number} | null {
-	const s = text(raw);
-	let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
-	let parts = m ? {year: +m[1], month: +m[2], day: +m[3]} : null;
-	if (!parts) {
-		m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(s);
-		parts = m ? {month: +m[1], day: +m[2], year: +m[3]} : null;
-	}
-	if (!parts) return null;
-	return parts.month >= 1 && parts.month <= 12 && parts.day >= 1 && parts.day <= 31 ? parts : null;
-}
+/** Free-text DOB → parts (see parse.ts for every accepted format). */
+export const dobPartsFromForm = parseDob;
 
-/** `5'8`, `5'8"`, `5 8`, `5-8`, `5ft 8in`, or total inches `68` → feet/inches. */
-export function heightFromForm(raw: unknown): {feet: number; inches: number} | null {
-	const s = text(raw);
-	if (!s) return null;
-	const m = /^(\d)\s*(?:'|ft|feet|-|\s)\s*(\d{1,2})?/i.exec(s);
-	if (m) {
-		const feet = +m[1];
-		const inches = m[2] ? +m[2] : 0;
-		return feet >= 3 && feet <= 7 && inches < 12 ? {feet, inches} : null;
-	}
-	const total = Number(s);
-	return Number.isInteger(total) && total >= 36 && total <= 96
-		? {feet: Math.floor(total / 12), inches: total % 12}
-		: null;
-}
+/** Free-text height → feet/inches (see parse.ts for every accepted format). */
+export const heightFromForm = parseHeight;
 
-export function weightFromForm(raw: unknown): number | null {
-	const n = Number(text(raw).replace(/\s*(lbs?|pounds)$/i, ''));
-	return Number.isFinite(n) && n >= 50 && n <= 700 ? Math.round(n) : null;
-}
+/** Free-text weight → whole pounds (see parse.ts for every accepted format). */
+export const weightFromForm = parseWeight;
 
 /** Map the live form's values onto quote inputs. Unknown / blank keys are skipped. */
 export function quotePrefillFromForm(formData: Record<string, unknown>): FormQuotePrefill {
