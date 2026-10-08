@@ -27,7 +27,6 @@ import {
 	ArrowRight,
 	Check,
 	ArrowUpRight,
-	PanelLeftClose,
 	MoreHorizontal,
 	RotateCcw,
 	X
@@ -218,12 +217,10 @@ const CONTINUATION =
 	'border border-sky-400 bg-sky-50 text-sky-800 hover:border-sky-500 hover:bg-sky-100 dark:border-sky-400 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20';
 
 export function ScriptDoc({
-	onCollapse,
 	onClose,
 	initialMode = 'live',
 	values = NO_VALUES
 }: {
-	onCollapse?: () => void;
 	/** Shown as an X when the script is an idle preview opened from the Campaigns menu. */
 	onClose?: () => void;
 	/** Lead form + agent values for the linked blanks (read-only). */
@@ -526,12 +523,6 @@ export function ScriptDoc({
 								<RotateCcw />
 								Reset choices
 							</DropdownMenuItem>
-							{onCollapse && (
-								<DropdownMenuItem onSelect={onCollapse}>
-									<PanelLeftClose />
-									Collapse script sidebar
-								</DropdownMenuItem>
-							)}
 						</DropdownMenuContent>
 					</DropdownMenu>
 					{onClose && (

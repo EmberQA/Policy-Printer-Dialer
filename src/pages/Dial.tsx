@@ -8,6 +8,7 @@ import {
 	ListChecks,
 	Loader2,
 	Mic,
+	PanelLeftClose,
 	PanelLeftOpen,
 	PhoneCall,
 	PhoneOutgoing,
@@ -480,7 +481,21 @@ export default function Dial() {
 	// With the script doc up (a call on a script-doc campaign) the script + form
 	// split the width; otherwise the call column sits centered on the page.
 	const {view: leadFormView} = useLeadFormBridge();
-	const [scriptCollapsed, setScriptCollapsed] = useState(false);
+	const scriptCollapsedKey = `pp_dialer_script_collapsed:${user?.user_id ?? 'default'}`;
+	const [scriptCollapsed, setScriptCollapsed] = useState(() => {
+		try {
+			return localStorage.getItem(scriptCollapsedKey) === 'true';
+		} catch {
+			return false;
+		}
+	});
+	useEffect(() => {
+		try {
+			localStorage.setItem(scriptCollapsedKey, String(scriptCollapsed));
+		} catch {
+			// Keep the toggle usable when browser storage is unavailable.
+		}
+	}, [scriptCollapsed, scriptCollapsedKey]);
 	// ENG-298: the script doc's linked blanks read the live lead form + agent name.
 	const scriptValues = useMemo(
 		() => ({
@@ -536,7 +551,10 @@ export default function Dial() {
 				className={cn(
 					'flex flex-col gap-8',
 					scriptOpen
-						? cn('xl:grid xl:min-h-0 xl:flex-1 xl:grid-rows-[auto_minmax(0,1fr)] xl:items-start xl:gap-3 xl:transition-[grid-template-columns] xl:duration-300 xl:ease-out', scriptCollapsed ? 'xl:grid-cols-[2rem_minmax(0,1fr)]' : SCRIPT_DOC_COLS)
+						? cn(
+								'xl:grid xl:min-h-0 xl:flex-1 xl:grid-rows-[auto_minmax(0,1fr)] xl:items-start xl:gap-3',
+								SCRIPT_DOC_COLS
+							)
 						: 'xl:gap-3'
 				)}
 			>
@@ -549,51 +567,52 @@ export default function Dial() {
 							: 'mx-auto w-full max-w-3xl'
 					)}
 				>
-					{scriptOpen && scriptCollapsed && (
-						<Button type="button" variant="ghost" size="icon"
-							className="w-6 shrink-0 p-0 text-[#4338ca] hover:bg-[#eef2ff] hover:text-[#3730a3] dark:text-[#818cf8]"
-							aria-label="Expand script sidebar" title="Expand script sidebar" aria-expanded={false}
-							onClick={() => setScriptCollapsed(false)}>
-							<PanelLeftOpen className="size-4" />
-						</Button>
+					{displayError && (
+						<div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+							{displayError}
+						</div>
 					)}
-					<div className={scriptOpen && scriptCollapsed ? 'hidden' : 'contents'}>
-						{displayError && (
-							<div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-								{displayError}
-							</div>
-						)}
-						{deviceError && (
-							<div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-								Softphone: {deviceError}
-							</div>
-						)}
+					{deviceError && (
+						<div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+							Softphone: {deviceError}
+						</div>
+					)}
 
-						{scriptOpen && (
+					{scriptOpen && (
+						<div
+							id="call-script"
+							className={scriptCollapsed ? 'hidden' : 'contents'}
+						>
 							<ScriptDoc
 								key={wrapUpCallKey ?? 'call'}
-								onCollapse={() => setScriptCollapsed(true)}
 								onClose={workCall ? undefined : () => setScriptPreviewCampaign(null)}
 								values={scriptValues}
 							/>
-						)}
+						</div>
+					)}
+					{scriptOpen &&
+						scriptCollapsed &&
+						profile &&
+						provisioned &&
+						workCall &&
+						effectiveLeadCampaignId &&
+						!wrapUpCompleted && <LeadNotesPanel />}
 
-						{profile && provisioned && (
-							<>
-								{/* Outbound-only prior-history strip. Inbound calls deliberately skip
-	                  the lookup and always use a fresh lead form. */}
-								{workCall?.direction === 'outbound' &&
-									!wrapUpCompleted &&
-									!priorHistoryDismissed && (
-										<ReturningCallerCard
-											result={outboundHistory.data}
-											direction="outbound"
-											onDismiss={() => setDismissedCallerKey(wrapUpCallKey)}
-										/>
-									)}
-							</>
-						)}
-					</div>
+					{profile && provisioned && (
+						<>
+							{/* Outbound-only prior-history strip. Inbound calls deliberately skip
+                  the lookup and always use a fresh lead form. */}
+							{workCall?.direction === 'outbound' &&
+								!wrapUpCompleted &&
+								!priorHistoryDismissed && (
+									<ReturningCallerCard
+										result={outboundHistory.data}
+										direction="outbound"
+										onDismiss={() => setDismissedCallerKey(wrapUpCallKey)}
+									/>
+								)}
+						</>
+					)}
 				</div>
 
 				{/* CENTER — the interactive call core (banners + lead form). */}
@@ -611,6 +630,24 @@ export default function Dial() {
 							enabled={provisioned}
 							deviceId={device.inputDeviceId}
 						/>
+						{scriptOpen && (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="ml-auto"
+								aria-controls="call-script"
+								aria-expanded={!scriptCollapsed}
+								onClick={() => setScriptCollapsed((collapsed) => !collapsed)}
+							>
+								{scriptCollapsed ? (
+									<PanelLeftOpen className="size-4" />
+								) : (
+									<PanelLeftClose className="size-4" />
+								)}
+								{scriptCollapsed ? 'Show script' : 'Hide script'}
+							</Button>
+						)}
 					</div>
 
 					{!session.bootstrapped && !displayError && (
@@ -698,14 +735,16 @@ export default function Dial() {
 							{/* Lead capture — held open after hangup until the call is dispositioned.
                   Inbound always creates a new lead; outbound may update prior history. */}
 							{workCall && effectiveLeadCampaignId && !wrapUpCompleted && (
-								// Notes first, then the form (notes only when the form has a notes field).
+								// Notes move to the script column while the script is hidden.
 								<section
 									aria-label="Lead notes and form"
 									className="flex max-h-[calc(100dvh-19rem)] min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain pr-1 xl:max-h-none xl:flex-1"
 								>
-									<div className="min-w-0 empty:hidden">
-										<LeadNotesPanel />
-									</div>
+									{!(scriptOpen && scriptCollapsed) && (
+										<div className="min-w-0 empty:hidden">
+											<LeadNotesPanel />
+										</div>
+									)}
 									<div className="min-w-0">
 										<LeadForm
 											key={`${workCall.callSid || 'active-call'}:${editLead?.id ?? 'new'}`}
@@ -762,7 +801,10 @@ export default function Dial() {
 					onToggleReady={onToggleReady}
 					campaigns={campaigns}
 					onToggleCampaign={onToggleCampaign}
-					onPreviewScript={setScriptPreviewCampaign}
+					onPreviewScript={(campaign) => {
+						setScriptCollapsed(false);
+						setScriptPreviewCampaign(campaign);
+					}}
 					inputDeviceId={device.inputDeviceId}
 					outputDeviceId={device.outputDeviceId}
 					onInputDeviceChange={device.setInputDevice}

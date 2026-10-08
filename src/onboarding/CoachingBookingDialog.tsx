@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {CalendarDays, RefreshCw} from 'lucide-react';
 import {Dialog as DialogPrimitive} from 'radix-ui';
 import {Button} from '@/components/ui/button';
@@ -39,7 +39,7 @@ function loadCalendly(): Promise<CalendlyApi> {
 /** Completion is the only dismissal path, except in the dev-only preview. */
 export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 	userName: string;
-	onBooked: () => void;
+	onBooked: () => void | Promise<void>;
 	onPreviewClose?: () => void;
 }) {
 	const closePreview = import.meta.env.DEV ? onPreviewClose : undefined;
@@ -47,6 +47,20 @@ export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 	const [attempt, setAttempt] = useState(0);
 	const [failed, setFailed] = useState(false);
 	const [loaded, setLoaded] = useState(false);
+	const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle');
+	const saving = useRef(false);
+	const saveBooking = useCallback(async () => {
+		if (saving.current) return;
+		saving.current = true;
+		setSaveState('saving');
+		try {
+			await onBooked();
+		} catch {
+			setSaveState('error');
+		} finally {
+			saving.current = false;
+		}
+	}, [onBooked]);
 	useEffect(() => {
 		if (!container) return;
 		let cancelled = false;
@@ -61,7 +75,7 @@ export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 				setLoaded(true);
 				setFailed(false);
 			}
-			if (isBookingConfirmation(event, frame.contentWindow)) onBooked();
+			if (isBookingConfirmation(event, frame.contentWindow)) void saveBooking();
 		};
 		window.addEventListener('message', onMessage);
 		void loadCalendly().then((api) => {
@@ -73,7 +87,7 @@ export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 			window.removeEventListener('message', onMessage);
 			container.replaceChildren();
 		};
-	}, [container, attempt, userName, onBooked]);
+	}, [container, attempt, userName, saveBooking]);
 
 	return (
 		<DialogPrimitive.Root open onOpenChange={(open) => { if (!open) closePreview?.(); }}>
@@ -99,14 +113,18 @@ export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 								<p>You’ll review what is working, talk through any challenges, and share feedback about your experience with Policy Printer.</p>
 							</div>
 						</DialogPrimitive.Description>
-						<p className="mt-5 border-t pt-4 text-xs leading-5 text-muted-foreground">Choose a time and confirm your booking to continue using the dialer.</p>
+						<p className="mt-5 border-t pt-4 text-xs leading-5 text-muted-foreground">{saveState === 'idle' ? 'Choose a time and confirm your booking to continue using the dialer.' : 'Your meeting is booked. You do not need to book again.'}</p>
 					</div>
 					<div className="min-w-0 flex-1 bg-white">
-						{(!loaded || failed) && <div role="status" className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted p-4 text-sm text-foreground">
+						{saveState !== 'idle' && <div role={saveState === 'error' ? 'alert' : 'status'} className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted p-4 text-sm text-foreground">
+							<span>{saveState === 'saving' ? 'Saving your booking confirmation…' : 'Your meeting is booked, but we could not save the confirmation. Please retry saving.'}</span>
+							{saveState === 'error' && <Button variant="outline" size="sm" onClick={() => void saveBooking()}><RefreshCw className="size-4" /> Retry saving</Button>}
+						</div>}
+						{saveState === 'idle' && (!loaded || failed) && <div role="status" className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted p-4 text-sm text-foreground">
 							<span>{failed ? 'The booking calendar is taking longer to load. Please retry.' : 'Loading your booking calendar…'}</span>
 							{failed && <Button variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}><RefreshCw className="size-4" /> Retry calendar</Button>}
 						</div>}
-						<div ref={setContainer} className="h-[700px] min-w-[300px]" />
+						<div ref={setContainer} className={saveState === 'idle' ? 'h-[700px] min-w-[300px]' : 'hidden'} />
 					</div>
 				</DialogPrimitive.Content>
 			</DialogPrimitive.Portal>

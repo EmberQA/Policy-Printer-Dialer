@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
-import {bookingCookie, bookingCookieName, coachingRequired, hasBookingCookie, isBookingConfirmation} from './coaching';
+import {expiredBookingCookie, legacyBookingCookieName, coachingRequired, hasLegacyBookingCookie, isBookingConfirmation} from './coaching';
 
-const status = {ai_sales: 0, server_time: '2026-09-01T12:00:00Z'};
+const status = {booking_complete: false, ai_sales: 0, server_time: '2026-09-01T12:00:00Z'};
 
 describe('coaching eligibility', () => {
 	it('starts at the fifth AI-confirmed sale', () => {
@@ -10,6 +10,11 @@ describe('coaching eligibility', () => {
 		}
 		for (const ai_sales of [5, 6, 150]) {
 			expect(coachingRequired({...status, ai_sales})).toBe(true);
+		}
+	});
+	it('never requires another booking when the database flag is set', () => {
+		for (const ai_sales of [0, 5, 150]) {
+			expect(coachingRequired({...status, ai_sales, booking_complete: true})).toBe(false);
 		}
 	});
 	it('fails open while sales eligibility is missing or invalid', () => {
@@ -32,15 +37,14 @@ describe('booking confirmation', () => {
 			expect(isBookingConfirmation({...event, data}, frame)).toBe(false);
 		}
 	});
-	it('keeps completion scoped to both organization and user', () => {
-		const key = bookingCookieName('org1', 'user1');
+	it('imports legacy completion only for the matching organization and user', () => {
+		const key = legacyBookingCookieName('org1', 'user1');
 		const cookies = `other=1; ${key}=1; last=2`;
-		expect(hasBookingCookie(cookies, key)).toBe(true);
-		expect(hasBookingCookie(cookies, bookingCookieName('org2', 'user1'))).toBe(false);
-		expect(hasBookingCookie(cookies, bookingCookieName('org1', 'user2'))).toBe(false);
-		expect(hasBookingCookie(`${key}=10`, key)).toBe(false);
-		expect(hasBookingCookie('', key)).toBe(false);
-		expect(bookingCookie(key, true)).toContain('Max-Age=31536000; Path=/; SameSite=Lax; Secure');
-		expect(bookingCookie(key, false)).not.toContain('Secure');
+		expect(hasLegacyBookingCookie(cookies, key)).toBe(true);
+		expect(hasLegacyBookingCookie(cookies, legacyBookingCookieName('org2', 'user1'))).toBe(false);
+		expect(hasLegacyBookingCookie(cookies, legacyBookingCookieName('org1', 'user2'))).toBe(false);
+		expect(hasLegacyBookingCookie(`${key}=10`, key)).toBe(false);
+		expect(hasLegacyBookingCookie('', key)).toBe(false);
+		expect(expiredBookingCookie(key)).toContain('Max-Age=0; Path=/; SameSite=Lax');
 	});
 });

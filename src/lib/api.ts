@@ -1375,6 +1375,7 @@ export const acknowledgePurchasedLeads = (
 	);
 
 export interface CoachingStatus {
+	booking_complete: boolean;
 	/** AI-confirmed sales, capped at the feedback-call threshold of five. */
 	ai_sales: number;
 	server_time: string;
@@ -1383,3 +1384,8 @@ export const fetchCoachingStatus = (): Promise<{
 	statusCode: string;
 	coaching?: CoachingStatus | null;
 }> => qsPost('/policyPrinter/dialer/coaching/status');
+
+export const saveCoachingBooking = (): Promise<{
+	statusCode: string;
+	booking_complete?: boolean;
+}> => qsPost('/policyPrinter/dialer/coaching/complete', {}, {timeout: 15_000});

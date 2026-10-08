@@ -51,7 +51,7 @@ export interface DialerSession {
 	// --- bootstrap / gating ---
 	profile: any;
 	bookingRequired: boolean;
-	completeBooking: () => void;
+	completeBooking: () => Promise<void>;
 	provisioned: boolean;
 	/** True when an admin has reversibly blocked this agent's new dialer loads. */
 	accessPaused: boolean;
