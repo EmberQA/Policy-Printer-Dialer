@@ -15,6 +15,7 @@ import {useEffect, useMemo, useState} from 'react';
 import {
 	AlertTriangle,
 	Ban,
+	Calculator,
 	CheckCircle2,
 	Loader2,
 	RotateCcw,
@@ -39,6 +40,7 @@ import {FormRenderer, type LeadFormData} from './FormRenderer';
 import {DispositionSelect} from './DispositionSelect';
 import {useLeadNotes} from './LeadNotesContext';
 import {useLeadFormBridge} from './LeadFormBridgeContext';
+import {openQuoteFromForm} from '@/quotes/quoteLink';
 
 export function LeadForm({
 	campaignId,
@@ -85,6 +87,9 @@ export function LeadForm({
 		'save' | 'skip' | null
 	>(null);
 	const busy = saving || completingWithoutLead;
+	// The lead a quote attaches to (so it saves + resumes): the one just saved,
+	// else the returning caller's existing lead. Unsaved → a prefilled scratch quote.
+	const quoteLeadId = savedLeadId ?? editLead?.id ?? null;
 	const {setNote} = useLeadNotes();
 	const {setView: setBridgeView} = useLeadFormBridge();
 
@@ -396,6 +401,22 @@ export function LeadForm({
 								record a disposition.
 							</p>
 						)}
+
+						<div className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-3 py-2.5">
+							<p className="text-xs text-muted-foreground">
+								{quoteLeadId
+									? 'Opens quotes prefilled from this form — progress saves to the lead.'
+									: 'Opens quotes prefilled from this form. Save the lead to keep quote progress.'}
+							</p>
+							<Button
+								type="button"
+								size="sm"
+								onClick={() => openQuoteFromForm(quoteLeadId, formData)}
+							>
+								<Calculator className="size-4" />
+								Get a quote
+							</Button>
+						</div>
 
 						{saveError && <p className="text-destructive">{saveError}</p>}
 

@@ -86,7 +86,7 @@ const AREA_CODES_BY_US_JURISDICTION: Readonly<Record<string, string>> = {
 	WY: '307'
 };
 
-const US_JURISDICTION_NAMES: Readonly<Record<string, string>> = {
+export const US_JURISDICTION_NAMES: Readonly<Record<string, string>> = {
 	AK: 'Alaska',
 	AL: 'Alabama',
 	AR: 'Arkansas',

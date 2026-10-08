@@ -8,7 +8,9 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
+import {openQuoteComparison} from '@/quotes/quoteLink';
 import {
+	Calculator,
 	CalendarDays,
 	Check,
 	Copy,
@@ -760,15 +762,25 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 		<div className="space-y-5 px-4 py-4">
 			<div className="flex items-center justify-between gap-4">
 				<p className="text-sm font-medium">Lead details</p>
-				<Button
-					size="sm"
-					variant="outline"
-					onClick={onCopy}
-					disabled={!copyText}
-				>
-					{copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-					{copied ? 'Copied' : 'Copy all'}
-				</Button>
+				<div className="flex gap-2">
+					<Button
+						size="sm"
+						variant="outline"
+						onClick={() => openQuoteComparison(leadId)}
+					>
+						<Calculator className="size-4" />
+						Quote
+					</Button>
+					<Button
+						size="sm"
+						variant="outline"
+						onClick={onCopy}
+						disabled={!copyText}
+					>
+						{copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+						{copied ? 'Copied' : 'Copy all'}
+					</Button>
+				</div>
 			</div>
 
 			{schema.length > 0 ? (
