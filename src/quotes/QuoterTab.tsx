@@ -126,6 +126,18 @@ export function QuoterTab({
 							/>
 						</Field>
 					</div>
+					<div className="mt-4 space-y-2 border-t pt-4">
+						<Button className="w-full" onClick={getQuote} disabled={busy || !quotable}>
+							{busy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+							{state.lastQuote ? 'Re-run quotes' : 'Get quotes'}
+						</Button>
+						{!quotable && (
+							<p className="text-center text-xs text-muted-foreground">
+								Sex, state, and date of birth or age are required.
+							</p>
+						)}
+						{error && <p className="text-center text-sm text-destructive">{error}</p>}
+					</div>
 				</Panel>
 
 				<Panel title="Client">
@@ -147,18 +159,6 @@ export function QuoterTab({
 					/>
 				</Panel>
 
-				<div className="space-y-2">
-					<Button className="w-full" onClick={getQuote} disabled={busy || !quotable}>
-						{busy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-						{state.lastQuote ? 'Re-run quotes' : 'Get quotes'}
-					</Button>
-					{!quotable && (
-						<p className="text-center text-xs text-muted-foreground">
-							Sex, state, and date of birth or age are required.
-						</p>
-					)}
-					{error && <p className="text-center text-sm text-destructive">{error}</p>}
-				</div>
 			</aside>
 
 			<section className="min-w-0 space-y-3 pb-6 lg:col-span-3 lg:h-full lg:overflow-y-auto lg:pr-1 [scrollbar-gutter:stable]">
