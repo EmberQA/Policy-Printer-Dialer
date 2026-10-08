@@ -537,7 +537,7 @@ export default function Dial() {
 					'flex flex-col gap-8',
 					scriptOpen
 						? cn('xl:grid xl:min-h-0 xl:flex-1 xl:grid-rows-[auto_minmax(0,1fr)] xl:items-start xl:gap-3 xl:transition-[grid-template-columns] xl:duration-300 xl:ease-out', scriptCollapsed ? 'xl:grid-cols-[2rem_minmax(0,1fr)]' : SCRIPT_DOC_COLS)
-						: 'xl:flex-row xl:flex-wrap xl:items-start xl:gap-x-3 xl:gap-y-3'
+						: 'xl:gap-3'
 				)}
 			>
 				{/* LEFT — errors, prominent active-lead notes, then returning-caller pane. */}
@@ -546,7 +546,7 @@ export default function Dial() {
 						'order-2 flex flex-col items-stretch gap-4 empty:hidden xl:order-none',
 						scriptOpen
 							? 'xl:col-start-1 xl:row-start-2 xl:h-full xl:min-h-0 xl:min-w-0'
-							: 'xl:w-[30rem] xl:flex-none'
+							: 'mx-auto w-full max-w-3xl'
 					)}
 				>
 					{scriptOpen && scriptCollapsed && (
@@ -602,7 +602,7 @@ export default function Dial() {
 						'order-1 flex w-full flex-col gap-5 xl:order-none xl:min-w-0',
 						scriptOpen
 							? 'xl:col-start-2 xl:row-start-2 xl:h-full xl:min-h-0'
-							: 'mx-auto max-w-3xl xl:flex-1'
+							: 'mx-auto max-w-3xl'
 					)}
 				>
 					<div className="flex flex-wrap items-center gap-4">
