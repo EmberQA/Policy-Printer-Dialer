@@ -10,7 +10,7 @@
  */
 
 import {US_JURISDICTION_NAMES} from '@/lib/phone';
-import {parseDob, parseHeight, parseWeight} from './parse';
+import {parseDob, parseHeight, parseTobacco, parseWeight} from './parse';
 import type {QuoteClientInputs} from './types';
 
 export interface FormQuotePrefill {
@@ -64,6 +64,9 @@ export function quotePrefillFromForm(formData: Record<string, unknown>): FormQuo
 	const sex = text(formData.sex ?? formData.gender).toLowerCase();
 	if (sex === 'male' || sex === 'm') client.sex = 'Male';
 	if (sex === 'female' || sex === 'f') client.sex = 'Female';
+	// The form's tobacco dropdown mirrors the quoter's; old free text "yes" → Cigarettes.
+	const tobacco = parseTobacco(formData.tobacco);
+	if (tobacco) client.tobacco = tobacco;
 	return {
 		firstName: text(formData.first_name) || null,
 		lastName: text(formData.last_name) || null,

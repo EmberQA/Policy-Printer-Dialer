@@ -38,6 +38,7 @@ import {
 } from '@/lib/api';
 import {stateFormValueFromCode, stateFormValueFromPhone} from '@/lib/phone';
 import {FormRenderer, type LeadFormData} from './FormRenderer';
+import {aliasedAnswer, coerceToField} from './coerceField';
 import {DispositionSelect} from './DispositionSelect';
 import {useLeadNotes} from './LeadNotesContext';
 import {useLeadFormBridge} from './LeadFormBridgeContext';
@@ -150,18 +151,19 @@ export function LeadForm({
 		// Preserve prior answers where the field key still matches, otherwise match the
 		// human label (e.g. an old `phone_number` to a new `phone`). Fields that no
 		// longer exist are intentionally dropped rather than failing validation.
+		// Each answer is then coerced onto the field's current type (old free-text
+		// height → the height option) and dropped if it can't be.
 		const matchingPriorAnswers: LeadFormData = {};
 		for (const field of nextForm?.schema ?? []) {
-			if (priorAnswers[field.key] !== undefined) {
-				matchingPriorAnswers[field.key] = priorAnswers[field.key];
-				continue;
+			let raw = aliasedAnswer(field, priorAnswers);
+			if (raw === undefined) {
+				const priorField = priorFieldByLabel.get(
+					normalizeFieldLabel(field.label)
+				);
+				if (priorField) raw = priorAnswers[priorField.key];
 			}
-			const priorField = priorFieldByLabel.get(
-				normalizeFieldLabel(field.label)
-			);
-			if (priorField && priorAnswers[priorField.key] !== undefined) {
-				matchingPriorAnswers[field.key] = priorAnswers[priorField.key];
-			}
+			const value = raw === undefined ? undefined : coerceToField(field, raw);
+			if (value !== undefined) matchingPriorAnswers[field.key] = value;
 		}
 		const schema = nextForm?.schema ?? [];
 		const phoneField = schema.find(

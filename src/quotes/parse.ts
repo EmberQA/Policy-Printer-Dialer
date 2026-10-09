@@ -181,3 +181,38 @@ export function parseDob(raw: unknown): DobParts | null {
 
 	return null;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Tobacco                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/** ITK's tobacco values, as the quoter's nicotine dropdown lists them. ITK
+ *  prices every non-"None" value identically (live-verified 2026-10-09). */
+export const TOBACCO_VALUES = [
+	'None',
+	'Cigarettes',
+	'Cigars',
+	'Chewing Tobacco',
+	'Vape',
+	'Nicotine Patch/Gum'
+] as const;
+
+const TOBACCO_NO_RE = /^(no|n|none|never|non[- ]?smoker|non[- ]?tobacco|false|0)$/;
+const TOBACCO_YES_RE =
+	/^(yes|y|true|1|smoker|smokes|smoking|tobacco|nicotine|cigarettes?|cigs?|cigars?|vapes?|vaping|chew|dip|snuff|pipe|patch|gum)$/;
+
+/**
+ * Tobacco / nicotine → an ITK tobacco value. A value already in TOBACCO_VALUES
+ * passes through (case-insensitively); yes-like text ("yes", "y", "smoker",
+ * "vape", …) is "Cigarettes"; no-like text ("no", "none", "non-smoker", …) is
+ * "None"; anything else is null.
+ */
+export function parseTobacco(raw: unknown): string | null {
+	if (typeof raw === 'boolean') return raw ? 'Cigarettes' : 'None';
+	const s = normalize(raw).replace(/[.!]+$/, '');
+	if (!s) return null;
+	const exact = TOBACCO_VALUES.find((v) => v.toLowerCase() === s);
+	if (exact) return exact;
+	if (TOBACCO_NO_RE.test(s)) return 'None';
+	return TOBACCO_YES_RE.test(s) ? 'Cigarettes' : null;
+}

@@ -65,6 +65,13 @@ describe('standard lead form → quote prefill', () => {
 		});
 		expect(quotePrefillFromForm({})).toEqual({firstName: null, lastName: null, phone: null, client: {}});
 	});
+
+	it('tobacco: dropdown value passes through; old free-text yes → Cigarettes', () => {
+		expect(quotePrefillFromForm({tobacco: 'Vape'}).client.tobacco).toBe('Vape');
+		expect(quotePrefillFromForm({tobacco: 'yes'}).client.tobacco).toBe('Cigarettes');
+		expect(quotePrefillFromForm({tobacco: 'no'}).client.tobacco).toBe('None');
+		expect(quotePrefillFromForm({tobacco: 'maybe'}).client).not.toHaveProperty('tobacco');
+	});
 });
 
 describe('handoff', () => {
