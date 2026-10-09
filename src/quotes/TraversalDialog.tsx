@@ -8,7 +8,7 @@
  * we silently start over.
  */
 
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {Dialog as DialogPrimitive} from 'radix-ui';
 import {
 	Check,
@@ -69,6 +69,7 @@ export function TraversalDialog({
 	const [second, setSecond] = useState('');
 	const [currently, setCurrently] = useState(false);
 	const [optionFilter, setOptionFilter] = useState('');
+	const startRef = useRef<{target: TraversalTarget; promise: Promise<ItkTraversalResponse | null>} | null>(null);
 
 	const resetInputs = (t: ItkTraversalResponse | null) => {
 		setFirst(t?.answer?.[0] && t.answer[0] !== 'current' ? t.answer[0] : '');
@@ -115,13 +116,22 @@ export function TraversalDialog({
 			return;
 		}
 		let cancelled = false;
-		(async () => {
-			let t = target.resumeSessionId
-				? await call('get', {session_id: target.resumeSessionId})
-				: null;
-			if (!t) t = await call('start', {name: target.name, is_drug: target.isDrug});
+		// One start per opened item: StrictMode's double effect run reuses the
+		// in-flight request instead of opening a second ITK questionnaire.
+		if (startRef.current?.target !== target) {
+			startRef.current = {
+				target,
+				promise: (async () => {
+					const resumed = target.resumeSessionId
+						? await call('get', {session_id: target.resumeSessionId})
+						: null;
+					return resumed ?? (await call('start', {name: target.name, is_drug: target.isDrug}));
+				})()
+			};
+		}
+		void startRef.current.promise.then((t) => {
 			if (!cancelled && t) apply(t);
-		})();
+		});
 		return () => {
 			cancelled = true;
 		};
