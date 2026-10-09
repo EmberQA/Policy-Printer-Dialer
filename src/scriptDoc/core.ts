@@ -114,11 +114,17 @@ export const BLANK_SOURCES: ReadonlySet<BlankSource> = new Set<BlankSource>([
 const asText = (v: unknown): string => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '');
 
 /** A form field's display text: a select's option label ("New Hampshire (NH)" → "New Hampshire"), else the raw value. */
+/** A form `date` answer ("YYYY-MM-DD") reads as "MM/DD/YYYY"; other text is unchanged. */
+const isoDateToUs = (value: string): string => {
+	const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+	return m ? `${m[2]}/${m[3]}/${m[1]}` : value;
+};
+
 function formText(key: string, values: ScriptValues): string {
 	const raw = asText(values.formData?.[key]);
 	if (!raw) return '';
 	const option = values.formSchema?.find((f) => f.key === key)?.options?.find((o) => o.value === raw);
-	return option ? option.label.replace(/\s*\([A-Z]{2}\)$/, '').trim() : raw;
+	return option ? option.label.replace(/\s*\([A-Z]{2}\)$/, '').trim() : isoDateToUs(raw);
 }
 
 /** Live value for a blank's source, or '' (the placeholder shows) when it isn't known yet. */

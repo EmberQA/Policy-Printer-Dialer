@@ -3,7 +3,7 @@
  *
  * Height, weight, sex and tobacco used to be free text; the lead form now
  * has controlled inputs for them (height select, weight number, sex radio,
- * tobacco select — plans/insurance_toolkit/sql/02_form_controlled_fields.sql).
+ * tobacco select, DOB date — plans/insurance_toolkit/sql/02_form_controlled_fields.sql).
  * A returning caller or a CRM edit re-saves the old answers against the new
  * form, and the backend rejects a select value that isn't an option ("Height
  * has an invalid selection") or a non-numeric number. So every carried value
@@ -11,7 +11,7 @@
  */
 
 import type {FormField} from '@/lib/api';
-import {parseHeight, parseTobacco, parseWeight} from '@/quotes/parse';
+import {parseDob, parseHeight, parseTobacco, parseWeight} from '@/quotes/parse';
 
 /** Old keys a current field also reads from (gender was renamed sex). */
 const FIELD_ALIASES: Record<string, string[]> = {sex: ['gender']};
@@ -50,7 +50,7 @@ function parsedFor(key: string, raw: unknown): string | null {
 
 /**
  * `raw` as a value `field` accepts, or undefined to drop it. Only select,
- * radio and number fields are touched; every other type passes through.
+ * radio, number and date fields are touched; every other type passes through.
  */
 export function coerceToField(field: FormField, raw: unknown): unknown {
 	if (raw === undefined || raw === null || raw === '') return raw;
@@ -59,6 +59,12 @@ export function coerceToField(field: FormField, raw: unknown): unknown {
 		if (typeof raw === 'number') return Number.isFinite(raw) ? raw : undefined;
 		const n = field.key === 'weight' ? parseWeight(raw) : Number(String(raw).trim());
 		return n !== null && Number.isFinite(n) ? n : undefined;
+	}
+
+	if (field.type === 'date') {
+		const d = parseDob(raw);
+		const pad = (n: number) => String(n).padStart(2, '0');
+		return d ? `${d.year}-${pad(d.month)}-${pad(d.day)}` : undefined;
 	}
 
 	if (field.type === 'select' || field.type === 'radio') {

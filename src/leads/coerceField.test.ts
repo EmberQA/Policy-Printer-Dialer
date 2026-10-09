@@ -43,6 +43,14 @@ describe('coerceToField', () => {
 		expect(coerceToField(WEIGHT, 165)).toBe(165);
 		expect(coerceToField(WEIGHT, '12')).toBeUndefined();
 	});
+	it('date: any DOB format → YYYY-MM-DD; unreadable → dropped', () => {
+		const DOB: FormField = {key: 'dob', label: 'Date of birth', type: 'date', sort_order: 1};
+		expect(coerceToField(DOB, '1958-01-02')).toBe('1958-01-02');
+		expect(coerceToField(DOB, '01/02/1958')).toBe('1958-01-02');
+		expect(coerceToField(DOB, 'Jan 2 1958')).toBe('1958-01-02');
+		expect(coerceToField(DOB, '1/2/58')).toBe('1958-01-02');
+		expect(coerceToField(DOB, 'sometime in the 50s')).toBeUndefined();
+	});
 	it('leaves other types and empty values alone', () => {
 		const text: FormField = {key: 'notes', label: 'Notes', type: 'text', sort_order: 1};
 		expect(coerceToField(text, 'anything')).toBe('anything');
