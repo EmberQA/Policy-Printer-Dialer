@@ -63,6 +63,7 @@ import {
 	getActivityPeriodBounds,
 	type ActivitySummaryPeriod
 } from './activityPeriod';
+import {isoDateToUs} from '@/lib/dates';
 
 const PAGE_SIZE = 25;
 const EMPTY_SUMMARY: ActivitySummary = {
@@ -868,7 +869,7 @@ function formatValue(value: unknown): string {
 	if (Array.isArray(value)) return value.join(', ');
 	if (typeof value === 'boolean') return value ? 'Yes' : 'No';
 	if (typeof value === 'object') return JSON.stringify(value, null, 2);
-	return String(value);
+	return isoDateToUs(String(value));
 }
 
 function leadToText(detail: LeadDetailResponse | null): string {

@@ -33,7 +33,44 @@ export interface TraversalTarget {
 	name: string;
 	isDrug: boolean;
 	resumeSessionId?: string | null;
+	/** Editing a saved item: its answers prefill each step of the re-run. */
+	previous?: ItkUnderwritingItem | null;
 }
+
+/**
+ * A saved item's answer for a question, matched the way ITK records them
+ * (live-checked 2026-10-09): by type, except a `last_action` question is
+ * stored as `time_dependent`, and yes/no answers (which share one type) are
+ * told apart by their question text.
+ */
+export const previousAnswer = (
+	previous: ItkUnderwritingItem | null | undefined,
+	type: string | undefined,
+	text?: string
+): string | null => {
+	if (!previous || !type) return null;
+	const types = type === 'last_action' ? ['last_action', 'time_dependent'] : [type];
+	const hit = previous.answers.find(
+		(a) => types.includes(a.type) && (type !== 'yes_no' || a.question === text)
+	);
+	return hit?.answer ?? null;
+};
+
+/** The step's answer to show: what this session already holds (Back), else the
+ *  edited item's saved answer, else nothing. */
+export const initialAnswer = (t: ItkTraversalResponse, previous?: ItkUnderwritingItem | null): string[] => {
+	if (t.answer?.length) return t.answer;
+	const q = t.question;
+	if (!q) return [];
+	const a1 = previousAnswer(previous, q.type, q.text);
+	if (q.input_type === 'DOUBLE_DATE') {
+		const a2 = previousAnswer(previous, q.type2);
+		return a1 || a2 ? [a1 ?? '', a2 ?? ''] : [];
+	}
+	// A choice only prefills if this run still offers it.
+	if (a1 && q.options && !q.options.includes(a1)) return [];
+	return a1 ? [a1] : [];
+};
 
 const isComplete = (t: ItkTraversalResponse) =>
 	!t.has_next && (!t.question || (t.answer !== null && t.answer.length > 0));
@@ -72,9 +109,12 @@ export function TraversalDialog({
 	const startRef = useRef<{target: TraversalTarget; promise: Promise<ItkTraversalResponse | null>} | null>(null);
 
 	const resetInputs = (t: ItkTraversalResponse | null) => {
-		setFirst(t?.answer?.[0] && t.answer[0] !== 'current' ? t.answer[0] : '');
-		setSecond(t?.answer?.[1] ?? '');
-		setCurrently(t?.answer?.[0] === 'current');
+		const answer = t ? initialAnswer(t, target?.previous) : [];
+		setFirst(answer[0] && answer[0] !== 'current' ? answer[0] : '');
+		setSecond(answer[1] ?? '');
+		// A known answer wins; otherwise ITK's own default — `currently_checkbox`
+		// is true for medications ("Currently taking"), false for conditions.
+		setCurrently(answer[0] ? answer[0] === 'current' : t?.question?.currently_checkbox === true);
 		setOptionFilter('');
 	};
 
@@ -175,6 +215,7 @@ export function TraversalDialog({
 		? options.filter((o) => o.toLowerCase().includes(optionFilter.trim().toLowerCase()))
 		: options;
 	const isDate = q?.input_type === 'DATE' || q?.input_type === 'DOUBLE_DATE';
+	const hasCurrently = q?.currently_checkbox !== undefined;
 	const questionNumber = (step?.underwriting_items?.length ?? 0) + 1;
 	const Icon = target?.isDrug ? Pill : HeartPulse;
 
@@ -220,7 +261,11 @@ export function TraversalDialog({
 
 						{q && (
 							<div className={cn('space-y-4 transition-opacity', busy && 'opacity-60')}>
-								<p className="text-[15px] font-medium leading-snug">{q.text}</p>
+								{/* With a "currently" toggle, the question text labels the date
+								    field instead, shown only once a past date is chosen. */}
+								{!(isDate && hasCurrently) && (
+									<p className="text-[15px] font-medium leading-snug">{q.text}</p>
+								)}
 
 								{(q.input_type === 'RADIO' || q.input_type === 'DROPDOWN') && (
 									<div className="space-y-2">
@@ -300,18 +345,23 @@ export function TraversalDialog({
 
 								{isDate && (
 									<div className="space-y-4">
-										{q.currently_checkbox !== undefined && (
+										{hasCurrently && (
 											<Segmented
 												className="w-full"
 												value={currently ? 'current' : 'past'}
 												options={[
 													{value: 'current', label: q.currently_text || 'Currently'},
-													{value: 'past', label: 'Pick a date'}
+													{value: 'past', label: target?.isDrug ? 'Last used' : 'Pick a date'}
 												]}
 												onChange={(v) => setCurrently(v === 'current')}
 											/>
 										)}
-										{!currently && <DateField value={first} onChange={setFirst} autoFocus label={q.text} />}
+										{!currently && (
+											<div className="space-y-2">
+												{hasCurrently && <p className="text-sm font-medium">{q.text}</p>}
+												<DateField value={first} onChange={setFirst} autoFocus label={q.text} />
+											</div>
+										)}
 										{q.input_type === 'DOUBLE_DATE' && (
 											<div className="space-y-2">
 												{q.text2 && <p className="text-sm font-medium">{q.text2}</p>}
@@ -344,7 +394,9 @@ export function TraversalDialog({
 									<RotateCcw className="size-3.5" /> Start over
 								</Button>
 							</div>
-							{isDate ? (
+							{/* Choices submit on click; a prefilled one (editing, or Back) can
+							    also be kept with Continue to step straight through. */}
+							{isDate || first ? (
 								<Button size="sm" onClick={() => void submit()} disabled={busy || !answerValues()}>
 									{busy && <Loader2 className="size-4 animate-spin" />}
 									Continue

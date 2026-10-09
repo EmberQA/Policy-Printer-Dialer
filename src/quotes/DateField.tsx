@@ -1,9 +1,11 @@
 /**
- * Date entry for the underwriting questionnaire (ENG-286).
+ * Date entry for the underwriting questionnaire (ENG-286) and the lead form's
+ * `date` fields (`compact` matches the form's h-9 inputs).
  *
  * One masked text input — type digits, the slashes insert themselves
- * (0 3 1 5 2 0 1 9 → 03/15/2019); nothing auto-jumps between fields, Backspace
- * behaves normally, and a pasted date in any format parse.ts understands
+ * (0 3 1 5 2 0 1 9 → 03/15/2019). The caret stays where you put it: typing or
+ * deleting in the middle edits that spot, Backspace/Delete beside a slash
+ * remove the digit next to it, and typing into a full date overwrites, and a pasted date in any format parse.ts understands
  * ("Jan 2 2021", "1/2/21", "2021-01-02") is reformatted. Beside it, a
  * calendar button opens a month grid with month + year dropdowns, so a date
  * years back is two clicks away.
@@ -13,7 +15,7 @@
  * complete and real, else "".
  */
 
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {CalendarDays, ChevronLeft, ChevronRight} from 'lucide-react';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {cn} from '@/lib/utils';
@@ -28,6 +30,20 @@ const mask = (digits: string): string => {
 	if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;
 	return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
 };
+
+/** Caret position in masked text just after its `n`-th digit — past a slash
+ *  that directly follows, so typing carries on into the next part. */
+const caretAfterDigits = (masked: string, n: number): number => {
+	if (n <= 0) return 0;
+	let seen = 0;
+	for (let i = 0; i < masked.length; i++) {
+		if (!/\d/.test(masked[i])) continue;
+		if (++seen === n) return masked[i + 1] === '/' ? i + 2 : i + 1;
+	}
+	return masked.length;
+};
+
+const digitsBefore = (text: string, caret: number) => text.slice(0, caret).replace(/\D/g, '').length;
 
 const isoToText = (iso: string): string => {
 	const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
@@ -45,13 +61,17 @@ export function DateField({
 	onChange,
 	disabled,
 	autoFocus,
-	label
+	label,
+	id,
+	compact = false
 }: {
 	value: string;
 	onChange: (iso: string) => void;
 	disabled?: boolean;
 	autoFocus?: boolean;
 	label?: string;
+	id?: string;
+	compact?: boolean;
 }) {
 	const [text, setText] = useState(() => isoToText(value));
 	const [open, setOpen] = useState(false);
@@ -62,18 +82,59 @@ export function DateField({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [value]);
 
+	const inputRef = useRef<HTMLInputElement>(null);
+
 	const set = (next: string) => {
 		setText(next);
 		onChange(textToIso(next));
 	};
 
-	const onType = (raw: string) => {
+	/**
+	 * Re-mask `digits` and put the caret after `caretDigits` of them. The DOM is
+	 * written directly as well: when the masked text comes out identical (e.g. a
+	 * deleted slash the mask re-adds) React skips the render, and the box would
+	 * keep showing the raw edit out of step with state.
+	 */
+	const commit = (digits: string, caretDigits: number) => {
+		const next = mask(digits);
+		const el = inputRef.current;
+		if (el) {
+			el.value = next;
+			const at = caretAfterDigits(next, caretDigits);
+			el.setSelectionRange(at, at);
+		}
+		set(next);
+	};
+
+	const onType = (el: HTMLInputElement) => {
+		const raw = el.value;
 		// A pasted / autofilled date in another format: parse it whole.
 		if (/[a-z]/i.test(raw) || /^\d{4}-/.test(raw)) {
 			const p = parseDob(raw);
-			if (p) return set(`${pad(p.month)}/${pad(p.day)}/${p.year}`);
+			if (p) return commit(`${pad(p.month)}${pad(p.day)}${p.year}`, 8);
 		}
-		set(mask(raw.replace(/\D/g, '')));
+		const before = digitsBefore(raw, el.selectionStart ?? raw.length);
+		let digits = raw.replace(/\D/g, '');
+		// Typing into a full date overwrites the digit after the caret.
+		if (digits.length > 8) digits = (digits.slice(0, before) + digits.slice(before + 1)).slice(0, 8);
+		commit(digits, before);
+	};
+
+	/** Backspace / Delete next to a slash removes the neighbouring digit (the
+	 *  slash itself is the mask's, deleting it alone would change nothing). */
+	const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+		const el = e.currentTarget;
+		const at = el.selectionStart ?? 0;
+		if (at !== el.selectionEnd) return; // a selection deletes normally
+		const digits = text.replace(/\D/g, '');
+		const before = digitsBefore(text, at);
+		if (e.key === 'Backspace' && text[at - 1] === '/' && before > 0) {
+			e.preventDefault();
+			commit(digits.slice(0, before - 1) + digits.slice(before), before - 1);
+		} else if (e.key === 'Delete' && text[at] === '/') {
+			e.preventDefault();
+			commit(digits.slice(0, before) + digits.slice(before + 1), before);
+		}
 	};
 
 	const complete = !!textToIso(text);
@@ -83,12 +144,15 @@ export function DateField({
 		<div className="space-y-1">
 			<div
 				className={cn(
-					'flex h-11 w-full items-center rounded-lg border bg-card shadow-xs transition-[box-shadow,border-color] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/40',
+					compact ? 'h-9 rounded-md border-input' : 'h-11 rounded-lg',
+					'flex w-full items-center border bg-card shadow-xs transition-[box-shadow,border-color] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/40',
 					invalid && 'border-destructive focus-within:border-destructive focus-within:ring-destructive/25',
 					disabled && 'pointer-events-none opacity-50'
 				)}
 			>
 				<input
+					ref={inputRef}
+					id={id}
 					value={text}
 					inputMode="numeric"
 					autoComplete="off"
@@ -96,7 +160,8 @@ export function DateField({
 					aria-label={label ?? 'Date'}
 					placeholder="MM/DD/YYYY"
 					disabled={disabled}
-					onChange={(e) => onType(e.target.value)}
+					onChange={(e) => onType(e.currentTarget)}
+					onKeyDown={onKeyDown}
 					onPaste={(e) => {
 						const p = parseDob(e.clipboardData.getData('text'));
 						if (!p) return;
@@ -111,7 +176,10 @@ export function DateField({
 							type="button"
 							disabled={disabled}
 							aria-label="Open calendar"
-							className="mr-1 flex size-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+							className={cn(
+								'mr-1 flex cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+								compact ? 'size-7' : 'size-9'
+							)}
 						>
 							<CalendarDays className="size-4" />
 						</button>

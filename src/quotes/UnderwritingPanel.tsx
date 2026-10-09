@@ -1,8 +1,8 @@
 /**
  * "Drug and Health Information" (ENG-286): search a health condition or a
  * medication, walk its ITK questionnaire, and keep the finished underwriting
- * items that ride every quote. Editing an item re-runs its questionnaire and
- * replaces it in place.
+ * items that ride every quote. Editing an item re-runs its questionnaire with
+ * the saved answers prefilled at each step, and replaces it in place.
  */
 
 import {useEffect, useRef, useState} from 'react';
@@ -127,7 +127,12 @@ export function UnderwritingPanel({
 	const [target, setTarget] = useState<(TraversalTarget & {replaceIndex?: number}) | null>(null);
 
 	const start = (name: string, isDrug: boolean, replaceIndex?: number) =>
-		setTarget({name, isDrug, replaceIndex});
+		setTarget({
+			name,
+			isDrug,
+			replaceIndex,
+			previous: replaceIndex !== undefined ? items[replaceIndex] : null
+		});
 
 	return (
 		<div className="space-y-3">

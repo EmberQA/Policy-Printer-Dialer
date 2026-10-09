@@ -11,6 +11,7 @@
  * of truth and re-validates everything on save.
  */
 
+import {useRef} from 'react';
 import type {FormField} from '@/lib/api';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
@@ -25,6 +26,7 @@ import {Switch} from '@/components/ui/switch';
 import {Textarea} from '@/components/ui/textarea';
 import {cn} from '@/lib/utils';
 import {US_STATE_OPTIONS} from '@/lib/phone';
+import {DateField} from '@/quotes/DateField';
 
 export type LeadFormData = Record<string, unknown>;
 
@@ -144,28 +146,13 @@ function Control({
 
 		case 'select':
 			return (
-				<Select
-					value={str || '__empty'}
+				<FormSelect
+					id={id}
+					value={str}
+					options={selectOptions}
 					disabled={disabled}
-					onValueChange={(next) => onChange(next === '__empty' ? '' : next)}
-				>
-					<SelectTrigger id={id} className="w-full">
-						<SelectValue placeholder="Select…" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="__empty">Select…</SelectItem>
-						{/* A saved value that isn't an option (e.g. old free text) stays
-						    visible instead of rendering a blank dropdown. */}
-						{str && !selectOptions.some((o) => o.value === str) && (
-							<SelectItem value={str}>{str}</SelectItem>
-						)}
-						{selectOptions.map((o) => (
-							<SelectItem key={o.value} value={o.value}>
-								{o.label}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+					onChange={onChange}
+				/>
 			);
 
 		case 'radio':
@@ -254,13 +241,15 @@ function Control({
 			);
 
 		case 'date':
+			// Typed MM/DD/YYYY or picked from a calendar; stores YYYY-MM-DD.
 			return (
-				<Input
+				<DateField
 					id={id}
-					type="date"
+					compact
 					value={str}
 					disabled={disabled}
-					onChange={(e) => onChange(e.target.value)}
+					label={field.label}
+					onChange={onChange}
 				/>
 			);
 
@@ -298,4 +287,82 @@ function Control({
 				/>
 			);
 	}
+}
+
+/**
+ * The form's dropdown. Opens BELOW the trigger (popper) with its own scrolling
+ * list — Radix's default `item-aligned` mode instead grows the popup over the
+ * page to line up the selected row, which jumps and snaps on long lists.
+ *
+ * An EMPTY select that scrolls opens on its middle option (still unselected),
+ * so a long list is a short scroll either way — the height list's middle is 5'6",
+ * about the median adult height.
+ */
+function FormSelect({
+	id,
+	value,
+	options,
+	disabled,
+	onChange
+}: {
+	id: string;
+	value: string;
+	options: readonly {value: string; label: string}[];
+	disabled?: boolean;
+	onChange: (v: unknown) => void;
+}) {
+	const contentRef = useRef<HTMLDivElement>(null);
+	const openAt = !value ? options[Math.floor(options.length / 2)]?.value : undefined;
+
+	// Once positioned, Radix focuses the selected row ("Select…", at the top) and
+	// scrolls to it. Take over at that moment: focus the middle row instead (so
+	// arrow keys start there too) and centre it.
+	const pendingCenter = useRef(false);
+	const onOpenChange = (open: boolean) => {
+		pendingCenter.current = open && !!openAt;
+	};
+	const onEmptyFocus = () => {
+		if (!pendingCenter.current) return;
+		pendingCenter.current = false;
+		requestAnimationFrame(() => {
+			// A list that fits without scrolling stays as Radix shows it.
+			const viewport = contentRef.current?.querySelector('[data-radix-select-viewport]');
+			if (!viewport || viewport.scrollHeight <= viewport.clientHeight) return;
+			const row = contentRef.current?.querySelector<HTMLElement>('[data-open-at]');
+			row?.focus({preventScroll: true});
+			row?.scrollIntoView({block: 'center'});
+		});
+	};
+
+	return (
+		<Select
+			value={value || '__empty'}
+			disabled={disabled}
+			onOpenChange={onOpenChange}
+			onValueChange={(next) => onChange(next === '__empty' ? '' : next)}
+		>
+			<SelectTrigger id={id} className="w-full">
+				<SelectValue placeholder="Select…" />
+			</SelectTrigger>
+			<SelectContent ref={contentRef} position="popper" className="max-h-72">
+				<SelectItem value="__empty" onFocus={onEmptyFocus}>
+					Select…
+				</SelectItem>
+				{/* A saved value that isn't an option (e.g. old free text) stays
+				    visible instead of rendering a blank dropdown. */}
+				{value && !options.some((o) => o.value === value) && (
+					<SelectItem value={value}>{value}</SelectItem>
+				)}
+				{options.map((o) => (
+					<SelectItem
+						key={o.value}
+						value={o.value}
+						{...(o.value === openAt ? {'data-open-at': ''} : {})}
+					>
+						{o.label}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
 }
