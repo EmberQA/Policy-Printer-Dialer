@@ -62,3 +62,53 @@ export const readRttMs = (report: StatsReportLike | null | undefined): number | 
 	// WebRTC reports seconds; the UI and Twilio's RTCSample.rtt are both milliseconds.
 	return Math.max(0, Math.round(seconds * 1000));
 };
+
+/** How much of the far end's audio actually reached this browser. */
+export interface InboundAudioSample {
+	packetsReceived: number;
+	bytesReceived: number;
+	/** Chrome-only; null where the browser does not report it. */
+	totalAudioEnergy: number | null;
+}
+
+/** The subset of `RTCInboundRtpStreamStats` we rely on. */
+interface InboundRtpLike {
+	type?: string;
+	kind?: string;
+	mediaType?: string;
+	packetsReceived?: number;
+	bytesReceived?: number;
+	totalAudioEnergy?: number;
+}
+
+/**
+ * The incoming audio stream's counters, or null when the report has none yet.
+ *
+ * This is what separates "the call's audio never reached the computer" (network or
+ * carrier) from "it arrived and did not come out of the speaker" (output routing) — the
+ * question the live audio test exists to answer. `mediaType` is the pre-standard name
+ * older Chrome builds still use for `kind`.
+ */
+export const readInboundAudio = (
+	report: StatsReportLike | null | undefined
+): InboundAudioSample | null => {
+	if (!report || typeof report.forEach !== 'function') return null;
+	let sample: InboundAudioSample | null = null;
+	report.forEach((value) => {
+		const stat = value as InboundRtpLike;
+		if (sample || stat?.type !== 'inbound-rtp') return;
+		if ((stat.kind ?? stat.mediaType) !== 'audio') return;
+		sample = {
+			packetsReceived: finiteOr(stat.packetsReceived, 0),
+			bytesReceived: finiteOr(stat.bytesReceived, 0),
+			totalAudioEnergy:
+				typeof stat.totalAudioEnergy === 'number' && Number.isFinite(stat.totalAudioEnergy)
+					? stat.totalAudioEnergy
+					: null
+		};
+	});
+	return sample;
+};
+
+const finiteOr = (value: unknown, fallback: number): number =>
+	typeof value === 'number' && Number.isFinite(value) ? value : fallback;

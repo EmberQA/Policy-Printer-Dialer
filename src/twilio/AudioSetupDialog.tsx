@@ -25,6 +25,8 @@ import {
 	type RecordedEchoPhase,
 	type RecordedEchoProgress
 } from './recordedEcho';
+import type {LiveEchoControls} from '@/voice/useLiveEchoControls';
+import type {EchoTestState} from '@/voice/VoiceTransport';
 import {
 	canUseTabletAudioFallback,
 	hasSpeechLevelMicActivity,
@@ -34,6 +36,10 @@ import {
 } from './tabletAudioFallback';
 
 const DEFAULT_DEVICE_ID = 'default';
+/** How long to wait for the softphone before falling back to the local echo test. */
+const LIVE_ECHO_CONNECT_TIMEOUT_MS = 20_000;
+/** About a second of 20ms packets: enough to say the call's audio reached this computer. */
+const LIVE_ECHO_AUDIO_ARRIVED_PACKETS = 50;
 
 type ApplyingState = 'input' | 'output' | 'speaker' | 'echo' | 'refresh' | null;
 
@@ -47,6 +53,11 @@ interface AudioSetupDialogProps {
 	required?: boolean;
 	showTrigger?: boolean;
 	onRequiredComplete?: () => void;
+	/**
+	 * Run the echo test as a real call (Telnyx). Omitted or null keeps the local
+	 * record-and-play test (Twilio, or a softphone that failed to start).
+	 */
+	liveEcho?: LiveEchoControls | null;
 }
 
 export function AudioSetupDialog({
@@ -58,7 +69,8 @@ export function AudioSetupDialog({
 	onOpenChange,
 	required = false,
 	showTrigger = true,
-	onRequiredComplete
+	onRequiredComplete,
+	liveEcho = null
 }: AudioSetupDialogProps) {
 	const [internalOpen, setInternalOpen] = useState(false);
 	const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -77,6 +89,18 @@ export function AudioSetupDialog({
 	);
 	const echoPlaybackRef = useRef<RecordedEcho | null>(null);
 	const echoConfirmationTimerRef = useRef<number | null>(null);
+	/** Bumped per live test so a cancelled test's late updates are ignored. */
+	const liveRunRef = useRef(0);
+	const liveCancelRef = useRef<(() => void) | null>(null);
+	const [liveInbound, setLiveInbound] = useState<EchoTestState['inbound']>(null);
+	const [liveConnectFailed, setLiveConnectFailed] = useState(false);
+	const [liveDiagnosis, setLiveDiagnosis] = useState<string | null>(null);
+	/** Non-required dialog only: the agent confirmed they heard the playback. */
+	const [liveConfirmed, setLiveConfirmed] = useState(false);
+	/** The live test could not be reached (softphone never came up, or the test call
+	 *  failed and the agent chose the basic test). Reset each time the dialog opens. */
+	const [useLocalEcho, setUseLocalEcho] = useState(false);
+	const live = liveEcho && !useLocalEcho ? liveEcho : null;
 	const open = controlledOpen ?? internalOpen;
 	const [tabletAudioEvidence, dispatchTabletAudioEvidence] = useReducer(
 		tabletAudioEvidenceReducer,
@@ -106,7 +130,7 @@ export function AudioSetupDialog({
 	);
 	const tabletFallbackVisible = required && tabletBrowser && echoFailed;
 	const silentPlaybackEscapeVisible =
-		required && tabletBrowser && echoStarted && !echoFailed;
+		!live && required && tabletBrowser && echoStarted && !echoFailed;
 	const tabletFallbackComplete = canUseTabletAudioFallback({
 		isTablet: tabletBrowser,
 		echoFailed,
@@ -120,6 +144,9 @@ export function AudioSetupDialog({
 			const playback = echoPlaybackRef.current;
 			echoPlaybackRef.current = null;
 			playback?.stop();
+			liveRunRef.current += 1;
+			liveCancelRef.current?.();
+			liveCancelRef.current = null;
 			if (echoConfirmationTimerRef.current !== null) {
 				window.clearTimeout(echoConfirmationTimerRef.current);
 			}
@@ -214,6 +241,9 @@ export function AudioSetupDialog({
 		const playback = echoPlaybackRef.current;
 		echoPlaybackRef.current = null;
 		playback?.stop();
+		liveRunRef.current += 1;
+		liveCancelRef.current?.();
+		liveCancelRef.current = null;
 		if (echoConfirmationTimerRef.current !== null) {
 			window.clearTimeout(echoConfirmationTimerRef.current);
 			echoConfirmationTimerRef.current = null;
@@ -222,7 +252,7 @@ export function AudioSetupDialog({
 		setEchoActive(false);
 		setApplying((current) => (current === 'echo' ? null : current));
 		setEchoProgress(null);
-		setEchoStatus('Record a few words, then hear them played back.');
+		setEchoStatus(idleEchoStatus(!!live));
 	};
 
 	useEffect(() => {
@@ -233,9 +263,120 @@ export function AudioSetupDialog({
 		setEchoStarted(false);
 		setEchoFailed(false);
 		setEchoConfirmationReady(false);
+		setUseLocalEcho(false);
+		setLiveConnectFailed(false);
+		setLiveDiagnosis(null);
+		setLiveInbound(null);
+		setLiveConfirmed(false);
 	}, [open]);
 
+	// The carrier becomes known after the dialog opens; keep the idle hint in step.
+	const liveMode = !!live;
+	useEffect(() => {
+		if (!echoPlaybackRef.current && !liveCancelRef.current) setEchoStatus(idleEchoStatus(liveMode));
+	}, [liveMode]);
+
+	// The softphone never came up (unprovisioned, or a network that cannot reach it):
+	// fall back to the local test rather than leaving the agent behind a required check
+	// that can never run.
+	const liveConnecting = open && live?.status === 'connecting';
+	useEffect(() => {
+		if (!liveConnecting) return;
+		const timer = window.setTimeout(() => {
+			// A socket blip during a running test call is not "never came up".
+			if (!liveCancelRef.current) setUseLocalEcho(true);
+		}, LIVE_ECHO_CONNECT_TIMEOUT_MS);
+		return () => window.clearTimeout(timer);
+	}, [liveConnecting]);
+
+	const startLiveEchoTest = async (controls: LiveEchoControls) => {
+		stopEchoTest();
+		const run = liveRunRef.current;
+		setApplying('echo');
+		setError(null);
+		setEchoStarted(false);
+		setEchoFailed(false);
+		setEchoConfirmationReady(false);
+		setLiveConnectFailed(false);
+		setLiveDiagnosis(null);
+		setLiveInbound(null);
+		setLiveConfirmed(false);
+		setEchoActive(true);
+		setEchoStatus('Calling your dialer…');
+		liveCancelRef.current = controls.cancel;
+
+		const failed = (message: string) => {
+			liveCancelRef.current = null;
+			setEchoActive(false);
+			setApplying(null);
+			setLiveConnectFailed(true);
+			setEchoStatus('The test call did not connect.');
+			setError(message);
+			if (tabletBrowser) setEchoFailed(true);
+		};
+
+		const handleChange = (state: EchoTestState) => {
+			if (liveRunRef.current !== run) return;
+			setLiveInbound(state.inbound);
+			switch (state.phase) {
+				case 'calling':
+					setEchoStatus('Calling your dialer…');
+					return;
+				case 'ringing':
+					setEchoStatus('Connecting the test call…');
+					return;
+				case 'active':
+					setApplying(null);
+					setEchoStarted(true);
+					setEchoStatus('Listen for the prompt, then say a few words after the beep.');
+					return;
+				case 'ended':
+					liveCancelRef.current = null;
+					setEchoActive(false);
+					setApplying(null);
+					setEchoConfirmationReady(true);
+					setEchoStatus('Test call finished. Did you hear your voice played back?');
+					console.info('[dialer][echo-test] finished', {headersSeen: state.headersSeen, inbound: state.inbound});
+					return;
+				case 'failed':
+					failed(state.message || 'The test call did not connect. Try again.');
+			}
+		};
+
+		try {
+			await controls.start(handleChange);
+		} catch (err) {
+			if (liveRunRef.current !== run) return;
+			failed(readMediaError(err, 'Could not start the audio test call.'));
+		}
+	};
+
+	/** The test call ended and the agent has not answered yet: ask the two-button question. */
+	const liveAwaitingAnswer =
+		!!live && echoStarted && !echoActive && !liveDiagnosis && !liveConfirmed && !tabletFallbackVisible;
+
+	const confirmLiveEchoHeard = () => {
+		setLiveConfirmed(true);
+		setEchoStatus('Audio test passed.');
+	};
+
+	const reportLiveEchoUnheard = () => {
+		const arrived = (liveInbound?.packetsReceived ?? 0) >= LIVE_ECHO_AUDIO_ARRIVED_PACKETS;
+		console.info('[dialer][echo-test] agent could not hear', {inbound: liveInbound, arrived});
+		setEchoConfirmationReady(false);
+		setLiveDiagnosis(
+			arrived
+				? 'The call audio reached your computer but did not play through your speaker. If you use a Bluetooth headset, choose its “Hands-Free” or “Headset” speaker above (not “Headphones” or “Default”), then test again.'
+				: 'The call audio did not reach your computer. Check your internet connection — VPNs and strict firewalls can block call audio — then test again.'
+		);
+		if (tabletBrowser) setEchoFailed(true);
+	};
+
 	const startEchoTest = async () => {
+		if (live) {
+			if (live.status === 'ready') await startLiveEchoTest(live);
+			return;
+		}
 		stopEchoTest();
 		setApplying('echo');
 		setError(null);
@@ -363,7 +504,9 @@ export function AudioSetupDialog({
 								)}
 							>
 								{required
-									? 'Start the echo test, say a few words, then confirm you can hear yourself.'
+									? live
+										? 'Start the test call, say a few words after the beep, then confirm you can hear yourself.'
+										: 'Start the echo test, say a few words, then confirm you can hear yourself.'
 									: 'Test microphone and speaker devices.'}
 							</DialogPrimitive.Description>
 						</div>
@@ -521,23 +664,39 @@ export function AudioSetupDialog({
 						>
 							<div className="flex min-w-0 items-center gap-2">
 								<AudioLines className="size-4 text-muted-foreground" />
-								<p className="text-sm font-medium">Echo Test</p>
+								<p className="text-sm font-medium">
+									{live ? 'Audio Test Call' : 'Echo Test'}
+								</p>
 								<DeviceStatus
 									status={
-										echoActive ? 'Active' : echoStarted ? 'Complete' : 'Idle'
+										echoActive
+											? 'Active'
+											: echoStarted
+												? 'Complete'
+												: live?.status === 'connecting'
+													? 'Connecting'
+													: 'Idle'
 									}
-									loading={applying === 'echo'}
+									loading={applying === 'echo' || live?.status === 'connecting'}
 								/>
 							</div>
 							<div className="flex items-center justify-between gap-3">
 								<p className="min-w-0 text-xs text-muted-foreground">
-									{echoStatus}
+									{!echoActive && live?.status === 'connecting'
+										? 'Connecting to the call network…'
+										: !echoActive && live?.status === 'busy'
+											? 'End your call to run the audio test.'
+											: echoStatus}
 								</p>
 								<Button
 									type="button"
 									variant="outline"
 									onClick={echoActive ? stopEchoTest : startEchoTest}
-									disabled={applying !== null}
+									disabled={
+										echoActive
+											? applying !== null && !live
+											: applying !== null || (!!live && live.status !== 'ready')
+									}
 									className="shrink-0"
 								>
 									{applying === 'echo' ? (
@@ -553,6 +712,33 @@ export function AudioSetupDialog({
 								</Button>
 							</div>
 							{echoProgress && <EchoProgressBar progress={echoProgress} />}
+							{!required && liveAwaitingAnswer && (
+								<LiveEchoAnswer
+									onHeard={confirmLiveEchoHeard}
+									onUnheard={reportLiveEchoUnheard}
+								/>
+							)}
+							{liveDiagnosis && (
+								<p className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm leading-6" aria-live="polite">
+									{liveDiagnosis}
+								</p>
+							)}
+							{live && liveConnectFailed && !echoActive && (
+								<Button
+									type="button"
+									variant="ghost"
+									onClick={() => {
+										stopEchoTest();
+										setError(null);
+										setLiveConnectFailed(false);
+										setUseLocalEcho(true);
+										setEchoStatus(idleEchoStatus(false));
+									}}
+									className="w-full"
+								>
+									Use the basic echo test instead
+								</Button>
+							)}
 							{silentPlaybackEscapeVisible && (
 								<Button
 									type="button"
@@ -598,24 +784,45 @@ export function AudioSetupDialog({
 									? tabletFallbackComplete
 										? 'Microphone input registered and the speaker test completed. Click below to enter the dialer.'
 										: 'Complete the microphone and speaker checks above to continue.'
-									: echoStarted
-										? echoConfirmationReady
-											? 'If you heard your voice, click below to enter the dialer.'
-											: 'Listen to your recording. The button will unlock after one second of playback.'
-										: echoActive
-											? 'Speak now. Your recording will play back automatically.'
-											: 'Start the Echo Test above. Once you hear yourself, click below to continue.'}
+									: live
+										? echoStarted
+											? echoConfirmationReady
+												? 'Did you hear your voice played back?'
+												: liveDiagnosis
+													? 'Fix the issue above, then run the test call again.'
+													: 'Listen for the prompt, speak after the beep, and wait for the playback.'
+											: live.status === 'connecting'
+												? 'Connecting to the call network. The test call will be ready in a moment.'
+												: 'Start the Audio Test Call above. Once you hear yourself, click below to continue.'
+										: echoStarted
+											? echoConfirmationReady
+												? 'If you heard your voice, click below to enter the dialer.'
+												: 'Listen to your recording. The button will unlock after one second of playback.'
+											: echoActive
+												? 'Speak now. Your recording will play back automatically.'
+												: 'Start the Echo Test above. Once you hear yourself, click below to continue.'}
 							</p>
-							<Button
-								type="button"
-								onClick={completeRequiredTest}
-								disabled={!requiredConfirmationReady || applying !== null}
-								className="h-12 w-full text-base"
-							>
-								{tabletFallbackVisible
-									? 'Continue with audio checks complete'
-									: 'I can hear my voice'}
-							</Button>
+							{liveAwaitingAnswer ? (
+								<LiveEchoAnswer
+									large
+									heardDisabled={!requiredConfirmationReady || applying !== null}
+									onHeard={completeRequiredTest}
+									onUnheard={reportLiveEchoUnheard}
+								/>
+							) : (
+								<Button
+									type="button"
+									onClick={completeRequiredTest}
+									disabled={!requiredConfirmationReady || applying !== null}
+									className="h-12 w-full text-base"
+								>
+									{tabletFallbackVisible
+										? 'Continue with audio checks complete'
+										: live
+											? 'I could hear my voice'
+											: 'I can hear my voice'}
+								</Button>
+							)}
 						</div>
 					) : (
 						<div className="flex justify-between gap-2">
@@ -641,6 +848,48 @@ export function AudioSetupDialog({
 			</DialogPrimitive.Portal>
 		</DialogPrimitive.Root>
 	);
+}
+
+/** The question the test call's closing prompt asks: red for no (left), blue for yes. Keep the
+ *  labels and colors in lockstep with `buildEchoPlaybackTexml` in the backend. */
+function LiveEchoAnswer({
+	onHeard,
+	onUnheard,
+	heardDisabled = false,
+	large = false
+}: {
+	onHeard: () => void;
+	onUnheard: () => void;
+	heardDisabled?: boolean;
+	large?: boolean;
+}) {
+	const size = large ? 'h-12 text-base' : '';
+	return (
+		<div className="grid gap-2 sm:grid-cols-2">
+			<Button
+				type="button"
+				variant="destructive"
+				onClick={onUnheard}
+				className={cn('w-full', size)}
+			>
+				I could not hear my voice
+			</Button>
+			<Button
+				type="button"
+				onClick={onHeard}
+				disabled={heardDisabled}
+				className={cn('w-full', size)}
+			>
+				I could hear my voice
+			</Button>
+		</div>
+	);
+}
+
+function idleEchoStatus(live: boolean) {
+	return live
+		? 'We’ll call your dialer, play a prompt, and play your words back.'
+		: 'Record a few words, then hear them played back.';
 }
 
 function FallbackCheckStatus({

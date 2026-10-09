@@ -42,6 +42,7 @@ import {
 	recordNetworkTest,
 	setOnCall,
 	setPresence,
+	startEchoTestCall,
 	startOutboundCall,
 	type TwilioDeviceStatus
 } from '@/lib/api';
@@ -55,6 +56,7 @@ import type {
 	MicrophoneProblem,
 	IncomingLeg,
 	CallParticipantState,
+	EchoTestState,
 	SupervisionRole,
 	SupervisionState,
 	VoiceProvider,
@@ -189,6 +191,17 @@ export interface UseDeviceState {
 	 * Stable identity, safe to call on every beat.
 	 */
 	reportServerProvider: (provider: VoiceProvider | null) => void;
+	/** The carrier the live transport was built for; null until the first token. */
+	voiceProvider: VoiceProvider | null;
+	/**
+	 * The live audio test (Telnyx only; Twilio keeps the local echo test) can run now:
+	 * registered, and nothing else on the line.
+	 */
+	liveEchoAvailable: boolean;
+	/** Ring this browser with the live audio test. Resolves once the call is requested;
+	 *  progress arrives on `onChange`. */
+	startLiveEchoTest: (onChange: (state: EchoTestState) => void) => Promise<void>;
+	cancelLiveEchoTest: () => void;
 }
 
 export interface UseDeviceOptions {
@@ -220,6 +233,7 @@ export function useDevice({
 	}, []);
 	const [deviceStatus, setDeviceStatus] =
 		useState<TwilioDeviceStatus>('offline');
+	const [voiceProvider, setVoiceProvider] = useState<VoiceProvider | null>(null);
 	const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
 	const [participant, setParticipant] = useState<CallParticipantState | null>(null);
 	const [participantNotice, setParticipantNotice] = useState<string | null>(null);
@@ -700,6 +714,29 @@ export function useDevice({
    throw error;
   }
  }, [cleanupSupervision]);
+
+	const startLiveEchoTest = useCallback(async (onChange: (state: EchoTestState) => void) => {
+		const transport = transportRef.current;
+		if (!transport?.expectEchoTest) throw new Error('The live audio test is not available on this connection.');
+		if (callRef.current || participantRef.current || outboundStartingRef.current || pendingOutboundRef.current || supervisionSessionRef.current) {
+			throw new Error('End your current call before testing audio.');
+		}
+		const testId = crypto.randomUUID();
+		// Arm the exact match BEFORE the backend can dial.
+		await transport.expectEchoTest(testId, onChange);
+		try {
+			const result = await startEchoTestCall(testId);
+			if (result.statusCode !== 'SP100') throw new Error(result.statusMessage || 'Could not start the audio test call');
+			if (result.caller_number) transport.bindEchoCallerNumber?.(result.caller_number);
+		} catch (error) {
+			transport.cancelEchoTest?.();
+			throw new Error(readError(error, 'Could not start the audio test call'));
+		}
+	}, []);
+
+	const cancelLiveEchoTest = useCallback(() => {
+		transportRef.current?.cancelEchoTest?.();
+	}, []);
 
 	const switchSupervisionRole = useCallback(async (role: SupervisionRole) => {
 		const sessionId = supervisionSessionRef.current;
@@ -1704,6 +1741,7 @@ export function useDevice({
 				// about which number to dial.
 				activeVoice = active;
 				builtVoiceProviderRef.current = provider;
+				setVoiceProvider(provider);
 				window.addEventListener('online', onNetworkChange);
 				networkInfo()?.addEventListener('change', onNetworkChange);
 			} catch (e) {
@@ -1737,6 +1775,7 @@ export function useDevice({
 				/* ignore */
 			}
 			transportRef.current = null;
+			setVoiceProvider(null);
 			callRef.current = null;
 			ringbackRef.current?.stop();
 			ringbackRef.current = null;
@@ -1794,7 +1833,13 @@ export function useDevice({
 		cancelPendingOutbound,
 		setInputDevice,
 		setOutputDevice,
-		reportServerProvider
+		reportServerProvider,
+		voiceProvider,
+		liveEchoAvailable: voiceProvider === 'telnyx' && deviceStatus === 'registered' &&
+			!!transportRef.current?.expectEchoTest &&
+			!activeCall && !participant && !outboundStarting && !pendingOutbound && !supervision,
+		startLiveEchoTest,
+		cancelLiveEchoTest
 	};
 }
 

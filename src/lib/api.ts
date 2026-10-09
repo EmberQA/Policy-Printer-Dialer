@@ -431,7 +431,17 @@ export interface VoiceTokenResponse {
 export const getVoiceToken = (): Promise<VoiceTokenResponse> =>
 	qsPost('/policyPrinter/dialer/voice/token');
 
-export const authorizeCallParticipant = (parentCallSid: string, attemptId: string, to: string): Promise<{
+/**
+ * Ring this agent's own browser with the live audio test (Telnyx agents only).
+ * `test_id` is generated here BEFORE the call: the INVITE can beat this response, so
+ * the transport must already be waiting for it (`expectEchoTest`). `caller_number` is
+ * the transport's fallback match when the INVITE carries no test header.
+ */
+export const startEchoTestCall = (testId: string): Promise<{
+	statusCode: string; statusMessage: string; caller_number?: string;
+}> => qsPost('/policyPrinter/dialer/voice/echoTest', {test_id: testId});
+
+export const authorizeCallParticipant =(parentCallSid: string, attemptId: string, to: string): Promise<{
 	statusCode: string; statusMessage: string;
 	participant: {attempt_id: string; from: string; to: string};
 }> => qsPost('/policyPrinter/dialer/call/participant/start', {parent_call_sid: parentCallSid, attempt_id: attemptId, to});

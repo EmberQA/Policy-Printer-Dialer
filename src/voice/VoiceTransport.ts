@@ -82,6 +82,20 @@ export interface SupervisionState {
 	/** Display name of the agent being supervised, for the banner. */
 	targetName?: string;
 }
+/** `ringing` → `active` → `ended` is a test that ran; `failed` never connected. */
+export type EchoTestPhase = 'calling' | 'ringing' | 'active' | 'ended' | 'failed';
+export interface EchoTestState {
+	/** Client-generated before the backend dials; the exact-match key for the INVITE. */
+	testId: string;
+	phase: EchoTestPhase;
+	message?: string;
+	connectedAt?: number;
+	/** Whether the claimed INVITE carried the X-Echo-Test-Id header. */
+	headersSeen: boolean;
+	/** The incoming audio counters last read off the test call. Null until media flows. */
+	inbound: {packetsReceived: number; bytesReceived: number; totalAudioEnergy: number | null} | null;
+}
+
 export interface ExpectSupervision {
 	sessionId: string;
 	role: SupervisionRole;
@@ -203,6 +217,15 @@ export interface VoiceTransport {
 	setSupervisionRole?(role: SupervisionRole): void;
 	endSupervision?(): Promise<void>;
 	onSupervisionChange?(cb: (state: SupervisionState) => void): void;
+	/**
+	 * Optional (Telnyx only): the live audio test — a real call to this browser that
+	 * plays the agent's own voice back. `expectEchoTest` MUST be called before the
+	 * backend is asked to dial. `bindEchoCallerNumber` hands over the caller number the
+	 * backend reported, the fallback match when the INVITE carries no test header.
+	 */
+	expectEchoTest?(testId: string, onChange: (state: EchoTestState) => void): Promise<void>;
+	bindEchoCallerNumber?(callerNumber: string): void;
+	cancelEchoTest?(): void;
 }
 
 /** Narrow Twilio's `Call.customParameters` without importing the SDK here. */

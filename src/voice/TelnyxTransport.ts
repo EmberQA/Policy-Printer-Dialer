@@ -32,9 +32,10 @@ import {
 	legStateTransition
 } from './callStateEvents';
 import { normalizeTelnyxHeaders } from './legParameters';
-import { readRttMs } from './rtcStats';
+import { readInboundAudio, readRttMs } from './rtcStats';
 import {TelnyxHoldController} from './telnyxHold';
 import {TelnyxConsultation} from './TelnyxConsultation';
+import {TelnyxEchoTest} from './TelnyxEchoTest';
 import {TelnyxSupervision} from './TelnyxSupervision';
 import {TelnyxMicrophone, stopMicrophoneStream} from './TelnyxMicrophone';
 import type {
@@ -44,6 +45,7 @@ import type {
 	VoiceTransport,
 	VoiceTransportOptions,
 	CallParticipantState,
+	EchoTestState,
 	StartParticipant,
 	ExpectSupervision,
 	SupervisionRole,
@@ -153,6 +155,7 @@ export class TelnyxTransport implements VoiceTransport {
 	private participantCb: ((state: CallParticipantState) => void) | null = null;
 	private supervision: TelnyxSupervision;
 	private supervisionCb: ((state: SupervisionState) => void) | null = null;
+	private echoTest: TelnyxEchoTest;
 
 	constructor(private readonly options: TelnyxTransportOptions) {
 		this.inputDeviceId = options.inputDeviceId ?? 'default';
@@ -168,6 +171,22 @@ export class TelnyxTransport implements VoiceTransport {
 			},
 			changed: state => this.supervisionCb?.(state),
 			log: (step, data) => console.info('[dialer][supervision]', step, data)
+		});
+		this.echoTest = new TelnyxEchoTest({
+			// Answered exactly like a customer leg: a clone of the retained microphone, and
+			// the SDK plays it into the shared remote element. Do not add a play() or a
+			// per-leg element here — reproducing the real path is the whole point.
+			prepareAudio: call => {
+				if (!call.options) throw new Error('Call audio is not ready.');
+				call.options.localStream = this.microphone.clone();
+			},
+			readInbound: async call => {
+				const peer = (call as TelnyxCall).peer?.instance;
+				if (!peer || typeof peer.getStats !== 'function') return null;
+				return readInboundAudio(await peer.getStats());
+			},
+			release: call => this.onNotification({type: 'callUpdate', call}),
+			log: (step, data) => console.info('[dialer][echo-test]', step, data)
 		});
 		this.consultation = new TelnyxConsultation({
 			primary: () => this.activeCall(),
@@ -196,12 +215,31 @@ export class TelnyxTransport implements VoiceTransport {
 	expectSupervision(request: ExpectSupervision): void {
 		if (this.inputSwitches) throw new Error('Wait for the microphone change to finish.');
 		if (this.activeCall() || this.consultation.busy) throw new Error('End your current call before supervising.');
+		if (this.echoTest.busy) throw new Error('Wait for the audio test to finish.');
 		this.supervision.expect(request);
 	}
 	bindSupervisorLeg(callControlId: string): void { this.supervision.bindSupervisorLeg(callControlId); }
 	cancelSupervision(): void { this.supervision.cancel(); }
 	setSupervisionRole(role: SupervisionRole): void { this.supervision.setRole(role); }
 	endSupervision(): Promise<void> { return this.supervision.end(); }
+
+	/** Arm the live audio test BEFORE the backend dials it. See `TelnyxEchoTest`. */
+	async expectEchoTest(testId: string, onChange: (state: EchoTestState) => void): Promise<void> {
+		this.assertEchoTestAllowed();
+		await this.microphone.ensure();
+		// Recheck after the microphone await: a call may have arrived meanwhile.
+		this.assertEchoTestAllowed();
+		this.echoTest.expect(testId, onChange);
+	}
+	bindEchoCallerNumber(callerNumber: string): void { this.echoTest.bindCallerNumber(callerNumber); }
+	cancelEchoTest(): void { this.echoTest.cancel(); }
+
+	private assertEchoTestAllowed(): void {
+		if (this.destroyed || !this.client) throw new Error('Softphone audio is not ready yet.');
+		if (this.inputSwitches) throw new Error('Wait for the microphone change to finish.');
+		if (this.legs.size || this.consultation.busy || this.holdController) throw new Error('End your current call before testing audio.');
+		if (this.supervision.busy) throw new Error('Stop supervising before testing audio.');
+	}
 
 	async register(token: string): Promise<void> {
 		this.statusCb?.('connecting');
@@ -297,6 +335,7 @@ export class TelnyxTransport implements VoiceTransport {
 		}
 		// Supervision legs are claimed (or refused) before anything else can see them.
 		if (this.supervision?.onCall(call)) return;
+		if (this.echoTest?.onCall(call)) return;
 		if (this.consultation?.onCall(call)) return;
 		const existing = this.legs.get(call.id);
 
@@ -304,6 +343,8 @@ export class TelnyxTransport implements VoiceTransport {
 			// Headers ride on the INVITE, so they are readable at 'ringing' — before we
 			// answer. Anything earlier (new/trying) carries no metadata yet.
 			if (!isNewIncomingState(call.state)) return;
+			// A real call needs the line (and the shared remote element) more than a test.
+			this.echoTest?.interrupt('A call came in, so the audio test was stopped.');
 			const leg = new TelnyxLeg(call, () => this.consultation?.busy ? this.consultation : null, () => {
 				let audioPrepared = false;
 				try {
@@ -370,7 +411,7 @@ export class TelnyxTransport implements VoiceTransport {
 		if (this.destroyed || this.refreshing) return;
 		if (this.tokenExpiresAt === null) return;
 		if (Date.now() < this.tokenExpiresAt - TOKEN_REFRESH_MARGIN_MS) return;
-		if (this.legs.size > 0) return;
+		if (this.legs.size > 0 || this.echoTest.busy) return;
 
 		this.refreshing = true;
 		try {
@@ -419,6 +460,7 @@ export class TelnyxTransport implements VoiceTransport {
 		this.destroyed = true;
 		this.microphone.destroy();
 		this.supervision?.destroy();
+		this.echoTest?.destroy();
 		this.consultation?.destroy();
 		if (this.refreshTimer !== null) window.clearInterval(this.refreshTimer);
 		this.refreshTimer = null;

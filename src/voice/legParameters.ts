@@ -44,7 +44,11 @@ const HEADER_TO_PARAM: Record<string, string> = {
 	// session-id match; a leg carrying a different session id is refused. Keep in
 	// lockstep with `dialSupervisorLeg` in the backend's `dialer/telnyx.ts`.
 	'x-supervision-session': 'supervision_session',
-	'x-supervision-role': 'supervision_role'
+	'x-supervision-role': 'supervision_role',
+	// Live audio test: the backend rings this browser with the test id the dialer
+	// generated. `TelnyxEchoTest` claims a leg on an exact match. Keep in lockstep with
+	// `TELNYX_ECHO_TEST_HEADER` in the backend's `dialer/telnyx.ts`.
+	'x-echo-test-id': 'echo_test_id'
 };
 
 /** The keys any transport may produce. Twilio's <Parameter> names are already these. */

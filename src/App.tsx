@@ -37,6 +37,7 @@ import Agents from '@/pages/Agents';
 import {LeadNotesProvider} from '@/leads/LeadNotesContext';
 import {LeadFormBridgeProvider} from '@/leads/LeadFormBridgeContext';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
+import {useLiveEchoControls} from '@/voice/useLiveEchoControls';
 import {CoachingBookingDialog} from '@/onboarding/CoachingBookingDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
 import {LicensedStatesDialog} from '@/licensedStates/LicensedStatesDialog';
@@ -246,6 +247,7 @@ function AuthenticatedDialerApp({
 		completeAudioCheck,
 		supervisionAvailable
 	} = useDialerSession();
+	const liveEcho = useLiveEchoControls();
 	const [previewBooking, setPreviewBooking] = useState(false);
 	const previewBookingOpen = import.meta.env.DEV && previewBooking && !bookingRequired;
 	const closeBookingPreview = useCallback(() => setPreviewBooking(false), []);
@@ -465,6 +467,7 @@ function AuthenticatedDialerApp({
 				}}
 				onInputDeviceChange={device.setInputDevice}
 				onOutputDeviceChange={device.setOutputDevice}
+				liveEcho={liveEcho}
 			/>
 			<CreditNotificationDialog
 				open={creditOpen}

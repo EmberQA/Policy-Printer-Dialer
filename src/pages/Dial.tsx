@@ -52,6 +52,7 @@ import {ActiveCallBanner} from '@/twilio/ActiveCallBanner';
 import {CallParticipantBanner} from '@/twilio/CallParticipantBanner';
 import {OutboundCallBanner} from '@/twilio/OutboundCallBanner';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
+import {useLiveEchoControls} from '@/voice/useLiveEchoControls';
 import {MicLevelMeter, useMicLevelMeter} from '@/twilio/MicLevelMeter';
 import {LeadForm} from '@/leads/LeadForm';
 import {LeadNotesPanel} from '@/leads/LeadNotesContext';
@@ -978,6 +979,7 @@ function DialSidebar({
 	hotStates: HotStateCount[];
 	hotStatesWindowHours: number | null;
 }) {
+	const liveEcho = useLiveEchoControls();
 	const selectedCampaigns = campaigns.filter((campaign) => campaign.ready);
 	const showCampaignAllowancePopup =
 		selectedCampaigns.length > 0 && status !== 'ready' && busy !== 'status';
@@ -1040,6 +1042,7 @@ function DialSidebar({
 					outputDeviceId={outputDeviceId}
 					onInputDeviceChange={onInputDeviceChange}
 					onOutputDeviceChange={onOutputDeviceChange}
+					liveEcho={liveEcho}
 				/>
 			</div>
 			{showOutboundDialer && (

@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {readRttMs} from './rtcStats';
+import {readInboundAudio, readRttMs} from './rtcStats';
 
 /** An RTCStatsReport is a Map at runtime; only `forEach` is used. */
 const report = (stats: Array<Record<string, unknown>>) =>
@@ -92,5 +92,26 @@ describe('readRttMs', () => {
 				])
 			)
 		).toBe(0);
+	});
+});
+
+describe('readInboundAudio', () => {
+	const statsOf = (...stats: Array<Record<string, unknown>>) => report(stats);
+
+	it('reads the incoming audio stream counters', () => {
+		expect(readInboundAudio(statsOf(
+			{type: 'inbound-rtp', kind: 'video', packetsReceived: 9},
+			{type: 'inbound-rtp', kind: 'audio', packetsReceived: 250, bytesReceived: 20_000, totalAudioEnergy: 0.12}
+		))).toEqual({packetsReceived: 250, bytesReceived: 20_000, totalAudioEnergy: 0.12});
+	});
+
+	it('accepts the pre-standard mediaType and a missing energy figure', () => {
+		expect(readInboundAudio(statsOf({type: 'inbound-rtp', mediaType: 'audio', packetsReceived: 3})))
+			.toEqual({packetsReceived: 3, bytesReceived: 0, totalAudioEnergy: null});
+	});
+
+	it('returns null before any audio stream exists', () => {
+		expect(readInboundAudio(statsOf({type: 'candidate-pair', state: 'succeeded'}))).toBeNull();
+		expect(readInboundAudio(null)).toBeNull();
 	});
 });
