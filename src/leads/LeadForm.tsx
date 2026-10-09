@@ -42,6 +42,7 @@ import {DispositionSelect} from './DispositionSelect';
 import {useLeadNotes} from './LeadNotesContext';
 import {useLeadFormBridge} from './LeadFormBridgeContext';
 import {openQuoteFromForm} from '@/quotes/quoteLink';
+import {quotePrefillFromForm} from '@/quotes/formPrefill';
 
 export function LeadForm({
 	campaignId,
@@ -91,11 +92,13 @@ export function LeadForm({
 	// Quotes are keyed by the caller's number (ENG-286): the live caller ID,
 	// else the phone typed on the form. Saving the lead doesn't matter — any
 	// lead / CRM record with this number opens the same quote.
+	// The FORM is the source of truth: the phone typed on it wins; the live
+	// caller ID only fills in when the phone field is blank.
+	const typedPhone = (formData as Record<string, unknown>).phone;
 	const quotePhone =
+		(typeof typedPhone === 'string' && typedPhone.trim() ? typedPhone.trim() : null) ||
 		callerPhone ||
-		(typeof (formData as Record<string, unknown>).phone === 'string'
-			? ((formData as Record<string, unknown>).phone as string)
-			: null);
+		null;
 
 	// The quote tab this form opened. A stable window NAME per call lets the bar
 	// focus it, or reopen it (reloading the saved quote) if the agent closed it.
@@ -105,13 +108,20 @@ export function LeadForm({
 	const quoteWindowRef = useRef<Window | null>(null);
 	const [quoteOpened, setQuoteOpened] = useState(false);
 
+	// What the open quote tab was prefilled with. If the agent has edited the
+	// form since (a different number, a corrected DOB…), the next click reloads
+	// the tab with the CURRENT form — otherwise it just brings the tab forward.
+	const quoteOpenedWith = useRef<string | null>(null);
+
 	const onGetQuote = () => {
+		const signature = JSON.stringify([quotePhone, quotePrefillFromForm(formData)]);
 		const win = quoteWindowRef.current;
-		if (quoteOpened && win && !win.closed) {
+		if (quoteOpened && win && !win.closed && quoteOpenedWith.current === signature) {
 			win.focus();
 			return;
 		}
 		quoteWindowRef.current = openQuoteFromForm(formData, quotePhone, quoteWindowName.current);
+		quoteOpenedWith.current = signature;
 		setQuoteOpened(true);
 	};
 
@@ -119,6 +129,7 @@ export function LeadForm({
 	useEffect(() => {
 		setQuoteOpened(false);
 		quoteWindowRef.current = null;
+		quoteOpenedWith.current = null;
 		quoteWindowName.current = newQuoteWindowName();
 	}, [callSid, editLead?.id]);
 	const {setNote} = useLeadNotes();

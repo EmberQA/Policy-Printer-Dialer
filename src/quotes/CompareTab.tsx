@@ -4,7 +4,7 @@
  * for the client's state; the coverage label must be one of those exactly.
  */
 
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {Columns3, ExternalLink, Loader2} from 'lucide-react';
 import {Button, buttonVariants} from '@/components/ui/button';
 import {QS_SUCCESS, getCompareOptions, runCompare} from './api';
@@ -91,8 +91,12 @@ export function CompareTab({
 		}
 	};
 
+	// StrictMode (dev) runs this effect twice on mount while `autoRun` is still
+	// true — the ref makes it one comparison (each one is a billed ITK call).
+	const autoRanRef = useRef(false);
 	useEffect(() => {
-		if (!autoRun) return;
+		if (!autoRun || autoRanRef.current) return;
+		autoRanRef.current = true;
 		onAutoRunDone?.();
 		if (canCompare) void go();
 		// Fires on arrival only; `go` reads the state step 1 just set.

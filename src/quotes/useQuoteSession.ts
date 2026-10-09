@@ -50,6 +50,19 @@ const mergeIdentity = (lead: LeadPrefill | null, form: FormQuotePrefill | null):
 			}
 		: lead;
 
+/**
+ * ONE open request per page load. React StrictMode (dev) runs mount effects
+ * twice; two opens raced — the first CREATED the quote, the second found it
+ * and answered "this number already has a quote" for a brand-new caller.
+ * Every caller of the effect shares this promise instead.
+ */
+let openOnce: {key: string; promise: ReturnType<typeof openQuoteSession>} | null = null;
+export const openQuoteSessionOnce = (target: QuoteTarget) => {
+	const key = JSON.stringify(target);
+	if (!openOnce || openOnce.key !== key) openOnce = {key, promise: openQuoteSession(target)};
+	return openOnce.promise;
+};
+
 export function useQuoteSession(target: QuoteTarget, formPrefill: FormQuotePrefill | null = null) {
 	const opensSession = !!(target.leadId || target.phone);
 	const [state, setState] = useState<QuoteSessionState>(() =>
@@ -85,7 +98,7 @@ export function useQuoteSession(target: QuoteTarget, formPrefill: FormQuotePrefi
 		}
 		let cancelled = false;
 		setLoading(true);
-		openQuoteSession(target)
+		openQuoteSessionOnce(target)
 			.then((res) => {
 				if (cancelled) return;
 				if (res.statusCode !== QS_SUCCESS || !res.phone) {
