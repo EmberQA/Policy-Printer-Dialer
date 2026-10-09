@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {parseDob, parseHeight, parseWeight} from './parse';
+import {parseDob, parseHeight, parseTobacco, parseWeight} from './parse';
 
 describe('parseHeight', () => {
 	const fiveSeven = {feet: 5, inches: 7};
@@ -104,4 +104,21 @@ describe('parseDob', () => {
 	);
 
 	it('Feb 29 is allowed', () => expect(parseDob('2/29/1960')).toEqual({month: 2, day: 29, year: 1960}));
+});
+
+describe('parseTobacco', () => {
+	it.each([
+		['None', 'None'],
+		['vape', 'Vape'],
+		['Nicotine Patch/Gum', 'Nicotine Patch/Gum'],
+		['Yes', 'Cigarettes'],
+		['y', 'Cigarettes'],
+		['smoker', 'Cigarettes'],
+		['vaping', 'Cigarettes'],
+		['no', 'None'],
+		['N', 'None'],
+		['non-smoker', 'None'],
+		['never', 'None']
+	])('%s → %s', (raw, want) => expect(parseTobacco(raw)).toBe(want));
+	it.each(['', 'sometimes', 'quit 2019'])('%s → null', (raw) => expect(parseTobacco(raw)).toBeNull());
 });

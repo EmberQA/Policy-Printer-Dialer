@@ -43,6 +43,21 @@ describe('CRM lead editing', () => {
 		});
 	});
 
+	it('carries old free-text medical answers onto the controlled fields', () => {
+		const current: FormField[] = [
+			{key: 'height', label: 'Height', type: 'select', sort_order: 1, options: [{value: `5'7"`, label: `5'7"`}]},
+			{key: 'weight', label: 'Weight (lbs)', type: 'number', sort_order: 2},
+			{key: 'sex', label: 'Sex', type: 'radio', sort_order: 3, options: [{value: 'Male', label: 'Male'}, {value: 'Female', label: 'Female'}]},
+			{key: 'tobacco', label: 'Tobacco / nicotine', type: 'select', sort_order: 4, options: [{value: 'None', label: 'None'}, {value: 'Cigarettes', label: 'Cigarettes'}]}
+		];
+		const saved = [field('height', 'Height', 1), field('weight', 'Weight', 2), field('gender', 'Gender', 3), field('tobacco', 'Tobacco', 4)];
+		expect(
+			buildLeadEditFormData(current, saved, {height: '5 ft 7', weight: '180 lbs', gender: 'm', tobacco: 'yes'})
+		).toEqual({height: `5'7"`, weight: 180, sex: 'Male', tobacco: 'Cigarettes'});
+		// Unparseable answers are dropped rather than failing the save.
+		expect(buildLeadEditFormData(current, saved, {height: 'tall', weight: 'heavy'})).toEqual({});
+	});
+
 	it('derives the CRM contact name from standard form fields', () => {
 		const schema = [
 			field('first_name', 'First name', 1),

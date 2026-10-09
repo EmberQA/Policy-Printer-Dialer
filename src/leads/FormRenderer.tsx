@@ -154,11 +154,11 @@ function Control({
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="__empty">Select…</SelectItem>
-						{isStateText &&
-							str &&
-							!selectOptions.some((o) => o.value === str) && (
-								<SelectItem value={str}>{str}</SelectItem>
-							)}
+						{/* A saved value that isn't an option (e.g. old free text) stays
+						    visible instead of rendering a blank dropdown. */}
+						{str && !selectOptions.some((o) => o.value === str) && (
+							<SelectItem value={str}>{str}</SelectItem>
+						)}
 						{selectOptions.map((o) => (
 							<SelectItem key={o.value} value={o.value}>
 								{o.label}

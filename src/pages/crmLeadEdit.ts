@@ -1,4 +1,5 @@
 import type {FormField} from '@/lib/api';
+import {aliasedAnswer, coerceToField} from '@/leads/coerceField';
 
 const normalizeFieldLabel = (label: string): string =>
 	label
@@ -8,7 +9,10 @@ const normalizeFieldLabel = (label: string): string =>
 
 /**
  * Seed the current campaign form with answers from the lead's saved snapshot.
- * Exact field keys win; matching human labels preserve answers across renamed keys.
+ * Exact field keys (and former keys, e.g. gender → sex) win; matching human
+ * labels preserve answers across other renamed keys. Each answer is coerced
+ * onto the field's current type (old free-text height → the height option),
+ * and dropped if it can't be — it would otherwise fail the save.
  */
 export const buildLeadEditFormData = (
 	currentSchema: FormField[],
@@ -24,14 +28,13 @@ export const buildLeadEditFormData = (
 	const next: Record<string, unknown> = {};
 
 	for (const field of currentSchema) {
-		if (savedData[field.key] !== undefined) {
-			next[field.key] = savedData[field.key];
-			continue;
+		let raw = aliasedAnswer(field, savedData);
+		if (raw === undefined) {
+			const savedField = savedFieldByLabel.get(normalizeFieldLabel(field.label));
+			if (savedField) raw = savedData[savedField.key];
 		}
-		const savedField = savedFieldByLabel.get(normalizeFieldLabel(field.label));
-		if (savedField && savedData[savedField.key] !== undefined) {
-			next[field.key] = savedData[savedField.key];
-		}
+		const value = raw === undefined ? undefined : coerceToField(field, raw);
+		if (value !== undefined) next[field.key] = value;
 	}
 
 	return next;
