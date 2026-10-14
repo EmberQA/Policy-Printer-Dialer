@@ -1,28 +1,19 @@
 /**
- * ENG-308: every quote entry point renders through this. Without the quoter
- * add-on the button stays visible (it is the upsell) but disabled, with a hover
- * hint on a wrapping span — a disabled button receives no pointer events, so the
- * title has to live on its parent. The backend quote gate is authoritative.
+ * Every quote entry point renders through this. ENG-308: every agent with a seat
+ * can open the quote tool — the $150 seat includes 10 quotes a month and the
+ * quoter add-on makes them unlimited — so the button is never locked here; the
+ * backend meters Run quote / Quote Compare and explains when the month runs out.
+ * Kept as one component so a future gate has one place to live.
  */
 import type {ComponentProps} from 'react';
 import {Button} from '@/components/ui/button';
-import {useQuoterAccess} from '@/session/DialerSessionProvider';
-import {QUOTER_LOCKED_TITLE} from './quoteLink';
 
 export function QuoteButton({
-	disabled,
-	wrapperClassName = 'inline-flex',
+	wrapperClassName: _wrapperClassName,
 	...props
 }: ComponentProps<typeof Button> & {
-	/** Layout of the hint wrapper when locked; a full-width button needs 'flex w-full'. */
+	/** Layout of a wrapper, for call sites that pass one (full-width buttons). */
 	wrapperClassName?: string;
 }) {
-	const quoterAccess = useQuoterAccess();
-	const button = <Button {...props} disabled={disabled || !quoterAccess} />;
-	if (quoterAccess) return button;
-	return (
-		<span title={QUOTER_LOCKED_TITLE} className={wrapperClassName}>
-			{button}
-		</span>
-	);
+	return <Button {...props} />;
 }

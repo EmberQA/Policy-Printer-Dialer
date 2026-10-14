@@ -10,6 +10,7 @@ import {FileSearch, Loader2, Sparkles} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {Button} from '@/components/ui/button';
 import {QS_SUCCESS, runQuote} from './api';
+import {QuoteAllowanceNote} from './QuoteAllowanceNote';
 import {
 	ClientFields,
 	CoverageAmountField,
@@ -131,6 +132,7 @@ export function QuoterTab({
 							{busy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
 							{state.lastQuote ? 'Re-run quotes' : 'Get quotes'}
 						</Button>
+						<QuoteAllowanceNote />
 						{!quotable && (
 							<p className="text-center text-xs text-muted-foreground">
 								Sex, state, and date of birth or age are required.

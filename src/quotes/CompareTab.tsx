@@ -8,6 +8,7 @@ import {useEffect, useRef, useState} from 'react';
 import {Columns3, ExternalLink, Loader2} from 'lucide-react';
 import {Button, buttonVariants} from '@/components/ui/button';
 import {QS_SUCCESS, getCompareOptions, runCompare} from './api';
+import {QuoteAllowanceNote} from './QuoteAllowanceNote';
 import {
 	ClientFields,
 	EmptyState,
@@ -196,6 +197,7 @@ export function CompareTab({
 						{busy ? <Loader2 className="size-4 animate-spin" /> : <Columns3 className="size-4" />}
 						Compare options
 					</Button>
+					<QuoteAllowanceNote pulls={Math.max(1, compare.values.filter((v) => v.value).length)} />
 					{error && <p className="text-center text-sm text-destructive">{error}</p>}
 				</div>
 			</aside>

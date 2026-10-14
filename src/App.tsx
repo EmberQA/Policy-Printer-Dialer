@@ -44,7 +44,6 @@ import {CoachingBookingDialog} from '@/onboarding/CoachingBookingDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
 import {LicensedStatesDialog} from '@/licensedStates/LicensedStatesDialog';
 import {CarriersDialog} from '@/quotes/CarriersDialog';
-import {QUOTER_LOCKED_TITLE} from '@/quotes/quoteLink';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -575,7 +574,7 @@ function HeaderUserBlock({
 	userName: string;
 	onShowTraining: () => void;
 }) {
-	const {profile, provisioned, device, quoterAccess} = useDialerSession();
+	const {profile, provisioned, device} = useDialerSession();
 	// `phone_number` is the agent's number on whichever carrier they are actually on.
 	// The fallback covers a response from a backend that predates it.
 	const callbackNumber =
@@ -608,12 +607,7 @@ function HeaderUserBlock({
 						<MapPinned className="size-4" />
 						Licensed states
 					</DropdownMenuItem>
-					{/* ENG-308: carriers only filter quotes, so they are part of the quoter. */}
-					<DropdownMenuItem
-						disabled={!quoterAccess}
-						title={quoterAccess ? undefined : QUOTER_LOCKED_TITLE}
-						onSelect={() => setCarriersOpen(true)}
-					>
+					<DropdownMenuItem onSelect={() => setCarriersOpen(true)}>
 						<Building2 className="size-4" />
 						My carriers
 					</DropdownMenuItem>

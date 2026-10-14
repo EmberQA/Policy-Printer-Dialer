@@ -5,6 +5,7 @@
  */
 
 import {qsPost} from '@/lib/api';
+import {setQuoteAllowance, type QuoteAllowance} from './allowance';
 import type {
 	ItkCompareOptions,
 	ItkExcluded,
@@ -25,6 +26,28 @@ interface Envelope {
 
 export const QS_SUCCESS = 'SP100';
 
+/**
+ * qsPost throws on any non-2xx, which would turn a readable BAD_REQUEST (e.g. "You've
+ * used your 10 free quotes this month…") into axios's "status code 400". The backend
+ * sends the same envelope on errors, so flatten it the same way and let the caller
+ * show statusMessage. Also records the allowance any response carries.
+ */
+const quotePost = async <T extends Envelope & {quote_allowance?: QuoteAllowance}>(
+	path: string,
+	body: Record<string, unknown>
+): Promise<T> => {
+	let res: T;
+	try {
+		res = await qsPost<T>(path, body);
+	} catch (err: any) {
+		const envelope = err?.response?.data;
+		if (!envelope?.statusCode) throw err;
+		res = {...(envelope.data ?? {}), statusCode: envelope.statusCode, statusMessage: envelope.statusMessage} as T;
+	}
+	setQuoteAllowance(res.quote_allowance);
+	return res;
+};
+
 export interface OpenSessionResponse extends Envelope {
 	/** The E.164 number the quote is keyed by — every save uses it. */
 	phone?: string;
@@ -34,6 +57,7 @@ export interface OpenSessionResponse extends Envelope {
 	prefill?: LeadPrefill;
 	session?: QuoteSession | null;
 	carriers?: string[] | null;
+	quote_allowance?: QuoteAllowance;
 }
 
 export interface SaveSessionResponse extends Envelope {
@@ -46,9 +70,12 @@ export const openQuoteSession = (target: {
 	leadId?: string | null;
 	phone?: string | null;
 }): Promise<OpenSessionResponse> =>
-	qsPost('/policyPrinter/quotes/session/open', {
+	qsPost<OpenSessionResponse>('/policyPrinter/quotes/session/open', {
 		...(target.leadId ? {lead_id: target.leadId} : {}),
 		...(target.phone ? {phone: target.phone} : {})
+	}).then((res) => {
+		setQuoteAllowance(res.quote_allowance);
+		return res;
 	});
 
 export const saveQuoteSession = (
@@ -60,8 +87,8 @@ export const saveQuoteSession = (
 
 export const runQuote = (
 	state: QuoteSessionState
-): Promise<Envelope & {quotes?: ItkQuoteResult[]; excluded?: ItkExcluded[]}> =>
-	qsPost('/policyPrinter/quotes/quote', {state});
+): Promise<Envelope & {quotes?: ItkQuoteResult[]; excluded?: ItkExcluded[]; quote_allowance?: QuoteAllowance}> =>
+	quotePost('/policyPrinter/quotes/quote', {state});
 
 export const getCompareOptions = (
 	state: string
@@ -70,8 +97,8 @@ export const getCompareOptions = (
 
 export const runCompare = (
 	state: QuoteSessionState
-): Promise<Envelope & {data?: ItkQuoteResult[]}> =>
-	qsPost('/policyPrinter/quotes/compare', {state});
+): Promise<Envelope & {data?: ItkQuoteResult[]; quote_allowance?: QuoteAllowance}> =>
+	quotePost('/policyPrinter/quotes/compare', {state});
 
 export const searchUnderwriting = (
 	kind: 'drug' | 'condition',
