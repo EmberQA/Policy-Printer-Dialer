@@ -7,6 +7,7 @@
 import {useEffect, useMemo, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {openQuoteComparison, openQuoteFromForm} from '@/quotes/quoteLink';
+import {QuoteButton} from '@/quotes/QuoteButton';
 import {
 	Calculator,
 	Check,
@@ -486,14 +487,14 @@ function ContactCard({
 					<Button size="sm" variant="outline" onClick={onViewRecord}>
 						View record
 					</Button>
-					<Button
+					<QuoteButton
 						size="sm"
 						variant="outline"
 						onClick={() => openContactQuote(contact, importedFromTld)}
 					>
 						<Calculator className="size-4" />
 						Quote
-					</Button>
+					</QuoteButton>
 					<PortalCallLink scoreUuid={contact.score_uuid} />
 				</div>
 			</CardContent>
@@ -1098,14 +1099,14 @@ function LeadRecordDialog({
 							) : (
 								<>
 									{leadId && (
-										<Button
+										<QuoteButton
 											size="sm"
 											variant="outline"
 											onClick={() => openQuoteComparison(leadId)}
 										>
 											<Calculator className="size-4" />
 											Quote
-										</Button>
+										</QuoteButton>
 									)}
 									<Button
 										size="sm"

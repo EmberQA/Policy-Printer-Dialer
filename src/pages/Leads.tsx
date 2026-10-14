@@ -9,6 +9,7 @@
 import {useEffect, useMemo, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {openQuoteComparison} from '@/quotes/quoteLink';
+import {QuoteButton} from '@/quotes/QuoteButton';
 import {
 	Calculator,
 	CalendarDays,
@@ -764,14 +765,14 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 			<div className="flex items-center justify-between gap-4">
 				<p className="text-sm font-medium">Lead details</p>
 				<div className="flex gap-2">
-					<Button
+					<QuoteButton
 						size="sm"
 						variant="outline"
 						onClick={() => openQuoteComparison(leadId)}
 					>
 						<Calculator className="size-4" />
 						Quote
-					</Button>
+					</QuoteButton>
 					<Button
 						size="sm"
 						variant="outline"

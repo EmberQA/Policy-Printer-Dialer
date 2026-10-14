@@ -20,6 +20,9 @@ import {quotePrefillFromForm, stashFormPrefill} from './formPrefill';
 
 export const QUOTE_COMPARISON_PATH = '/quotecomparison';
 
+/** ENG-308: shown on every quote entry point for an agent without the quoter add-on. */
+export const QUOTER_LOCKED_TITLE = 'Add the quoter ($30/mo) from your billing card in EmberQA';
+
 export const quoteComparisonUrl = (params: {leadId?: string | null; prefillKey?: string | null}): string => {
 	const qs = new URLSearchParams();
 	if (params.leadId) qs.set('lead_id', params.leadId);

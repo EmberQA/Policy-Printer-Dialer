@@ -117,7 +117,7 @@ export default function QuoteComparisonApp() {
 	if (auth === 'none') {
 		return (
 			<CenteredMessage title="Open quotes from the dialer">
-				Sign in to the dialer first, then use the Quotes tab or a lead's Quote button.
+				Sign in to the dialer first, then use a lead's Quote button or the call form's Get a quote.
 			</CenteredMessage>
 		);
 	}

@@ -43,6 +43,7 @@ import {DispositionSelect} from './DispositionSelect';
 import {useLeadNotes} from './LeadNotesContext';
 import {useLeadFormBridge} from './LeadFormBridgeContext';
 import {openQuoteFromForm} from '@/quotes/quoteLink';
+import {QuoteButton} from '@/quotes/QuoteButton';
 import {quotePrefillFromForm} from '@/quotes/formPrefill';
 
 export function LeadForm({
@@ -465,10 +466,15 @@ export function LeadForm({
 								</span>
 							</button>
 						) : (
-							<Button type="button" className="h-11 w-full text-base" onClick={onGetQuote}>
+							<QuoteButton
+								type="button"
+								className="h-11 w-full text-base"
+								wrapperClassName="flex w-full"
+								onClick={onGetQuote}
+							>
 								<Calculator className="size-5" />
 								Get a quote
-							</Button>
+							</QuoteButton>
 						)}
 
 						{saveError && <p className="text-destructive">{saveError}</p>}

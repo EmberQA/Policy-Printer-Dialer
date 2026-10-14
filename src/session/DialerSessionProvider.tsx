@@ -96,6 +96,11 @@ export interface DialerSession {
 	supervisionAvailable: boolean;
 	/** A supervisor is whispering to THIS agent right now (from the heartbeat). */
 	whisperNotice: {supervisorName: string} | null;
+
+	// --- quoter (ENG-308) ---
+	/** Backend-decided: the agent has the quoter add-on. Quote entry points render
+	 *  disabled with an upsell when false; the backend gate is authoritative. */
+	quoterAccess: boolean;
 }
 
 const DialerSessionContext = createContext<DialerSession | null>(null);
@@ -299,6 +304,10 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		Number(profile?.capabilities?.supervision_version ?? 0) >= 1 &&
 		profile?.supervision?.available === true;
 	const whisperNotice = heartbeat.whisper;
+	const quoterAccess =
+		provisioned &&
+		Number(profile?.capabilities?.quoter_version ?? 0) >= 1 &&
+		profile?.quoter_access === true;
 
 	const value = useMemo<DialerSession>(
 		() => ({
@@ -323,7 +332,8 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 			setCallUiBusy,
 			canDialBase,
 			supervisionAvailable,
-			whisperNotice
+			whisperNotice,
+			quoterAccess
 		}),
 		[
 			changePresence,
@@ -342,7 +352,8 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 			onCall,
 			canDialBase,
 			supervisionAvailable,
-			whisperNotice
+			whisperNotice,
+			quoterAccess
 		]
 	);
 
@@ -354,6 +365,12 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 			{children}
 		</DialerSessionContext.Provider>
 	);
+}
+
+/** ENG-308: quoter access for components that may render outside the provider
+ *  (they simply read as locked there). */
+export function useQuoterAccess(): boolean {
+	return useContext(DialerSessionContext)?.quoterAccess ?? false;
 }
 
 export function useDialerSession(): DialerSession {

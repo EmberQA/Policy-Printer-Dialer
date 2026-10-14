@@ -12,6 +12,7 @@
 import {useState} from 'react';
 import {Calculator, Loader2, Phone, ExternalLink} from 'lucide-react';
 import {openQuoteComparison} from '@/quotes/quoteLink';
+import {QuoteButton} from '@/quotes/QuoteButton';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Label} from '@/components/ui/label';
@@ -117,14 +118,14 @@ export function PurchasedLeadRow({
 								)}
 							</Button>
 						)}
-						<Button
+						<QuoteButton
 							size="sm"
 							variant="outline"
 							onClick={() => openQuoteComparison(lead.id)}
 						>
 							<Calculator className="size-4" />
 							Quote
-						</Button>
+						</QuoteButton>
 						<Button size="sm" variant="outline" onClick={onToggle}>
 							{expanded ? 'Close' : 'View'}
 						</Button>
