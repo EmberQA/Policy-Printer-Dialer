@@ -11,11 +11,13 @@
  * caller pre-filled.
  */
 
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {
 	AlertTriangle,
 	Ban,
+	Calculator,
 	CheckCircle2,
+	ExternalLink,
 	Loader2,
 	RotateCcw,
 	Save
@@ -36,9 +38,13 @@ import {
 } from '@/lib/api';
 import {stateFormValueFromCode, stateFormValueFromPhone} from '@/lib/phone';
 import {FormRenderer, type LeadFormData} from './FormRenderer';
+import {aliasedAnswer, coerceToField} from './coerceField';
 import {DispositionSelect} from './DispositionSelect';
 import {useLeadNotes} from './LeadNotesContext';
 import {useLeadFormBridge} from './LeadFormBridgeContext';
+import {openQuoteFromForm} from '@/quotes/quoteLink';
+import {QuoteButton} from '@/quotes/QuoteButton';
+import {quotePrefillFromForm} from '@/quotes/formPrefill';
 
 export function LeadForm({
 	campaignId,
@@ -85,6 +91,49 @@ export function LeadForm({
 		'save' | 'skip' | null
 	>(null);
 	const busy = saving || completingWithoutLead;
+	// Quotes are keyed by the caller's number (ENG-286): the live caller ID,
+	// else the phone typed on the form. Saving the lead doesn't matter — any
+	// lead / CRM record with this number opens the same quote.
+	// The FORM is the source of truth: the phone typed on it wins; the live
+	// caller ID only fills in when the phone field is blank.
+	const typedPhone = (formData as Record<string, unknown>).phone;
+	const quotePhone =
+		(typeof typedPhone === 'string' && typedPhone.trim() ? typedPhone.trim() : null) ||
+		callerPhone ||
+		null;
+
+	// The quote tab this form opened. A stable window NAME per call lets the bar
+	// focus it, or reopen it (reloading the saved quote) if the agent closed it.
+	const newQuoteWindowName = () =>
+		`pp-quote-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now()}`;
+	const quoteWindowName = useRef(newQuoteWindowName());
+	const quoteWindowRef = useRef<Window | null>(null);
+	const [quoteOpened, setQuoteOpened] = useState(false);
+
+	// What the open quote tab was prefilled with. If the agent has edited the
+	// form since (a different number, a corrected DOB…), the next click reloads
+	// the tab with the CURRENT form — otherwise it just brings the tab forward.
+	const quoteOpenedWith = useRef<string | null>(null);
+
+	const onGetQuote = () => {
+		const signature = JSON.stringify([quotePhone, quotePrefillFromForm(formData)]);
+		const win = quoteWindowRef.current;
+		if (quoteOpened && win && !win.closed && quoteOpenedWith.current === signature) {
+			win.focus();
+			return;
+		}
+		quoteWindowRef.current = openQuoteFromForm(formData, quotePhone, quoteWindowName.current);
+		quoteOpenedWith.current = signature;
+		setQuoteOpened(true);
+	};
+
+	// A new call (or a different returning lead) starts a fresh quote.
+	useEffect(() => {
+		setQuoteOpened(false);
+		quoteWindowRef.current = null;
+		quoteOpenedWith.current = null;
+		quoteWindowName.current = newQuoteWindowName();
+	}, [callSid, editLead?.id]);
 	const {setNote} = useLeadNotes();
 	const {setView: setBridgeView} = useLeadFormBridge();
 
@@ -103,18 +152,19 @@ export function LeadForm({
 		// Preserve prior answers where the field key still matches, otherwise match the
 		// human label (e.g. an old `phone_number` to a new `phone`). Fields that no
 		// longer exist are intentionally dropped rather than failing validation.
+		// Each answer is then coerced onto the field's current type (old free-text
+		// height → the height option) and dropped if it can't be.
 		const matchingPriorAnswers: LeadFormData = {};
 		for (const field of nextForm?.schema ?? []) {
-			if (priorAnswers[field.key] !== undefined) {
-				matchingPriorAnswers[field.key] = priorAnswers[field.key];
-				continue;
+			let raw = aliasedAnswer(field, priorAnswers);
+			if (raw === undefined) {
+				const priorField = priorFieldByLabel.get(
+					normalizeFieldLabel(field.label)
+				);
+				if (priorField) raw = priorAnswers[priorField.key];
 			}
-			const priorField = priorFieldByLabel.get(
-				normalizeFieldLabel(field.label)
-			);
-			if (priorField && priorAnswers[priorField.key] !== undefined) {
-				matchingPriorAnswers[field.key] = priorAnswers[priorField.key];
-			}
+			const value = raw === undefined ? undefined : coerceToField(field, raw);
+			if (value !== undefined) matchingPriorAnswers[field.key] = value;
 		}
 		const schema = nextForm?.schema ?? [];
 		const phoneField = schema.find(
@@ -395,6 +445,36 @@ export function LeadForm({
 								No lead form is published for this campaign yet — you can still
 								record a disposition.
 							</p>
+						)}
+
+						{quoteOpened ? (
+							<button
+								type="button"
+								onClick={onGetQuote}
+								className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-left transition-colors hover:bg-primary/10"
+							>
+								<span className="flex items-center gap-2.5">
+									<span className="relative flex size-2">
+										<span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60" />
+										<span className="relative inline-flex size-2 rounded-full bg-primary" />
+									</span>
+									<span className="text-sm font-medium">Quote in progress</span>
+								</span>
+								<span className="flex items-center gap-1 text-sm font-medium text-primary">
+									Open quote
+									<ExternalLink className="size-3.5" />
+								</span>
+							</button>
+						) : (
+							<QuoteButton
+								type="button"
+								className="h-11 w-full text-base"
+								wrapperClassName="flex w-full"
+								onClick={onGetQuote}
+							>
+								<Calculator className="size-5" />
+								Get a quote
+							</QuoteButton>
 						)}
 
 						{saveError && <p className="text-destructive">{saveError}</p>}

@@ -8,7 +8,10 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
+import {openQuoteComparison} from '@/quotes/quoteLink';
+import {QuoteButton} from '@/quotes/QuoteButton';
 import {
+	Calculator,
 	CalendarDays,
 	Check,
 	Copy,
@@ -61,6 +64,7 @@ import {
 	getActivityPeriodBounds,
 	type ActivitySummaryPeriod
 } from './activityPeriod';
+import {isoDateToUs} from '@/lib/dates';
 
 const PAGE_SIZE = 25;
 const EMPTY_SUMMARY: ActivitySummary = {
@@ -760,15 +764,25 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 		<div className="space-y-5 px-4 py-4">
 			<div className="flex items-center justify-between gap-4">
 				<p className="text-sm font-medium">Lead details</p>
-				<Button
-					size="sm"
-					variant="outline"
-					onClick={onCopy}
-					disabled={!copyText}
-				>
-					{copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-					{copied ? 'Copied' : 'Copy all'}
-				</Button>
+				<div className="flex gap-2">
+					<QuoteButton
+						size="sm"
+						variant="outline"
+						onClick={() => openQuoteComparison(leadId)}
+					>
+						<Calculator className="size-4" />
+						Quote
+					</QuoteButton>
+					<Button
+						size="sm"
+						variant="outline"
+						onClick={onCopy}
+						disabled={!copyText}
+					>
+						{copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+						{copied ? 'Copied' : 'Copy all'}
+					</Button>
+				</div>
 			</div>
 
 			{schema.length > 0 ? (
@@ -856,7 +870,7 @@ function formatValue(value: unknown): string {
 	if (Array.isArray(value)) return value.join(', ');
 	if (typeof value === 'boolean') return value ? 'Yes' : 'No';
 	if (typeof value === 'object') return JSON.stringify(value, null, 2);
-	return String(value);
+	return isoDateToUs(String(value));
 }
 
 function leadToText(detail: LeadDetailResponse | null): string {

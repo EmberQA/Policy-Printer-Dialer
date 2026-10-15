@@ -6,7 +6,10 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
+import {openQuoteComparison, openQuoteFromForm} from '@/quotes/quoteLink';
+import {QuoteButton} from '@/quotes/QuoteButton';
 import {
+	Calculator,
 	Check,
 	Copy,
 	Loader2,
@@ -74,6 +77,7 @@ import {
 	type ImportedTldContact,
 	type TldCsvRow
 } from './tldImport';
+import {isoDateToUs} from '@/lib/dates';
 
 const PAGE_SIZE = 25;
 
@@ -409,6 +413,25 @@ export default function Crm({
 	);
 }
 
+/**
+ * CRM "Quote" (ENG-286). Quotes belong to the caller's number, so every card
+ * with a phone opens (or, first time, creates) that number's quote — a saved
+ * lead resolves its number on the backend; a TLD-import / lead-less contact
+ * sends its number through the prefill handoff along with the name.
+ */
+function openContactQuote(contact: ActivityListItem, importedFromTld: boolean) {
+	if (contact.lead_id && !importedFromTld) {
+		openQuoteComparison(contact.lead_id);
+		return;
+	}
+	const [first = '', ...rest] = (contact.name ?? '').trim().split(/\s+/);
+	openQuoteFromForm(
+		{first_name: first, last_name: rest.join(' ')},
+		contact.caller_phone ?? null,
+		`pp-quote-contact-${contact.id}`
+	);
+}
+
 function ContactCard({
 	contact,
 	onCall,
@@ -464,6 +487,14 @@ function ContactCard({
 					<Button size="sm" variant="outline" onClick={onViewRecord}>
 						View record
 					</Button>
+					<QuoteButton
+						size="sm"
+						variant="outline"
+						onClick={() => openContactQuote(contact, importedFromTld)}
+					>
+						<Calculator className="size-4" />
+						Quote
+					</QuoteButton>
 					<PortalCallLink scoreUuid={contact.score_uuid} />
 				</div>
 			</CardContent>
@@ -1067,6 +1098,16 @@ function LeadRecordDialog({
 								</Button>
 							) : (
 								<>
+									{leadId && (
+										<QuoteButton
+											size="sm"
+											variant="outline"
+											onClick={() => openQuoteComparison(leadId)}
+										>
+											<Calculator className="size-4" />
+											Quote
+										</QuoteButton>
+									)}
 									<Button
 										size="sm"
 										variant="outline"
@@ -1471,7 +1512,7 @@ function formatValue(value: unknown): string {
 	if (Array.isArray(value)) return value.join(', ');
 	if (typeof value === 'boolean') return value ? 'Yes' : 'No';
 	if (typeof value === 'object') return JSON.stringify(value, null, 2);
-	return String(value);
+	return isoDateToUs(String(value));
 }
 
 function leadToText(detail: LeadDetailResponse | null): string {

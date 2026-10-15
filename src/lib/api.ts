@@ -129,7 +129,12 @@ export interface DialerProfileResponse {
 		call_participant_version?: number;
 		outbound_lifecycle_version?: number;
 		supervision_version?: number;
+		/** ENG-308: from version 1, `quoter_access` is authoritative. */
+		quoter_version?: number;
 	};
+	/** ENG-308: the agent has the quoter add-on (or a pool seat that includes it).
+	 *  The backend quote gate enforces it; this only drives the buttons. */
+	quoter_access?: boolean;
 	/** Backend-decided: this caller has agents under them AND a seat that can receive
 	 *  a supervisor leg. Gates the Agents tab; per-agent buttons are gated per row. */
 	supervision?: {available: boolean};
