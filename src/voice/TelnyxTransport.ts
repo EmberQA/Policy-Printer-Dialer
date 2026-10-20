@@ -39,6 +39,7 @@ import {TelnyxEchoTest} from './TelnyxEchoTest';
 import {TelnyxSupervision} from './TelnyxSupervision';
 import {TelnyxMicrophone, stopMicrophoneStream} from './TelnyxMicrophone';
 import {TelnyxSpeaker} from './TelnyxSpeaker';
+import {CallAudioDiagnostics} from './callAudioDiagnostics';
 import type {
 	IncomingLeg,
 	LegEvent,
@@ -367,7 +368,7 @@ export class TelnyxTransport implements VoiceTransport {
 					leg.emit('error', error);
 					void call.hangup();
 				}
-			});
+			}, () => ({element: this.remoteAudio, selectedOutput: this.outputDeviceId}));
 			this.legs.set(call.id, leg);
 			this.incomingCb?.(leg);
 			return;
@@ -652,8 +653,12 @@ class TelnyxLeg implements IncomingLeg {
 	private rttTimer: number | null = null;
 	private terminalEmitted = false;
 	private answerStarted = false;
+	private audioDiagnostics = new CallAudioDiagnostics();
+	private statsInFlight = false;
+	private statsGeneration = 0;
 
-	constructor(public call: TelnyxCall, private readonly consultation: () => TelnyxConsultation | null, private readonly answer: () => void) {
+	constructor(public call: TelnyxCall, private readonly consultation: () => TelnyxConsultation | null, private readonly answer: () => void,
+		private readonly playback: () => {element: HTMLAudioElement | null; selectedOutput: string}) {
 		this.legId = call.id;
 		this.from = call.options?.remoteCallerNumber || null;
 		this.params = normalizeTelnyxHeaders(call.options?.customHeaders);
@@ -661,7 +666,8 @@ class TelnyxLeg implements IncomingLeg {
 
 	endDiagnostics() {
 		return {provider: 'telnyx' as const, sip_code: this.call.sipCode,
-			hangup_cause: this.call.cause, hangup_cause_code: this.call.causeCode};
+			hangup_cause: this.call.cause, hangup_cause_code: this.call.causeCode,
+			audio: this.audioDiagnostics.snapshot()};
 	}
 
 	markActive(): void {
@@ -731,16 +737,30 @@ class TelnyxLeg implements IncomingLeg {
 	/** No `sample` event here, so poll the peer connection the SDK already exposes. */
 	onRtt(cb: (ms: number | null) => void): void {
 		this.stopRtt();
-		this.rttTimer = window.setInterval(() => {
-			const peer = this.call.peer?.instance;
-			if (!peer || typeof peer.getStats !== 'function') {
+		const generation = this.statsGeneration;
+		this.rttTimer = window.setInterval(async () => {
+			if (this.statsInFlight) return;
+			this.statsInFlight = true;
+			try {
+				const peer = this.call.peer?.instance;
+				const report = await peer?.getStats?.();
+				if (generation !== this.statsGeneration) return;
+				try {
+					const {element, selectedOutput} = this.playback();
+					this.audioDiagnostics.record(report ?? null, peer ?? undefined, element, selectedOutput);
+				} catch { this.audioDiagnostics.failed(); }
+				cb(readRttMs(report));
+			} catch {
+				if (generation !== this.statsGeneration) return;
+				this.audioDiagnostics.failed();
+				try {
+					const {element, selectedOutput} = this.playback();
+					this.audioDiagnostics.record(null, this.call.peer?.instance ?? undefined, element, selectedOutput);
+				} catch { /* Playback introspection is optional too. */ }
 				cb(null);
-				return;
+			} finally {
+				this.statsInFlight = false;
 			}
-			void peer
-				.getStats()
-				.then((report) => cb(readRttMs(report)))
-				.catch(() => cb(null));
 		}, RTT_POLL_MS);
 	}
 
@@ -750,6 +770,7 @@ class TelnyxLeg implements IncomingLeg {
 	}
 
 	private stopRtt(): void {
+		this.statsGeneration++;
 		if (this.rttTimer !== null) window.clearInterval(this.rttTimer);
 		this.rttTimer = null;
 	}

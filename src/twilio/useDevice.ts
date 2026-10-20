@@ -1483,8 +1483,10 @@ export function useDevice({
 				if (!isDirectSipInbound) return;
 				const legId = call.legId as string;
 				console.info('[dialer][sip] ended', {legId, event});
+				let callDiagnostics;
+				try { callDiagnostics = call.endDiagnostics?.(); } catch { /* Diagnostics must never interrupt cleanup. */ }
 				const diagnostics = {
-					...call.endDiagnostics?.(), event, answered: acceptedDirection !== null,
+					...callDiagnostics, event, answered: acceptedDirection !== null,
 					error_name: error instanceof Error ? error.name : undefined,
 					error_message: error instanceof Error ? error.message : (error as {message?: string} | undefined)?.message
 				};

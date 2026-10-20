@@ -34,6 +34,7 @@ export type TransportStatus = 'registered' | 'connecting' | 'offline' | 'error';
 export type MicrophoneProblem = 'disconnected' | 'unavailable';
 
 export interface CallEndDiagnostics {
+	audio?: ReturnType<import('./callAudioDiagnostics').CallAudioDiagnostics['snapshot']>;
 	event?: string;
 	answered?: boolean;
 	error_name?: string;

@@ -278,7 +278,7 @@ it('preserves available SIP disconnect details on the ended leg', async () => {
 	const f = await fixture(); const c = f.call(); const leg = f.incoming[0];
 	Object.assign(c, {state: 'hangup', sipCode: 480, cause: 'NO_ANSWER', causeCode: 19});
 	f.notify(c);
-	expect(leg.endDiagnostics?.()).toEqual({provider: 'telnyx', sip_code: 480, hangup_cause: 'NO_ANSWER', hangup_cause_code: 19});
+	expect(leg.endDiagnostics?.()).toMatchObject({provider: 'telnyx', sip_code: 480, hangup_cause: 'NO_ANSWER', hangup_cause_code: 19});
 	f.transport.destroy();
 });
 
@@ -317,4 +317,48 @@ it('still blocks Ready when the selected microphone cannot be acquired', async (
 	await expect(presence.change('ready', async () => {await f.transport.armAudio(); return true;})).rejects.toThrow('Microphone disconnected');
 	expect(write).not.toHaveBeenCalled();
 	f.transport.destroy();
+});
+
+describe('passive call audio diagnostics', () => {
+	it('reuses the existing stats read and keeps playback observations after call teardown', async () => {
+		const f = await fixture('airpods'); const c = f.call(); const leg = f.incoming[0]; leg.accept();
+		const report = new Map([['audio', {type: 'inbound-rtp', kind: 'audio', packetsReceived: 120,
+			bytesReceived: 8000, totalAudioEnergy: 0.7, audioLevel: 0.2}]]);
+		const getStats = vi.fn(async () => report);
+		Object.assign(c.peer.instance, {getStats, connectionState: 'connected', iceConnectionState: 'connected'});
+		const element = sdk.clients[0].remoteElement;
+		Object.assign(element, {paused: false, muted: false, volume: 1, readyState: 4, currentTime: 1, srcObject: new Stream('remote')});
+		element.play.mockClear(); element.setSinkId.mockClear();
+		const rtt = vi.fn(); leg.onRtt(rtt);
+		await vi.advanceTimersByTimeAsync(6000);
+		expect(getStats).toHaveBeenCalledTimes(6);
+		const audio = leg.endDiagnostics?.().audio;
+		expect(audio?.samples).toHaveLength(2);
+		expect(audio?.first).toMatchObject({inbound: {packetsReceived: 120, bytesReceived: 8000, totalAudioEnergy: 0.7},
+			audio_level: 0.2, playback: {sink_id: 'airpods', paused: false, muted: false, has_stream: true}});
+		expect(element.play).not.toHaveBeenCalled(); expect(element.setSinkId).not.toHaveBeenCalled();
+		expect(c.hangup).not.toHaveBeenCalled(); expect(c.sender.replaceTrack).not.toHaveBeenCalled();
+		await c.hangup(); element.srcObject = null;
+		await vi.advanceTimersByTimeAsync(6000);
+		expect(getStats).toHaveBeenCalledTimes(6);
+		expect(leg.endDiagnostics?.().audio?.samples).toEqual(audio?.samples);
+		f.transport.destroy();
+	});
+	it('never overlaps stats reads, ignores late results, and tolerates failures without touching the call', async () => {
+		const f = await fixture(); const c = f.call(); const leg = f.incoming[0]; leg.accept();
+		let resolve!: (value: Map<string, unknown>) => void;
+		const getStats = vi.fn().mockRejectedValueOnce(new Error('stats unavailable'))
+			.mockImplementation(() => new Promise(done => {resolve = done;}));
+		Object.assign(c.peer.instance, {getStats});
+		const rtt = vi.fn(); leg.onRtt(rtt);
+		await vi.advanceTimersByTimeAsync(6000);
+		expect(getStats).toHaveBeenCalledTimes(2);
+		expect(leg.endDiagnostics?.().audio?.stats_errors).toBe(1);
+		expect(c.hangup).not.toHaveBeenCalled(); expect(c.sender.track?.readyState).toBe('live');
+		await c.hangup(); const diagnostics = leg.endDiagnostics?.().audio;
+		resolve(new Map()); await vi.advanceTimersByTimeAsync(0);
+		expect(rtt).toHaveBeenCalledTimes(1);
+		expect(leg.endDiagnostics?.().audio?.samples).toEqual(diagnostics?.samples);
+		f.transport.destroy();
+	});
 });
