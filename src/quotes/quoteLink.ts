@@ -34,6 +34,15 @@ export const openQuoteComparison = (leadId: string): void => {
 };
 
 /**
+ * Open the quoter with no lead or prefill — a standalone/scratch quote the
+ * agent can run before a call, after hangup, or for a callback. The quote
+ * still saves under whatever phone number the agent types on the page.
+ */
+export const openQuoteStandalone = (): void => {
+	window.open(quoteComparisonUrl({}), 'pp-quote-standalone');
+};
+
+/**
  * Open (or re-target) a named quote tab for a caller, prefilled from form
  * values. `phone` is the key the quote saves under (the live caller number,
  * else the typed phone); without a usable number the page is a scratch quote.

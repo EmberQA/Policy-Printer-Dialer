@@ -13,6 +13,7 @@ import {
 	CalendarDays,
 	Check,
 	Copy,
+	ExternalLink,
 	HelpCircle,
 	MapPinned,
 	Phone,
@@ -45,6 +46,7 @@ import {CoachingBookingDialog} from '@/onboarding/CoachingBookingDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
 import {LicensedStatesDialog} from '@/licensedStates/LicensedStatesDialog';
 import {CarriersDialog} from '@/quotes/CarriersDialog';
+import {openQuoteStandalone} from '@/quotes/quoteLink';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -438,6 +440,7 @@ function AuthenticatedDialerApp({
 							<NavTab to="/leads" label="Activity" />
 							<NavTab to="/outbound-leads" label="Leads" />
 							{supervisionAvailable && <NavTab to="/agents" label="Agents" />}
+							<QuoterTab />
 						</nav>
 					</div>
 					<HeaderUserBlock
@@ -750,5 +753,20 @@ function NavTab({to, label}: {to: string; label: string}) {
 		>
 			{label}
 		</NavLink>
+	);
+}
+
+// Styled like a NavTab but opens the quoter in a separate tab, so it is never
+// the "active" page here. The external-link icon signals the new-tab behavior.
+function QuoterTab() {
+	return (
+		<button
+			type="button"
+			onClick={openQuoteStandalone}
+			className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+		>
+			Quoter
+			<ExternalLink className="size-3.5" />
+		</button>
 	);
 }
