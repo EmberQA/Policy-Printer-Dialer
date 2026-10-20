@@ -51,4 +51,52 @@ describe('audio readiness and pause ordering', () => {
 		await controller.change('ready', async () => true);
 		expect(write).toHaveBeenLastCalledWith('ready');
 	});
+	it('shares simultaneous microphone and speaker pauses without a stale failure or retry', async () => {
+		const response = deferred<PresenceResponse>();
+		const write = vi.fn().mockImplementationOnce(() => response.promise).mockResolvedValue(ok);
+		const controller = createAudioPresence(write);
+		const microphone = controller.change('paused');
+		const speaker = controller.change('paused');
+		response.resolve(ok);
+		await expect(microphone).resolves.toEqual(ok);
+		await expect(speaker).resolves.toEqual(ok);
+		expect(write.mock.calls).toEqual([['paused']]);
+		await controller.change('ready', async () => true);
+		expect(write.mock.calls).toEqual([['paused'], ['ready']]);
+	});
+	it('does not cancel a required pause when an attempted Ready fails audio validation', async () => {
+		const response = deferred<PresenceResponse>();
+		const controller = createAudioPresence(() => response.promise);
+		const paused = controller.change('paused');
+		await expect(controller.change('ready', async () => false)).rejects.toThrow('Audio setup failed');
+		response.resolve(ok);
+		await expect(paused).resolves.toEqual(ok);
+	});
+	it('a new loss still overrides Ready when an earlier pause is in flight', async () => {
+		const response = deferred<PresenceResponse>();
+		const write = vi.fn().mockImplementationOnce(() => response.promise).mockResolvedValue(ok);
+		const controller = createAudioPresence(write);
+		const firstPause = controller.change('paused');
+		const firstRejected = expect(firstPause).rejects.toThrow('Readiness changed');
+		await vi.waitFor(() => expect(write).toHaveBeenCalledWith('paused'));
+		const ready = controller.change('ready', async () => true);
+		const readyRejected = expect(ready).rejects.toThrow('Readiness changed');
+		await Promise.resolve();
+		const newLoss = controller.change('paused');
+		response.resolve(ok);
+		await firstRejected; await readyRejected; await newLoss;
+		expect(write.mock.calls).toEqual([['paused'], ['paused']]);
+	});
+	it('a shared pause also cancels Ready while audio is still preparing', async () => {
+		const response = deferred<PresenceResponse>(); const audio = deferred<boolean>();
+		const write = vi.fn(() => response.promise);
+		const controller = createAudioPresence(write);
+		const firstPause = controller.change('paused');
+		const ready = controller.change('ready', () => audio.promise);
+		const rejected = expect(ready).rejects.toThrow('Readiness changed');
+		const secondPause = controller.change('paused');
+		audio.resolve(true); response.resolve(ok);
+		await rejected; await firstPause; await secondPause;
+		expect(write.mock.calls).toEqual([['paused']]);
+	});
 });

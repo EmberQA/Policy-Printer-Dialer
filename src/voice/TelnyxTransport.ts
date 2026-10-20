@@ -163,10 +163,7 @@ export class TelnyxTransport implements VoiceTransport {
 		this.inputDeviceId = options.inputDeviceId ?? 'default';
 		this.outputDeviceId = options.outputDeviceId ?? 'default';
 		this.speaker = new TelnyxSpeaker(
-			async deviceId => {
-				await this.applySinkId(deviceId);
-				if (this.remoteAudio?.srcObject) await this.remoteAudio.play();
-			},
+			() => this.remoteAudio?.sinkId ?? null,
 			available => this.options.onSpeakerAvailabilityChange?.(available)
 		);
 		this.microphone = new TelnyxMicrophone(this.inputDeviceId, () => {
@@ -260,7 +257,7 @@ export class TelnyxTransport implements VoiceTransport {
 		if (this.destroyed) return;
 		this.client = await this.buildClient(token);
 		if (this.destroyed) return;
-		this.speaker.start(this.outputDeviceId);
+		this.speaker.start();
 		this.rememberTokenExpiry(token);
 		this.startRefreshTicker();
 	}
@@ -576,7 +573,7 @@ export class TelnyxTransport implements VoiceTransport {
 		if (this.remoteAudio?.srcObject) await this.remoteAudio.play();
 		client.speaker = deviceId;
 		this.outputDeviceId = deviceId;
-		this.speaker.select(deviceId);
+		this.speaker.select();
 	}
 
 	async startHold(): Promise<void> {

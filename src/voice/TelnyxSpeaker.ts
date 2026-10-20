@@ -1,7 +1,5 @@
 /** Watch the selected output without changing devices or touching a live call. */
 export class TelnyxSpeaker {
-	private deviceId = 'default';
-	private physicalId: string | null = null;
 	private blocked = false;
 	private stopped = false;
 	private revision = 0;
@@ -9,19 +7,17 @@ export class TelnyxSpeaker {
 	private readonly devices = navigator.mediaDevices;
 
 	constructor(
-		private readonly restore: (deviceId: string) => Promise<void>,
+		private readonly getSinkId: () => string | null,
 		private readonly changed: (available: boolean) => void
 	) {}
 
-	start(deviceId: string): void {
+	start(): void {
 		this.devices?.addEventListener?.('devicechange', this.deviceChanged);
-		this.select(deviceId);
+		this.select();
 	}
 
 	/** Called only after output routing succeeds, including explicit reselection. */
-	select(deviceId: string): void {
-		this.deviceId = deviceId;
-		this.physicalId = null;
+	select(): void {
 		this.cancelScan();
 		this.blocked = false;
 		// A rebuilt transport may replace an earlier blocked monitor.
@@ -72,24 +68,21 @@ export class TelnyxSpeaker {
 			if (!current()) return;
 			// An empty/redacted list is not proof of a disconnected speaker.
 			if (!usable(outputs)) return;
-			if (!isAlias(this.deviceId)) this.physicalId = this.deviceId;
-			else if (!this.physicalId || (!this.blocked && outputs.some(d => d.deviceId === this.physicalId))) {
-				// Follow an intentional OS default change while the previous output is
-				// still present. Preserve its identity if it disappeared in this scan.
-				const alias = outputs.find(d => d.deviceId === (this.deviceId || 'default'));
-				const matches = outputs.filter(d => alias?.groupId && d.groupId === alias.groupId && !isAlias(d.deviceId));
-				if (matches.length === 1) this.physicalId = matches[0].deviceId;
+			// Read the actual element route, not a saved preference or the device that
+			// used to back System Default. The OS/SDK may already have recovered.
+			const sinkId = this.getSinkId();
+			if (sinkId === null) return; // Output routing is not observable here.
+			if (isAlias(sinkId)) {
+				// Default routes follow the OS. An old physical device disappearing
+				// does not prove the current default is silent.
+				this.setBlocked(false);
+				return;
 			}
-			if (!this.physicalId) return;
-			if (!outputs.some(d => d.deviceId === this.physicalId)) {
-				this.setBlocked(true);
-			} else if (this.blocked) {
-				// A reappearing device alone does not prove the old element can use it.
-				await this.restore(this.deviceId);
-				if (current()) this.setBlocked(false);
-			}
+			// Observe only. Reappearing sinks resume through the browser; rerouting
+			// here could race with the agent choosing a different working speaker.
+			this.setBlocked(!outputs.some(d => d.deviceId === sinkId));
 		} catch {
-			// Enumeration failures are inconclusive; failed restoration stays blocked.
+			// Enumeration failures are inconclusive.
 		}
 	}
 }

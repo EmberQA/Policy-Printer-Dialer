@@ -133,7 +133,10 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 	}, [audioPresence]);
 	useEffect(() => {
 		if (speakerPauseState !== 'failed') return;
-		const timer = window.setTimeout(pauseForSpeaker, 5000);
+		const incident = speakerIncident.current;
+		const timer = window.setTimeout(() => {
+			if (incident === speakerIncident.current) pauseForSpeaker();
+		}, 5000);
 		return () => window.clearTimeout(timer);
 	}, [speakerPauseState, pauseForSpeaker]);
 	const microphoneIncident = useRef(0);
@@ -150,7 +153,10 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 	}, [audioPresence]);
 	useEffect(() => {
 		if (microphoneNotice?.state !== 'failed') return;
-		const timer = window.setTimeout(() => pauseForMicrophone(microphoneNotice.reason), 5000);
+		const incident = microphoneIncident.current;
+		const timer = window.setTimeout(() => {
+			if (incident === microphoneIncident.current) pauseForMicrophone(microphoneNotice.reason);
+		}, 5000);
 		return () => window.clearTimeout(timer);
 	}, [microphoneNotice, pauseForMicrophone]);
 

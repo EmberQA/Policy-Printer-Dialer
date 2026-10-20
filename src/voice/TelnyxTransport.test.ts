@@ -49,7 +49,8 @@ beforeEach(() => {
 	vi.stubGlobal('navigator', {mediaDevices: {getUserMedia: capture}});
 	vi.stubGlobal('window', {setInterval, clearInterval, setTimeout, clearTimeout});
 	vi.stubGlobal('document', {body: {appendChild() {}}, createElement: () => ({
-		style: {}, setAttribute() {}, play: vi.fn(async () => {}), remove() {}, setSinkId: vi.fn(async () => {})
+		style: {}, setAttribute() {}, play: vi.fn(async () => {}), remove() {}, sinkId: '',
+		setSinkId: vi.fn(async function(this: {sinkId: string}, id: string) {this.sinkId = id;})
 	})});
 });
 afterEach(() => {vi.useRealTimers(); vi.unstubAllGlobals();});
@@ -81,6 +82,27 @@ async function fixture(outputDeviceId = 'default') {
 }
 
 describe('Telnyx speaker loss during live calls', () => {
+	it.each(['default', 'internal'])('does not pause a live call recovered onto %s', async actualSink => {
+		let outputs = ['airpods', 'internal', 'default'];
+		const devices = Object.assign(new EventTarget(), {
+			getUserMedia: capture,
+			enumerateDevices: vi.fn(async () => outputs.map(deviceId => ({kind: 'audiooutput', deviceId, label: deviceId})))
+		});
+		vi.stubGlobal('navigator', {mediaDevices: devices});
+		const f = await fixture('airpods');
+		const c = f.call(); f.incoming[0].accept();
+		f.speakerAvailability.mockClear();
+		// Saved preference still says AirPods, but the OS/SDK has a working route.
+		sdk.clients[0].remoteElement.sinkId = actualSink;
+		outputs = ['internal', 'default'];
+		devices.dispatchEvent(new Event('devicechange'));
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(f.speakerAvailability).not.toHaveBeenCalled();
+		expect(c.hangup).not.toHaveBeenCalled();
+		expect(c.sender.replaceTrack).not.toHaveBeenCalled();
+		expect(sdk.clients[0].disconnect).not.toHaveBeenCalled();
+		f.transport.destroy();
+	});
 	it('reports confirmed output loss and restoration without ending or replacing the call', async () => {
 		let outputs = ['airpods', 'internal'];
 		const devices = Object.assign(new EventTarget(), {
@@ -92,16 +114,29 @@ describe('Telnyx speaker loss during live calls', () => {
 		const c = f.call(); f.incoming[0].accept();
 		const stream = c.localStream;
 		f.speakerAvailability.mockClear();
+		const writePresence = vi.fn(async () => ({statusCode: 'SP100', statusMessage: 'OK'}));
+		const presence = createAudioPresence(writePresence);
+		f.speakerAvailability.mockImplementation(available => {
+			if (!available) void presence.change('paused');
+		});
+		const element = sdk.clients[0].remoteElement;
+		element.setSinkId.mockClear(); element.play.mockClear();
 		outputs = ['internal']; devices.dispatchEvent(new Event('devicechange'));
 		await vi.advanceTimersByTimeAsync(2000);
 		expect(f.speakerAvailability).toHaveBeenCalledExactlyOnceWith(false);
+		expect(writePresence).toHaveBeenCalledExactlyOnceWith('paused');
 		expect(c.hangup).not.toHaveBeenCalled();
 		expect(c.localStream).toBe(stream);
 		expect(c.sender.replaceTrack).not.toHaveBeenCalled();
 		outputs = ['airpods', 'internal']; devices.dispatchEvent(new Event('devicechange'));
 		await vi.advanceTimersByTimeAsync(2000);
 		expect(f.speakerAvailability).toHaveBeenLastCalledWith(true);
-		expect(sdk.clients[0].remoteElement.setSinkId).toHaveBeenLastCalledWith('airpods');
+		expect(element.setSinkId).not.toHaveBeenCalled();
+		expect(element.play).not.toHaveBeenCalled();
+		expect(c.setAudioOutDevice).not.toHaveBeenCalled();
+		expect(sdk.clients[0].disconnect).not.toHaveBeenCalled();
+		expect(stream?.track.readyState).toBe('live');
+		expect(writePresence).toHaveBeenCalledTimes(1); // Reconnection does not auto-Ready.
 		expect(c.hangup).not.toHaveBeenCalled();
 		f.transport.destroy();
 	});
