@@ -378,7 +378,7 @@ export default function Dial() {
 		Boolean(wrapUpCallKey) && dismissedCallerKey === wrapUpCallKey;
 	const onCall = liveOnCall || debugIncomingCall || Boolean(wrapUpCall);
 	const displayAvailable = onCall ? 0 : available;
-	const canGoReady = anyArmed; // must arm ≥1 campaign first
+	const canGoReady = anyArmed && !device.speakerBlocked;
 	const deviceError = device.error;
 	// Local `error` is for action failures (presence/campaign/dial/wrap-up); bootstrap
 	// (load) failures come from the shared session. Show either in the banner.

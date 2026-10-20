@@ -39,6 +39,7 @@ import Agents from '@/pages/Agents';
 import {LeadNotesProvider} from '@/leads/LeadNotesContext';
 import {LeadFormBridgeProvider} from '@/leads/LeadFormBridgeContext';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
+import {SpeakerUnavailableBanner} from '@/presence/SpeakerUnavailableBanner';
 import {useLiveEchoControls} from '@/voice/useLiveEchoControls';
 import {CoachingBookingDialog} from '@/onboarding/CoachingBookingDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
@@ -255,6 +256,8 @@ function AuthenticatedDialerApp({
 		presence,
 		audioCheckComplete,
 		completeAudioCheck,
+		speakerPauseState,
+		retrySpeakerPause,
 		supervisionAvailable
 	} = useDialerSession();
 	const liveEcho = useLiveEchoControls();
@@ -297,6 +300,7 @@ function AuthenticatedDialerApp({
 		readTrainingPreference(trainingStorageKey)
 	);
 	const [trainingOpen, setTrainingOpen] = useState(() => !dontShowTraining);
+	const [speakerSetupOpen, setSpeakerSetupOpen] = useState(false);
 	const [hiddenCreditId, setHiddenCreditId] = useState<string | null>(null);
 	const [creditFlight, setCreditFlight] = useState<CreditFlight | null>(null);
 	const creditFlightIdRef = useRef(0);
@@ -441,6 +445,12 @@ function AuthenticatedDialerApp({
 						onShowTraining={() => setTrainingOpen(true)}
 					/>
 				</div>
+				<SpeakerUnavailableBanner
+					blocked={device.speakerBlocked}
+					pauseState={speakerPauseState}
+					onOpenAudioSetup={() => setSpeakerSetupOpen(true)}
+					onRetry={retrySpeakerPause}
+				/>
 			</header>
 			<ReadyUnavailableBanner />
 			<NewLeadBanner />
@@ -463,8 +473,9 @@ function AuthenticatedDialerApp({
 				videoSrc={TRAINING_VIDEO_SRC}
 			/>
 			<AudioSetupDialog
-				open={audioCheckOpen}
-				required
+				open={audioCheckOpen || speakerSetupOpen}
+				onOpenChange={setSpeakerSetupOpen}
+				required={audioCheckOpen}
 				showTrigger={false}
 				inputDeviceId={device.inputDeviceId}
 				outputDeviceId={device.outputDeviceId}

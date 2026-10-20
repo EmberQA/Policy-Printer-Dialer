@@ -116,6 +116,7 @@ export interface ActiveCall {
 
 export interface UseDeviceState {
 	microphoneBlocked: boolean;
+	speakerBlocked: boolean;
 	participant: CallParticipantState | null;
 	participantNotice: string | null;
 	canAddParticipant: boolean;
@@ -212,15 +213,30 @@ export interface UseDeviceOptions {
 	outboundLifecycleEnabled?: boolean;
 	participantEnabled?: boolean;
 	onMicrophoneUnavailable?: (reason: MicrophoneProblem) => void;
+	onSpeakerUnavailable?: () => void;
 }
 
 export function useDevice({
 	enabled = true,
 	outboundLifecycleEnabled = false,
 	participantEnabled = false,
-	onMicrophoneUnavailable
+	onMicrophoneUnavailable,
+	onSpeakerUnavailable
 }: UseDeviceOptions = {}): UseDeviceState {
 	const [microphoneBlocked, setMicrophoneBlocked] = useState(true);
+	const [speakerBlocked, setSpeakerBlocked] = useState(false);
+	const speakerBlockedRef = useRef(false);
+	const speakerProblemHandler = useRef(onSpeakerUnavailable);
+	speakerProblemHandler.current = onSpeakerUnavailable;
+	const reportSpeakerAvailability = useCallback((available: boolean) => {
+		const wasBlocked = speakerBlockedRef.current;
+		speakerBlockedRef.current = !available;
+		setSpeakerBlocked(!available);
+		if (available && wasBlocked) {
+			setError(previous => previous?.startsWith('Your selected speaker') ? null : previous);
+		}
+		if (!available && !wasBlocked) speakerProblemHandler.current?.();
+	}, []);
 	const microphoneFailureVersion = useRef(0);
 	const reportedMicrophoneProblem = useRef<MicrophoneProblem | null>(null);
 	const microphoneProblemHandler = useRef(onMicrophoneUnavailable);
@@ -543,6 +559,10 @@ export function useDevice({
 	// on the "Go ready" toggle. Telnyx verifies its retained microphone; only Twilio
 	// needs a temporary permission probe. Playback priming must never block Ready.
 	const armAudio = useCallback(async (): Promise<boolean> => {
+		if (speakerBlockedRef.current) {
+			setError('Your selected speaker is unavailable. Restore it in Audio Setup before going Ready.');
+			return false;
+		}
 		// This must happen before the first await so audio.play() is called directly
 		// inside the Ready-button gesture. It is a separate local graph and never
 		// replaces or delays Twilio's microphone or speaker streams.
@@ -570,6 +590,10 @@ export function useDevice({
 			return false;
 		}
 
+		if (speakerBlockedRef.current) {
+			setError('Your selected speaker disconnected. Restore it in Audio Setup before going Ready.');
+			return false;
+		}
 		if (failureVersion !== microphoneFailureVersion.current || transport !== transportRef.current) return false;
 		reportedMicrophoneProblem.current = null;
 		setMicrophoneBlocked(false);
@@ -1679,6 +1703,7 @@ export function useDevice({
 								refreshToken: async () => (await fetchToken()).token,
 								onError: (message) => !cancelled && setError(message),
 								onMicrophoneUnavailable: reason => !cancelled && reportMicrophoneProblem(reason),
+								onSpeakerAvailabilityChange: available => !cancelled && reportSpeakerAvailability(available),
 								region: wizard.region ?? undefined,
 								inputDeviceId: inputDeviceIdRef.current,
 								outputDeviceId: outputDeviceIdRef.current
@@ -1719,6 +1744,7 @@ export function useDevice({
 
 				await transport.register(token);
 				if (cancelled) return;
+				if (provider === 'twilio') reportSpeakerAvailability(true);
 				// A reloaded supervisor has lost the audio leg: close any session the
 				// backend still holds open so the reservation is released.
 				if (transportRef.current?.expectSupervision) {
@@ -1795,11 +1821,13 @@ export function useDevice({
 		updatePendingOutbound,
 		// A mid-session flip (Subplan 07) rebuilds the transport through this effect's own
 		// teardown rather than through a second, drift-prone one of its own.
-		voiceEpoch
+		voiceEpoch,
+		reportSpeakerAvailability
 	]);
 
 	return {
 		microphoneBlocked,
+		speakerBlocked,
 		participant,
 		participantNotice,
 		canAddParticipant: participantEnabled && !!transportRef.current?.startParticipant && !!activeCall &&

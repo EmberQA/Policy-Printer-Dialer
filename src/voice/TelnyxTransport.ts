@@ -38,6 +38,7 @@ import {TelnyxConsultation} from './TelnyxConsultation';
 import {TelnyxEchoTest} from './TelnyxEchoTest';
 import {TelnyxSupervision} from './TelnyxSupervision';
 import {TelnyxMicrophone, stopMicrophoneStream} from './TelnyxMicrophone';
+import {TelnyxSpeaker} from './TelnyxSpeaker';
 import type {
 	IncomingLeg,
 	LegEvent,
@@ -150,6 +151,7 @@ export class TelnyxTransport implements VoiceTransport {
 	private microphone: TelnyxMicrophone;
 	private inputSwitches = 0;
 	private outputDeviceId = 'default';
+	private speaker: TelnyxSpeaker;
 	private destroyed = false;
 	private consultation: TelnyxConsultation;
 	private participantCb: ((state: CallParticipantState) => void) | null = null;
@@ -160,6 +162,13 @@ export class TelnyxTransport implements VoiceTransport {
 	constructor(private readonly options: TelnyxTransportOptions) {
 		this.inputDeviceId = options.inputDeviceId ?? 'default';
 		this.outputDeviceId = options.outputDeviceId ?? 'default';
+		this.speaker = new TelnyxSpeaker(
+			async deviceId => {
+				await this.applySinkId(deviceId);
+				if (this.remoteAudio?.srcObject) await this.remoteAudio.play();
+			},
+			available => this.options.onSpeakerAvailabilityChange?.(available)
+		);
 		this.microphone = new TelnyxMicrophone(this.inputDeviceId, () => {
 			this.options.onError?.('Your selected microphone disconnected. Reconnect it and select it in Audio Setup.');
 			this.options.onMicrophoneUnavailable?.('disconnected');
@@ -250,6 +259,8 @@ export class TelnyxTransport implements VoiceTransport {
 		}
 		if (this.destroyed) return;
 		this.client = await this.buildClient(token);
+		if (this.destroyed) return;
+		this.speaker.start(this.outputDeviceId);
 		this.rememberTokenExpiry(token);
 		this.startRefreshTicker();
 	}
@@ -458,6 +469,7 @@ export class TelnyxTransport implements VoiceTransport {
 
 	destroy(): void {
 		this.destroyed = true;
+		this.speaker.stop();
 		this.microphone.destroy();
 		this.supervision?.destroy();
 		this.echoTest?.destroy();
@@ -551,16 +563,20 @@ export class TelnyxTransport implements VoiceTransport {
 	async setOutputDevice(deviceId: string): Promise<void> {
 		if (this.consultation?.busy) throw new Error('End the added call before switching audio devices.');
 		if (this.supervision?.busy) throw new Error('Stop supervising before switching audio devices.');
-		this.outputDeviceId = deviceId;
 		const client = this.client;
 		if (!client) throw new Error('Softphone audio is not ready yet.');
+		await this.speaker.assertAvailable(deviceId);
 		// The client setter only STORES the preference (applied when a call attaches),
 		// so also point our own element at the speaker now — otherwise a change made
 		// while idle is inaudible until the next call.
-		client.speaker = deviceId;
 		await this.applySinkId(deviceId);
 		const call = this.activeCall();
-		if (call) await call.setAudioOutDevice(deviceId);
+		if (call && !await call.setAudioOutDevice(deviceId)) throw new Error('Could not switch the call speaker. Try selecting it again.');
+		if (this.destroyed || client !== this.client) throw new Error('Softphone audio reconnected. Select your speaker again.');
+		if (this.remoteAudio?.srcObject) await this.remoteAudio.play();
+		client.speaker = deviceId;
+		this.outputDeviceId = deviceId;
+		this.speaker.select(deviceId);
 	}
 
 	async startHold(): Promise<void> {
@@ -604,7 +620,9 @@ export class TelnyxTransport implements VoiceTransport {
 		element.style.display = 'none';
 		document.body.appendChild(element);
 		this.remoteAudio = element;
-		void this.applySinkId(this.outputDeviceId);
+		void this.applySinkId(this.outputDeviceId).catch(() => {
+			if (!this.destroyed) this.options.onError?.('Could not use your selected speaker. Select it again in Audio Setup.');
+		});
 		return element;
 	}
 
@@ -612,12 +630,11 @@ export class TelnyxTransport implements VoiceTransport {
 		const element = this.remoteAudio as
 			| (HTMLAudioElement & {setSinkId?: (id: string) => Promise<void>})
 			| null;
-		if (!element?.setSinkId) return;
-		try {
-			await element.setSinkId(deviceId);
-		} catch {
-			/* the browser may not support output selection; the default speaker stands */
+		if (!element?.setSinkId) {
+			if (deviceId === 'default') return;
+			throw new Error('This browser cannot choose a speaker. Use Chrome or your system output settings.');
 		}
+		await element.setSinkId(deviceId);
 	}
 }
 

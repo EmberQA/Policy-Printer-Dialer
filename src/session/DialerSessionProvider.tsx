@@ -38,6 +38,7 @@ import {
 } from '@/lib/api';
 import {createAudioPresence} from '@/presence/audioPresence';
 import {MicrophonePausedDialog, type MicrophonePauseNotice} from '@/presence/MicrophonePausedDialog';
+import type {SpeakerPauseState} from '@/presence/SpeakerUnavailableBanner';
 import type {MicrophoneProblem} from '@/voice/VoiceTransport';
 import {useDevice, type UseDeviceState} from '@/twilio/useDevice';
 import {useHeartbeat, type HeartbeatState} from '@/presence/useHeartbeat';
@@ -48,6 +49,8 @@ import {useCoachingBooking} from '@/onboarding/useCoachingBooking';
 
 export interface DialerSession {
 	changePresence: (status: PresenceStatus) => Promise<PresenceResponse>;
+	speakerPauseState: SpeakerPauseState;
+	retrySpeakerPause: () => void;
 	// --- bootstrap / gating ---
 	profile: any;
 	bookingRequired: boolean;
@@ -115,6 +118,24 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 	const hadActiveCallRef = useRef(false);
 	const [microphoneNotice, setMicrophoneNotice] = useState<MicrophonePauseNotice | null>(null);
 	const audioPresence = useMemo(() => createAudioPresence(status => postPresence({status})), []);
+	const [speakerPauseState, setSpeakerPauseState] = useState<SpeakerPauseState>(null);
+	const speakerIncident = useRef(0);
+	const pauseForSpeaker = useCallback(() => {
+		const incident = ++speakerIncident.current;
+		setSpeakerPauseState('pausing');
+		void audioPresence.change('paused').then(response => {
+			if (incident !== speakerIncident.current) return;
+			if (response.presence) setPresence(response.presence);
+			setSpeakerPauseState('paused');
+		}).catch(() => {
+			if (incident === speakerIncident.current) setSpeakerPauseState('failed');
+		});
+	}, [audioPresence]);
+	useEffect(() => {
+		if (speakerPauseState !== 'failed') return;
+		const timer = window.setTimeout(pauseForSpeaker, 5000);
+		return () => window.clearTimeout(timer);
+	}, [speakerPauseState, pauseForSpeaker]);
 	const microphoneIncident = useRef(0);
 	const pauseForMicrophone = useCallback((reason: MicrophoneProblem) => {
 		const incident = ++microphoneIncident.current;
@@ -145,11 +166,14 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		enabled: provisioned,
 		participantEnabled: Number(profile?.capabilities?.call_participant_version ?? 0) >= 1,
 		outboundLifecycleEnabled,
-		onMicrophoneUnavailable: pauseForMicrophone
+		onMicrophoneUnavailable: pauseForMicrophone,
+		onSpeakerUnavailable: pauseForSpeaker
 	});
 	const changePresence = useCallback(async (status: PresenceStatus) => {
 		const response = await audioPresence.change(status, device.armAudio);
 		if (status === 'ready') {
+			speakerIncident.current += 1;
+			setSpeakerPauseState(null);
 			microphoneIncident.current += 1;
 			setMicrophoneNotice(null);
 		}
@@ -178,7 +202,7 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		// between calls. The Device stays registered so the
 		// setup dialog can apply real input/output selections before confirmation.
 		deviceStatus:
-			audioCheckComplete && !device.microphoneBlocked && (!bookingRequired || onCall)
+			audioCheckComplete && !device.microphoneBlocked && !device.speakerBlocked && (!bookingRequired || onCall)
 				? device.deviceStatus
 				: 'offline'
 	});
@@ -295,6 +319,7 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		!bookingRequired &&
 		audioCheckComplete &&
 		!device.microphoneBlocked &&
+		!device.speakerBlocked &&
 		provisioned &&
 		outboundLifecycleEnabled &&
 		device.deviceStatus === 'registered' &&
@@ -312,6 +337,8 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 	const value = useMemo<DialerSession>(
 		() => ({
 			changePresence,
+			speakerPauseState,
+			retrySpeakerPause: pauseForSpeaker,
 			profile,
 			bookingRequired,
 			completeBooking,
@@ -337,6 +364,8 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		}),
 		[
 			changePresence,
+			speakerPauseState,
+			pauseForSpeaker,
 			profile,
 			bookingRequired,
 			completeBooking,

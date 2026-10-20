@@ -53,9 +53,9 @@ beforeEach(() => {
 	})});
 });
 afterEach(() => {vi.useRealTimers(); vi.unstubAllGlobals();});
-async function fixture() {
-	const error = vi.fn(); const microphoneUnavailable = vi.fn(); const incoming: IncomingLeg[] = [];
-	const transport = new TelnyxTransport({inputDeviceId: 'maono', onError: error, onMicrophoneUnavailable: microphoneUnavailable, refreshToken: async () => 'token'});
+async function fixture(outputDeviceId = 'default') {
+	const error = vi.fn(); const microphoneUnavailable = vi.fn(); const speakerAvailability = vi.fn(); const incoming: IncomingLeg[] = [];
+	const transport = new TelnyxTransport({inputDeviceId: 'maono', outputDeviceId, onError: error, onMicrophoneUnavailable: microphoneUnavailable, onSpeakerAvailabilityChange: speakerAvailability, refreshToken: async () => 'token'});
 	transport.onIncoming(leg => incoming.push(leg));
 	await transport.register('token');
 	const notify = (call: unknown) => sdk.clients.at(-1).handlers.get('telnyx.notification')({type: 'callUpdate', call});
@@ -73,12 +73,56 @@ async function fixture() {
 			hangup: vi.fn(async () => {c.state = 'hangup'; notify(c); c.localStream?.getTracks().forEach(track => track.stop());}),
 			muteAudio: vi.fn(() => {if (c.localStream) c.localStream.track.enabled = false;}),
 			unmuteAudio: vi.fn(() => {if (c.localStream) c.localStream.track.enabled = true;}),
-			deaf: vi.fn(), undeaf: vi.fn(), sender
+			deaf: vi.fn(), undeaf: vi.fn(), setAudioOutDevice: vi.fn(async () => true), sender
 		};
 		notify(c); return c;
 	};
-	return {transport, incoming, call, notify, error, microphoneUnavailable};
+	return {transport, incoming, call, notify, error, microphoneUnavailable, speakerAvailability};
 }
+
+describe('Telnyx speaker loss during live calls', () => {
+	it('reports confirmed output loss and restoration without ending or replacing the call', async () => {
+		let outputs = ['airpods', 'internal'];
+		const devices = Object.assign(new EventTarget(), {
+			getUserMedia: capture,
+			enumerateDevices: vi.fn(async () => outputs.map(deviceId => ({kind: 'audiooutput', deviceId, label: deviceId})))
+		});
+		vi.stubGlobal('navigator', {mediaDevices: devices});
+		const f = await fixture('airpods');
+		const c = f.call(); f.incoming[0].accept();
+		const stream = c.localStream;
+		f.speakerAvailability.mockClear();
+		outputs = ['internal']; devices.dispatchEvent(new Event('devicechange'));
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(f.speakerAvailability).toHaveBeenCalledExactlyOnceWith(false);
+		expect(c.hangup).not.toHaveBeenCalled();
+		expect(c.localStream).toBe(stream);
+		expect(c.sender.replaceTrack).not.toHaveBeenCalled();
+		outputs = ['airpods', 'internal']; devices.dispatchEvent(new Event('devicechange'));
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(f.speakerAvailability).toHaveBeenLastCalledWith(true);
+		expect(sdk.clients[0].remoteElement.setSinkId).toHaveBeenLastCalledWith('airpods');
+		expect(c.hangup).not.toHaveBeenCalled();
+		f.transport.destroy();
+	});
+	it('surfaces routing failures and does not confirm a failed output selection', async () => {
+		const f = await fixture();
+		const c = f.call(); f.incoming[0].accept();
+		f.speakerAvailability.mockClear();
+		sdk.clients[0].remoteElement.setSinkId.mockRejectedValueOnce(new Error('speaker missing'));
+		await expect(f.transport.setOutputDevice('airpods')).rejects.toThrow('speaker missing');
+		expect(sdk.clients[0].speaker).toBe('default');
+		c.setAudioOutDevice.mockResolvedValueOnce(false);
+		await expect(f.transport.setOutputDevice('airpods')).rejects.toThrow('Could not switch the call speaker');
+		expect(f.speakerAvailability).not.toHaveBeenCalled();
+		expect(sdk.clients[0].speaker).toBe('default');
+		expect(c.hangup).not.toHaveBeenCalled();
+		await f.transport.setOutputDevice('internal');
+		expect(sdk.clients[0].speaker).toBe('internal');
+		expect(f.speakerAvailability).toHaveBeenLastCalledWith(true);
+		f.transport.destroy();
+	});
+});
 
 describe('Telnyx retained input integration', () => {
 	it('answers consecutive calls with independent clones without reopening the Windows default', async () => {

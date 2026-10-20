@@ -8,7 +8,7 @@ function deferred<T>() {
 	return {promise, resolve};
 }
 
-describe('microphone readiness and pause ordering', () => {
+describe('audio readiness and pause ordering', () => {
 	it('starts audio in the click gesture and does not advertise Ready until it succeeds', async () => {
 		const audio = deferred<boolean>(); const write = vi.fn(async () => ok);
 		const prepare = vi.fn(() => audio.promise);
@@ -17,9 +17,9 @@ describe('microphone readiness and pause ordering', () => {
 		audio.resolve(true); await ready;
 		expect(write).toHaveBeenCalledExactlyOnceWith('ready');
 	});
-	it('keeps the agent paused if microphone setup fails', async () => {
+	it('keeps the agent paused if microphone or speaker setup fails', async () => {
 		const write = vi.fn(async () => ok);
-		await expect(createAudioPresence(write).change('ready', async () => false)).rejects.toThrow('Microphone setup failed');
+		await expect(createAudioPresence(write).change('ready', async () => false)).rejects.toThrow('Audio setup failed');
 		expect(write).not.toHaveBeenCalled();
 	});
 	it('cancels pending audio preparation when the microphone disconnects', async () => {
