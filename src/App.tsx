@@ -13,6 +13,7 @@ import {
 	CalendarDays,
 	Check,
 	Copy,
+	ExternalLink,
 	HelpCircle,
 	MapPinned,
 	Phone,
@@ -45,6 +46,7 @@ import {CoachingBookingDialog} from '@/onboarding/CoachingBookingDialog';
 import {TrainingVideoDialog} from '@/onboarding/TrainingVideoDialog';
 import {LicensedStatesDialog} from '@/licensedStates/LicensedStatesDialog';
 import {CarriersDialog} from '@/quotes/CarriersDialog';
+import {openQuoteStandalone} from '@/quotes/quoteLink';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -438,6 +440,7 @@ function AuthenticatedDialerApp({
 							<NavTab to="/leads" label="Activity" />
 							<NavTab to="/outbound-leads" label="Leads" />
 							{supervisionAvailable && <NavTab to="/agents" label="Agents" />}
+							<QuoterTab />
 						</nav>
 					</div>
 					<HeaderUserBlock
@@ -594,6 +597,8 @@ function HeaderUserBlock({
 	const [statesOpen, setStatesOpen] = useState(false);
 	const [carriersOpen, setCarriersOpen] = useState(false);
 
+	const supportId = profile?.agent?.support_id ?? null;
+
 	return (
 		<div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
 			{/* Agent settings: everything saved on the agent's dialer profile. */}
@@ -626,12 +631,15 @@ function HeaderUserBlock({
 			</DropdownMenu>
 			<LicensedStatesDialog open={statesOpen} onOpenChange={setStatesOpen} />
 			<CarriersDialog open={carriersOpen} onOpenChange={setCarriersOpen} />
-			<span
-				className="hidden max-w-40 truncate text-xs font-medium text-muted-foreground sm:block"
-				title={`Logged in as ${userName}`}
-			>
-				{userName}
-			</span>
+			<div className="hidden min-w-0 flex-col items-start leading-tight sm:flex">
+				<span
+					className="max-w-40 truncate text-xs font-medium text-muted-foreground"
+					title={`Logged in as ${userName}`}
+				>
+					{userName}
+				</span>
+				{supportId && <SupportIdChip supportId={supportId} />}
+			</div>
 			{provisioned && callbackNumber && (
 				<CallbackNumber number={callbackNumber} />
 			)}
@@ -682,6 +690,40 @@ function InboundCallAutoNav() {
 	}, [device.activeCall, navigate, location.pathname]);
 
 	return null;
+}
+
+/**
+ * ENG-321: stable customer-support ID chip. Mirrors the dashboard's green outlined
+ * chip so support can read it off the agent's screen with no ambiguity.
+ */
+function SupportIdChip({supportId}: {supportId: string}) {
+	const [copied, setCopied] = useState(false);
+	const onCopy = () => {
+		void navigator.clipboard
+			?.writeText(supportId)
+			.then(() => {
+				setCopied(true);
+				window.setTimeout(() => setCopied(false), 1500);
+			})
+			.catch(() => undefined);
+	};
+
+	return (
+		<button
+			type="button"
+			onClick={onCopy}
+			title={`Support ID: ${supportId}. Click to copy.`}
+			aria-label={`Copy support ID ${supportId}`}
+			className="group inline-flex h-4 items-center gap-1 rounded border border-success/60 bg-background px-1.5 text-[10px] font-semibold tracking-wider text-success transition-colors hover:border-success hover:bg-success/5"
+		>
+			<span className="font-mono">{supportId}</span>
+			{copied ? (
+				<Check className="size-2.5" />
+			) : (
+				<Copy className="size-2.5 opacity-60 group-hover:opacity-100" />
+			)}
+		</button>
+	);
 }
 
 /**
@@ -750,5 +792,20 @@ function NavTab({to, label}: {to: string; label: string}) {
 		>
 			{label}
 		</NavLink>
+	);
+}
+
+// Styled like a NavTab but opens the quoter in a separate tab, so it is never
+// the "active" page here. The external-link icon signals the new-tab behavior.
+function QuoterTab() {
+	return (
+		<button
+			type="button"
+			onClick={openQuoteStandalone}
+			className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+		>
+			Quoter
+			<ExternalLink className="size-3.5" />
+		</button>
 	);
 }

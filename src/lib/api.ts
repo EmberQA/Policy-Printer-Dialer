@@ -147,6 +147,9 @@ export interface DialerProfileResponse {
 		 *  `twilio_phone_number` is the raw column and is null for a Telnyx agent. */
 		phone_number?: string | null;
 		twilio_phone_number: string | null;
+		/** ENG-321: stable 6-char customer-support ID (from the linked qs_agent).
+		 *  Null when the user has no linked agent row yet. */
+		support_id?: string | null;
 	};
 }
 
