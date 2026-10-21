@@ -1323,6 +1323,30 @@ export interface PurchasedLeadsListResponse {
 	limit?: number;
 }
 
+/** A direct delivery references its existing CRM record, without a purchase. */
+export interface DirectDeliveredLead {
+	kind: 'direct';
+	id: string;
+	first_name: string;
+	last_name: string;
+	phone: string;
+	state: string | null;
+	coverage_type: null;
+	assigned_at: string;
+	acknowledged_at: string | null;
+	disposition_label: string | null;
+	vendor_name: string;
+}
+
+export type DeliveredLead =
+	| (OutboundLead & {kind?: 'purchased'})
+	| DirectDeliveredLead;
+
+export interface DeliveredLeadsListResponse
+	extends Omit<PurchasedLeadsListResponse, 'leads'> {
+	leads?: DeliveredLead[];
+}
+
 export interface PurchasedLeadResponse {
 	statusCode: string;
 	statusMessage: string;
@@ -1359,6 +1383,14 @@ export const listPurchasedLeads = (params: {
 	limit: number;
 }): Promise<PurchasedLeadsListResponse> =>
 	qsPost('/policyPrinter/outboundLeads/list', {...params});
+
+/** The Leads page includes direct deliveries; status filters apply to purchases. */
+export const listDeliveredLeads = (params: {
+	status?: OutboundLeadStatus;
+	page: number;
+	limit: number;
+}): Promise<DeliveredLeadsListResponse> =>
+	qsPost('/policyPrinter/outboundLeads/list', {...params, include_direct: true});
 
 export const getPurchasedLead = (
 	leadId: string

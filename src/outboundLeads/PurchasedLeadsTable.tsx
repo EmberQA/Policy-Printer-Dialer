@@ -4,9 +4,8 @@
  *
  * Click-to-call is a copy of the Activity page's `onClickToDial`: start
  * through the shared session Device INSIDE the click gesture (autoplay rules
- * for ringback), then swap to the Calls tab. The start carries the lead id so
- * the backend can verify the number and count the attempt — the browser never
- * touches `call_count` or the status.
+ * for ringback), then swap to the Calls tab. Purchased leads carry their purchase
+ * id for attempt tracking; direct deliveries dial the existing CRM number.
  */
 
 import {useCallback, useEffect, useRef, useState} from 'react';
@@ -24,22 +23,29 @@ import {
 	TableRow
 } from '@/components/ui/table';
 import {
-	listPurchasedLeads,
+	acknowledgeDirectLeads,
+	acknowledgePurchasedLeads,
+	listDeliveredLeads,
 	setPurchasedLeadStatus,
+	type DeliveredLead,
 	type LicensedJurisdiction,
 	type OutboundLead,
 	type OutboundLeadStatus
 } from '@/lib/api';
-import {acknowledgePurchasedLeads} from '@/lib/api';
 import {publishLeadArrival} from './leadArrival';
 import {requestNewLeadRefresh} from './useNewLeadPoll';
-import {mergeRefreshedLeads, unseenDisplayedLeadIds} from './leadRefresh';
+import {
+	deliveredLeadSummary,
+	mergeRefreshedLeads,
+	unseenDeliveredLeadIds
+} from './leadRefresh';
 import {readError} from '@/lib/errors';
 import {normalizeDialInput} from '@/lib/phone';
 import {cn} from '@/lib/utils';
 import {useDialerSession} from '@/session/DialerSessionProvider';
 import {LEAD_STATUS_FILTER_OPTIONS} from './leadDisplay';
 import {PURCHASED_LEAD_COLUMNS, PurchasedLeadRow} from './PurchasedLeadRow';
+import {DirectDeliveredLeadRow} from './DirectDeliveredLeadRow';
 
 export const PAGE_SIZE = 25;
 
@@ -53,7 +59,7 @@ export function PurchasedLeadsTable({
 	refreshKey,
 	jurisdictions
 }: PurchasedLeadsTableProps) {
-	const [leads, setLeads] = useState<OutboundLead[]>([]);
+	const [leads, setLeads] = useState<DeliveredLead[]>([]);
 	const [total, setTotal] = useState(0);
 	const [page, setPage] = useState(1);
 	const [status, setStatus] = useState<OutboundLeadStatus | ''>('');
@@ -62,7 +68,10 @@ export function PurchasedLeadsTable({
 	const [expandedId, setExpandedId] = useState<string | null>(null);
 	const expandedRef = useRef(expandedId);
 	expandedRef.current = expandedId;
-	const acknowledgedIds = useRef(new Set<string>());
+	const acknowledgedIds = useRef({
+		purchased: new Set<string>(),
+		direct: new Set<string>()
+	});
 
 	const {device, canDialBase} = useDialerSession();
 	const navigate = useNavigate();
@@ -75,7 +84,7 @@ export function PurchasedLeadsTable({
 		setLoading(true);
 		setError(null);
 		try {
-			const res = await listPurchasedLeads({
+			const res = await listDeliveredLeads({
 				page,
 				limit: PAGE_SIZE,
 				...(status ? {status} : {})
@@ -101,28 +110,41 @@ export function PurchasedLeadsTable({
 
 	useEffect(() => {
 		if (loading || error || document.hidden) return;
-		const ids = unseenDisplayedLeadIds(leads, acknowledgedIds.current);
-		if (!ids.length) return;
-		const newest = leads.find((lead) => ids.includes(lead.id));
-		if (newest) publishLeadArrival({lead: newest, count: ids.length});
-		ids.forEach((id) => acknowledgedIds.current.add(id));
-		void acknowledgePurchasedLeads(ids)
-			.then((result) => {
-				if (result.statusCode !== 'SP100')
-					throw new Error('Acknowledgment failed');
-				requestNewLeadRefresh();
-			})
-			.catch(() => ids.forEach((id) => acknowledgedIds.current.delete(id)));
+		const groups = unseenDeliveredLeadIds(leads, acknowledgedIds.current);
+		const count = groups.purchased.length + groups.direct.length;
+		if (!count) return;
+		const newest = leads.find((lead) =>
+			groups[lead.kind === 'direct' ? 'direct' : 'purchased'].includes(lead.id)
+		);
+		if (newest) publishLeadArrival({lead: deliveredLeadSummary(newest), count});
+		for (const kind of ['purchased', 'direct'] as const) {
+			const ids = groups[kind];
+			if (!ids.length) continue;
+			const acknowledged = acknowledgedIds.current[kind];
+			ids.forEach((id) => acknowledged.add(id));
+			const acknowledge =
+				kind === 'direct' ? acknowledgeDirectLeads : acknowledgePurchasedLeads;
+			void acknowledge(ids)
+				.then((result) => {
+					if (result.statusCode !== 'SP100')
+						throw new Error('Acknowledgment failed');
+					requestNewLeadRefresh();
+				})
+				.catch(() => ids.forEach((id) => acknowledged.delete(id)));
+		}
 	}, [leads, loading, error]);
 
-	const onCall = (lead: OutboundLead) => {
+	const onCall = (lead: DeliveredLead) => {
 		const dest = normalizeDialInput(lead.phone);
 		if (!dest || !canDialBase || dialingId) return;
 		setDialingId(lead.id);
 		setDialError(null);
 		// Start through the shared device before leaving this click handler so
 		// ringback satisfies autoplay rules, then show the call UI on Calls.
-		const attempt = device.startOutbound(dest, {outboundLeadId: lead.id});
+		const attempt =
+			lead.kind === 'direct'
+				? device.startOutbound(dest)
+				: device.startOutbound(dest, {outboundLeadId: lead.id});
 		navigate('/dial');
 		attempt
 			.catch((err) => setDialError(readError(err, 'Could not place the call')))
@@ -141,7 +163,9 @@ export function PurchasedLeadsTable({
 			}
 			const updated = res.lead;
 			setLeads((current) =>
-				current.map((l) => (l.id === updated.id ? updated : l))
+				current.map((l) =>
+					l.kind !== 'direct' && l.id === updated.id ? updated : l
+				)
 			);
 			return null;
 		} catch (err) {
@@ -157,8 +181,7 @@ export function PurchasedLeadsTable({
 						Your leads
 					</h2>
 					<p className="text-sm text-muted-foreground">
-						Leads delivered to your orders, newest first. Call them straight
-						from here.
+						Leads delivered to you, newest first. Call them straight from here.
 					</p>
 				</div>
 				<div className="flex items-end gap-2">
@@ -240,15 +263,24 @@ export function PurchasedLeadsTable({
 										<p>
 											{status
 												? 'No leads with that status.'
-												: 'No leads yet. They appear here the moment one is delivered to an active order.'}
+												: 'No leads yet. Purchased and direct-post leads appear here when delivered.'}
 										</p>
 									</div>
 								</TableCell>
 							</TableRow>
 						)}
-						{leads.map((lead) => (
+						{leads.map((lead) => lead.kind === 'direct' ? (
+							<DirectDeliveredLeadRow
+								key={`direct:${lead.id}`}
+								lead={lead}
+								jurisdictions={jurisdictions}
+								onCall={onCall}
+								dialing={dialingId === lead.id}
+								canDial={canDialBase}
+							/>
+						) : (
 							<PurchasedLeadRow
-								key={lead.id}
+								key={`purchased:${lead.id}`}
 								lead={lead}
 								jurisdictions={jurisdictions}
 								expanded={expandedId === lead.id}

@@ -240,8 +240,8 @@ export default function OutboundLeads() {
 				</div>
 			) : orders.length === 0 ? (
 				<div className="rounded-lg border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
-					No active lead orders. Place one to start receiving leads during your
-					working hours.
+					No active lead orders. Place one to receive purchased leads during
+					your working hours. Direct-post leads do not need an order.
 				</div>
 			) : (
 				<div className="space-y-3">

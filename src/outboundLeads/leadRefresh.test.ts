@@ -1,6 +1,11 @@
 import {describe, it, expect} from 'vitest';
-import type {OutboundLead} from '@/lib/api';
-import {mergeRefreshedLeads, unseenDisplayedLeadIds} from './leadRefresh';
+import type {DirectDeliveredLead, OutboundLead} from '@/lib/api';
+import {
+	deliveredLeadSummary,
+	mergeRefreshedLeads,
+	unseenDeliveredLeadIds,
+	unseenDisplayedLeadIds
+} from './leadRefresh';
 const lead = (id: string, acknowledged_at: string | null = null) =>
 	({id, acknowledged_at}) as OutboundLead;
 describe('live lead refresh and acknowledgment', () => {
@@ -35,5 +40,32 @@ describe('live lead refresh and acknowledgment', () => {
 		expect(mergeRefreshedLeads([lead('editing')], next, 'editing')).toEqual(
 			next
 		);
+	});
+
+	it('acknowledges only visible rows through their own storage type', () => {
+		const direct = (id: string, acknowledged_at: string | null = null) =>
+			({kind: 'direct', id, acknowledged_at}) as DirectDeliveredLead;
+		const shown = [lead('same-id'), direct('same-id'), direct('already-seen', '2026-10-21'), direct('just-acked')];
+		expect(unseenDeliveredLeadIds(shown, {
+			purchased: new Set(['same-id']),
+			direct: new Set(['just-acked'])
+		})).toEqual({purchased: [], direct: ['same-id']});
+		const paged = Array.from({length: 40}, (_, i) => i % 2 ? direct(String(i)) : lead(String(i)));
+		const firstPage = unseenDeliveredLeadIds(paged.slice(0, 25), {purchased: new Set(), direct: new Set()});
+		expect(firstPage.purchased.length + firstPage.direct.length).toBe(25);
+		expect([...firstPage.purchased, ...firstPage.direct]).not.toContain('25');
+	});
+
+	it('publishes a direct arrival with CRM routing and a safe empty state', () => {
+		const direct: DirectDeliveredLead = {
+			kind: 'direct', id: 'crm-lead', first_name: 'Jane Doe', last_name: '',
+			phone: '+12025550123', state: null, coverage_type: null,
+			assigned_at: '2026-10-21T17:00:00Z', acknowledged_at: null,
+			disposition_label: null, vendor_name: 'Direct vendor'
+		};
+		expect(deliveredLeadSummary(direct)).toEqual({
+			id: 'crm-lead', kind: 'direct', first_name: 'Jane Doe', last_name: '',
+			state: '', coverage_type: null, assigned_at: direct.assigned_at
+		});
 	});
 });
