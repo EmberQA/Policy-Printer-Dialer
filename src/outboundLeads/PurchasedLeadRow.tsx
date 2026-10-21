@@ -1,5 +1,5 @@
 /**
- * One purchased lead (ENG-234 Subplan 05): the summary row plus an expandable
+ * One delivered lead (ENG-234 Subplan 05): the summary row plus an expandable
  * detail panel (contact details, TrustedForm, the agent's outcome + note, and
  * the attempt history the backend keeps).
  *
@@ -20,11 +20,12 @@ import {TableCell, TableRow} from '@/components/ui/table';
 import {Textarea} from '@/components/ui/textarea';
 import {
 	AGENT_SETTABLE_LEAD_STATUSES,
+	type DeliveredLead,
 	type LicensedJurisdiction,
-	type OutboundLead,
 	type OutboundLeadStatus
 } from '@/lib/api';
 import {cn} from '@/lib/utils';
+import {formatLeadValue} from '@/pages/crmLeadDisplay';
 import {
 	coverageLabel,
 	formatCoverageAmount,
@@ -42,19 +43,19 @@ import {
 export const PURCHASED_LEAD_COLUMNS = 8;
 
 export interface PurchasedLeadRowProps {
-	lead: OutboundLead;
+	lead: DeliveredLead;
 	jurisdictions: LicensedJurisdiction[];
 	expanded: boolean;
 	onToggle: () => void;
 	/** Place the call from the click gesture; the parent owns the in-flight guard. */
-	onCall: (lead: OutboundLead) => void;
+	onCall: (lead: DeliveredLead) => void;
 	/** True while THIS lead's start request is in flight. */
 	dialing: boolean;
 	/** Base dial gate from the session (provisioned, device registered, idle). */
 	canDial: boolean;
 	/** Save an outcome + note; resolves with the server's error text, if any. */
 	onStatusChange: (
-		lead: OutboundLead,
+		lead: DeliveredLead,
 		status: OutboundLeadStatus,
 		note: string
 	) => Promise<string | null>;
@@ -79,14 +80,25 @@ export function PurchasedLeadRow({
 				aria-expanded={expanded}
 				className={cn(refunded && 'text-muted-foreground opacity-70')}
 			>
-				<TableCell className="font-medium">{leadFullName(lead)}</TableCell>
+				<TableCell className="font-medium">
+					{leadFullName(lead)}
+					{lead.kind === 'direct' && (
+						<p className="text-xs font-normal text-muted-foreground">
+							Direct post
+						</p>
+					)}
+				</TableCell>
 				<TableCell className="font-mono text-xs">
 					{formatLeadPhone(lead.phone)}
 				</TableCell>
-				<TableCell>{stateLabel(lead.state, jurisdictions)}</TableCell>
-				<TableCell>{lead.age}</TableCell>
+				<TableCell>
+					{lead.state ? stateLabel(lead.state, jurisdictions) : '—'}
+				</TableCell>
+				<TableCell>{lead.age ?? '—'}</TableCell>
 				<TableCell className="text-muted-foreground">
-					{coverageLabel(lead.coverage_type)}
+					{lead.kind === 'direct'
+						? lead.coverage_type || '—'
+						: coverageLabel(lead.coverage_type)}
 				</TableCell>
 				<TableCell className="text-muted-foreground">
 					{formatReceived(lead.assigned_at)}
@@ -134,7 +146,7 @@ export function PurchasedLeadRow({
 			</TableRow>
 			{expanded && (
 				<TableRow className="bg-muted/30 hover:bg-muted/30">
-					<TableCell colSpan={PURCHASED_LEAD_COLUMNS} className="p-0">
+					<TableCell colSpan={PURCHASED_LEAD_COLUMNS} className="whitespace-normal p-0">
 						<LeadDetailPanel
 							lead={lead}
 							jurisdictions={jurisdictions}
@@ -149,7 +161,7 @@ export function PurchasedLeadRow({
 
 function Detail({label, value}: {label: string; value: React.ReactNode}) {
 	return (
-		<div className="space-y-0.5">
+		<div className="min-w-0 space-y-0.5">
 			<p className="text-xs uppercase tracking-wide text-muted-foreground">
 				{label}
 			</p>
@@ -163,7 +175,7 @@ function LeadDetailPanel({
 	jurisdictions,
 	onStatusChange
 }: {
-	lead: OutboundLead;
+	lead: DeliveredLead;
 	jurisdictions: LicensedJurisdiction[];
 	onStatusChange: PurchasedLeadRowProps['onStatusChange'];
 }) {
@@ -194,47 +206,69 @@ function LeadDetailPanel({
 		else setSaved(true);
 	};
 
-	const address = [
-		lead.address,
-		lead.city,
-		stateLabel(lead.state, jurisdictions),
-		lead.zip
-	]
-		.filter((v) => v && String(v).trim())
-		.join(', ');
+	const address =
+		lead.kind === 'direct'
+			? ''
+			: [
+					lead.address,
+					lead.city,
+					stateLabel(lead.state, jurisdictions),
+					lead.zip
+				]
+					.filter((v) => v && String(v).trim())
+					.join(', ');
 
 	return (
 		<div className="grid gap-6 px-4 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
 			<div className="grid grid-cols-2 gap-x-6 gap-y-3">
 				<Detail label="Phone" value={formatLeadPhone(lead.phone)} />
-				<Detail label="Email" value={lead.email || '—'} />
-				<Detail label="Address" value={address || '—'} />
-				<Detail
-					label="Date of birth"
-					value={`${lead.date_of_birth} (${lead.age})`}
-				/>
-				<Detail
-					label="Coverage"
-					value={`${coverageLabel(lead.coverage_type)} · ${formatCoverageAmount(lead.coverage_amount)}`}
-				/>
-				<Detail label="Paid" value={formatDollars(lead.price_cents)} />
-				<Detail
-					label="TrustedForm"
-					value={
-						lead.trusted_form_url ? (
-							<a
-								href={lead.trusted_form_url}
-								target="_blank"
-								rel="noopener noreferrer"
-								className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
-							>
-								Certificate <ExternalLink className="size-3" />
-							</a>
-						) : (
-							'—'
-						)
-					}
-				/>
+				{lead.kind === 'direct' ? (
+					<>
+						<Detail label="Vendor" value={lead.vendor_name} />
+						{Object.entries(lead.form_data ?? {}).map(([key, value]) => (
+							<Detail
+								key={key}
+								label={key}
+								value={
+									<span className="whitespace-pre-wrap break-words">
+										{formatLeadValue(value)}
+									</span>
+								}
+							/>
+						))}
+					</>
+				) : (
+					<>
+						<Detail label="Email" value={lead.email || '—'} />
+						<Detail label="Address" value={address || '—'} />
+						<Detail
+							label="Date of birth"
+							value={`${lead.date_of_birth} (${lead.age})`}
+						/>
+						<Detail
+							label="Coverage"
+							value={`${coverageLabel(lead.coverage_type)} · ${formatCoverageAmount(lead.coverage_amount)}`}
+						/>
+						<Detail label="Paid" value={formatDollars(lead.price_cents)} />
+						<Detail
+							label="TrustedForm"
+							value={
+								lead.trusted_form_url ? (
+									<a
+										href={lead.trusted_form_url}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
+									>
+										Certificate <ExternalLink className="size-3" />
+									</a>
+								) : (
+									'—'
+								)
+							}
+						/>
+					</>
+				)}
 				<Detail label="Received" value={formatDateTime(lead.assigned_at)} />
 				<Detail label="Call attempts" value={lead.call_count} />
 				<Detail
@@ -245,7 +279,7 @@ function LeadDetailPanel({
 					label="Last called"
 					value={formatDateTime(lead.last_called_at)}
 				/>
-				{refunded && (
+				{lead.kind !== 'direct' && refunded && (
 					<Detail
 						label="Refunded"
 						value={`${formatDateTime(lead.refunded_at)}${

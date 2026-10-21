@@ -5,7 +5,7 @@
  * Click-to-call is a copy of the Activity page's `onClickToDial`: start
  * through the shared session Device INSIDE the click gesture (autoplay rules
  * for ringback), then swap to the Calls tab. Purchased leads carry their purchase
- * id for attempt tracking; direct deliveries dial the existing CRM number.
+ * id for attempt tracking; direct deliveries carry their existing CRM id.
  */
 
 import {useCallback, useEffect, useRef, useState} from 'react';
@@ -26,10 +26,9 @@ import {
 	acknowledgeDirectLeads,
 	acknowledgePurchasedLeads,
 	listDeliveredLeads,
-	setPurchasedLeadStatus,
+	setDeliveredLeadStatus,
 	type DeliveredLead,
 	type LicensedJurisdiction,
-	type OutboundLead,
 	type OutboundLeadStatus
 } from '@/lib/api';
 import {publishLeadArrival} from './leadArrival';
@@ -45,7 +44,6 @@ import {cn} from '@/lib/utils';
 import {useDialerSession} from '@/session/DialerSessionProvider';
 import {LEAD_STATUS_FILTER_OPTIONS} from './leadDisplay';
 import {PURCHASED_LEAD_COLUMNS, PurchasedLeadRow} from './PurchasedLeadRow';
-import {DirectDeliveredLeadRow} from './DirectDeliveredLeadRow';
 
 export const PAGE_SIZE = 25;
 
@@ -143,7 +141,7 @@ export function PurchasedLeadsTable({
 		// ringback satisfies autoplay rules, then show the call UI on Calls.
 		const attempt =
 			lead.kind === 'direct'
-				? device.startOutbound(dest)
+				? device.startOutbound(dest, {directLeadId: lead.id})
 				: device.startOutbound(dest, {outboundLeadId: lead.id});
 		navigate('/dial');
 		attempt
@@ -152,19 +150,22 @@ export function PurchasedLeadsTable({
 	};
 
 	const onStatusChange = async (
-		lead: OutboundLead,
+		lead: DeliveredLead,
 		next: OutboundLeadStatus,
 		note: string
 	): Promise<string | null> => {
 		try {
-			const res = await setPurchasedLeadStatus(lead.id, next, note);
+			const res = await setDeliveredLeadStatus(lead.id, next, note, lead.kind);
 			if (res.statusCode !== 'SP100' || !res.lead) {
 				return res.statusMessage || 'Could not save the outcome';
 			}
 			const updated = res.lead;
 			setLeads((current) =>
 				current.map((l) =>
-					l.kind !== 'direct' && l.id === updated.id ? updated : l
+					(l.kind === 'direct') === (updated.kind === 'direct') &&
+					l.id === updated.id
+						? updated
+						: l
 				)
 			);
 			return null;
@@ -269,18 +270,9 @@ export function PurchasedLeadsTable({
 								</TableCell>
 							</TableRow>
 						)}
-						{leads.map((lead) => lead.kind === 'direct' ? (
-							<DirectDeliveredLeadRow
-								key={`direct:${lead.id}`}
-								lead={lead}
-								jurisdictions={jurisdictions}
-								onCall={onCall}
-								dialing={dialingId === lead.id}
-								canDial={canDialBase}
-							/>
-						) : (
+						{leads.map((lead) => (
 							<PurchasedLeadRow
-								key={`purchased:${lead.id}`}
+								key={`${lead.kind || 'purchased'}:${lead.id}`}
 								lead={lead}
 								jurisdictions={jurisdictions}
 								expanded={expandedId === lead.id}

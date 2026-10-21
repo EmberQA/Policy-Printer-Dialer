@@ -534,19 +534,22 @@ export interface StartOutboundCallResponse {
  *
  * `outboundLeadId` (ENG-234) ties the call to a purchased lead: the backend checks
  * the lead is this agent's and that `to` is its number, and records the accepted
- * attempt itself — the browser never counts calls.
+ * attempt itself — the browser never counts calls. `directLeadId` applies the
+ * same tracking to a direct delivery's CRM record.
  */
 export const startOutboundCall = (
 	to: string,
 	attemptId: string,
-	outboundLeadId?: string | null
+	outboundLeadId?: string | null,
+	directLeadId?: string | null
 ): Promise<StartOutboundCallResponse> =>
 	qsPost(
 		'/policyPrinter/dialer/call/start',
 		{
 			to,
 			attempt_id: attemptId,
-			...(outboundLeadId ? {outbound_lead_id: outboundLeadId} : {})
+			...(outboundLeadId ? {outbound_lead_id: outboundLeadId} : {}),
+			...(directLeadId ? {direct_lead_id: directLeadId} : {})
 		},
 		{timeout: OUTBOUND_START_REQUEST_TIMEOUT_MS}
 	);
@@ -1331,11 +1334,19 @@ export interface DirectDeliveredLead {
 	last_name: string;
 	phone: string;
 	state: string | null;
-	coverage_type: null;
+	age: number | null;
+	coverage_type: string | null;
 	assigned_at: string;
 	acknowledged_at: string | null;
 	disposition_label: string | null;
 	vendor_name: string;
+	status: Exclude<OutboundLeadStatus, 'refunded'>;
+	agent_note: string | null;
+	call_count: number;
+	first_called_at: string | null;
+	last_called_at: string | null;
+	updated_at: string;
+	form_data: Record<string, unknown>;
 }
 
 export type DeliveredLead =
@@ -1384,7 +1395,7 @@ export const listPurchasedLeads = (params: {
 }): Promise<PurchasedLeadsListResponse> =>
 	qsPost('/policyPrinter/outboundLeads/list', {...params});
 
-/** The Leads page includes direct deliveries; status filters apply to purchases. */
+/** The Leads page includes direct and purchased deliveries in the same filters. */
 export const listDeliveredLeads = (params: {
 	status?: OutboundLeadStatus;
 	page: number;
@@ -1408,6 +1419,21 @@ export const setPurchasedLeadStatus = (
 		status,
 		...(note === undefined ? {} : {note})
 	});
+
+export const setDeliveredLeadStatus = (
+	leadId: string,
+	status: OutboundLeadStatus,
+	note?: string,
+	kind?: 'direct' | 'purchased'
+): Promise<Omit<PurchasedLeadResponse, 'lead'> & {lead?: DeliveredLead}> =>
+	kind === 'direct'
+		? qsPost('/policyPrinter/outboundLeads/lead/setStatus', {
+				lead_id: leadId,
+				kind: 'direct',
+				status,
+				...(note === undefined ? {} : {note})
+			})
+		: setPurchasedLeadStatus(leadId, status, note);
 
 /** Unacknowledged leads for the new-lead banner. Hits the pre-RBAC liveness route
  *  on its own ~30s timer, like the credit poll. Never an error envelope. */

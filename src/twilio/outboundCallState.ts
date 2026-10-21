@@ -16,6 +16,8 @@ export interface StartingOutboundCall {
 	/** ENG-234: the purchased lead this start was placed for, when any. Sent
 	 *  with the start request; the backend validates and records the attempt. */
 	outboundLeadId?: string | null;
+	/** The CRM record for a direct delivery, when this is not a purchased lead. */
+	directLeadId?: string | null;
 }
 
 export interface OutboundCallParameters {

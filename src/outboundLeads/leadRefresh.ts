@@ -46,7 +46,7 @@ export function deliveredLeadSummary(lead: DeliveredLead): PendingLeadSummary {
 		first_name: lead.first_name,
 		last_name: lead.last_name,
 		state: lead.state ?? '',
-		coverage_type: lead.coverage_type,
+		coverage_type: lead.kind === 'direct' ? null : lead.coverage_type,
 		assigned_at: lead.assigned_at,
 		...(lead.kind === 'direct' ? {kind: 'direct' as const} : {})
 	};

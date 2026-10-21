@@ -170,10 +170,10 @@ export interface UseDeviceState {
 	 */
 	armAudio: () => Promise<boolean>;
 	/** Start a shared outbound attempt and local ringback from the click gesture.
-	 *  `outboundLeadId` (ENG-234) ties the call to a purchased lead. */
+	 *  Optional lead IDs let the backend track purchased or direct deliveries. */
 	startOutbound: (
 		toNumber: string,
-			options?: {outboundLeadId?: string | null}
+		options?: {outboundLeadId?: string | null; directLeadId?: string | null}
 	) => Promise<void>;
 	/** Stop the exact pending parent leg. Safe against answer/callback races. */
 	cancelPendingOutbound: () => Promise<void>;
@@ -883,10 +883,10 @@ export function useDevice({
 	const startOutbound = useCallback(
 		async (
 			toNumber: string,
-			options?: {outboundLeadId?: string | null}
+			options?: {outboundLeadId?: string | null; directLeadId?: string | null}
 		): Promise<void> => {
 			if (participantRef.current) throw new Error('End the added call before dialing another person.');
-			if (callRef.current && !options?.outboundLeadId) {
+			if (callRef.current && !options?.outboundLeadId && !options?.directLeadId) {
 				await addParticipant(toNumber);
 				return;
 			}
@@ -907,13 +907,15 @@ export function useDevice({
 			ensureRingback();
 			const attemptId = newOutboundAttemptId();
 			const outboundLeadId = options?.outboundLeadId ?? null;
+			const directLeadId = options?.directLeadId ?? null;
 			const starting: StartingOutboundCall = {
 				attemptId,
 				toNumber,
 				startedAt: Date.now(),
 				canceling: false,
 				reconciling: false,
-				outboundLeadId
+				outboundLeadId,
+				directLeadId
 			};
 			updateOutboundStarting(starting);
 			storeOutboundAttempt(starting);
@@ -923,7 +925,8 @@ export function useDevice({
 				const res = await startOutboundCall(
 					toNumber,
 					attemptId,
-					outboundLeadId
+					outboundLeadId,
+					directLeadId
 				);
 				const currentAttempt =
 					outboundStartingRef.current as StartingOutboundCall | null;
@@ -1938,7 +1941,9 @@ function readStoredOutboundAttempt(): StartingOutboundCall | null {
 			canceling: false,
 			reconciling: true,
 			outboundLeadId:
-				typeof value.outboundLeadId === 'string' ? value.outboundLeadId : null
+				typeof value.outboundLeadId === 'string' ? value.outboundLeadId : null,
+			directLeadId:
+				typeof value.directLeadId === 'string' ? value.directLeadId : null
 		};
 	} catch {
 		clearStoredOutboundAttempt();

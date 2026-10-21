@@ -61,7 +61,9 @@ describe('live lead refresh and acknowledgment', () => {
 			kind: 'direct', id: 'crm-lead', first_name: 'Jane Doe', last_name: '',
 			phone: '+12025550123', state: null, coverage_type: null,
 			assigned_at: '2026-10-21T17:00:00Z', acknowledged_at: null,
-			disposition_label: null, vendor_name: 'Direct vendor'
+			disposition_label: null, vendor_name: 'Direct vendor', age: null,
+			status: 'new', agent_note: null, call_count: 0, first_called_at: null,
+			last_called_at: null, updated_at: '2026-10-21T17:00:00Z', form_data: {}
 		};
 		expect(deliveredLeadSummary(direct)).toEqual({
 			id: 'crm-lead', kind: 'direct', first_name: 'Jane Doe', last_name: '',
