@@ -3,6 +3,7 @@ import {CalendarDays, RefreshCw} from 'lucide-react';
 import {Dialog as DialogPrimitive} from 'radix-ui';
 import {Button} from '@/components/ui/button';
 import {CALENDLY_URL, isBookingConfirmation} from './coaching';
+import {getDialerBranding} from '@/branding';
 
 type CalendlyApi = {
 	initInlineWidget: (options: {url: string; parentElement: HTMLElement; prefill: {name: string}}) => void;
@@ -110,7 +111,7 @@ export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 						<DialogPrimitive.Description className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground" asChild>
 							<div>
 								<p>Nice work reaching five sales. Please book a feedback call with <strong className="font-semibold text-foreground">Chris George</strong>, your Client Success Manager.</p>
-								<p>You’ll review what is working, talk through any challenges, and share feedback about your experience with Policy Printer.</p>
+								<p>You’ll review what is working, talk through any challenges, and share feedback about your experience with {getDialerBranding().appName}.</p>
 							</div>
 						</DialogPrimitive.Description>
 						<p className="mt-5 border-t pt-4 text-xs leading-5 text-muted-foreground">{saveState === 'idle' ? 'Choose a time and confirm your booking to continue using the dialer.' : 'Your meeting is booked. You do not need to book again.'}</p>

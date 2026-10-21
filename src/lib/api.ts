@@ -156,6 +156,31 @@ export interface DialerProfileResponse {
 export const fetchDialerProfile = (): Promise<DialerProfileResponse> =>
 	qsPost('/policyPrinter/dialer/profile');
 
+/* ------------------------------------------------------------------------- */
+/* ENG-317: team branding (dynamic brand overlay from the DB)                */
+/* ------------------------------------------------------------------------- */
+
+export interface DialerTeamBranding {
+	url: string;
+	brand_name: string;
+	brand_logo: string;
+	brand_logo_url: string | null;
+}
+
+export interface MyBrandingResponse {
+	statusCode: string;
+	statusMessage: string;
+	branding: DialerTeamBranding | null;
+	team_id: string | null;
+}
+
+/**
+ * The authenticated viewer's resolved team branding (nearest-branded-ancestor
+ * walk, server-side). Returns `branding: null` when no ancestor is branded.
+ */
+export const fetchMyBranding = (): Promise<MyBrandingResponse> =>
+	qsPost('/teams/branding/mine');
+
 export const fetchRankingProgress = (): Promise<RankingProgressResponse> =>
 	qsPost('/policyPrinter/ranking/progress');
 

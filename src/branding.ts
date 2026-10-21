@@ -23,6 +23,33 @@ export interface DialerBranding {
 	portalUrl: string;
 }
 
+/**
+ * ENG-317: optional dynamic override set after the viewer's team branding has
+ * been fetched from the backend. When present, every subsequent call to
+ * `getDialerBranding()` and `applyDocumentBranding()` sees the dynamic brand
+ * instead of the static per-hostname map below.
+ */
+let dynamicBrandingOverride: DialerBranding | null = null;
+
+export const setDynamicDialerBranding = (branding: DialerBranding | null) => {
+	dynamicBrandingOverride = branding;
+};
+
+export const buildBrandingFromTeam = (team: {
+	url: string;
+	brand_name: string;
+	brand_logo_url: string | null;
+}): DialerBranding => ({
+	key: `team_branding:${team.url}`,
+	appName: team.brand_name,
+	documentTitle: `${team.brand_name} Dialer`,
+	logoUrl: team.brand_logo_url ?? '',
+	// Favicon on the dialer is served from /public; the DB-resolved brand
+	// doesn't ship one yet, so keep the transparent favicon as a safe default.
+	faviconUrl: TRANSPARENT_FAVICON_URL,
+	portalUrl: `https://app.${team.url}`
+});
+
 const POLICY_PRINTER_BRANDING: DialerBranding = {
 	key: POLICY_PRINTER_DIALER_BRAND,
 	appName: 'Policy Printer',
@@ -56,6 +83,10 @@ const DIALER_BRANDS_BY_HOST: Record<string, DialerBranding> = {
  * the same tab back to Policy Printer.
  */
 export function getDialerBranding(): DialerBranding {
+	// ENG-317: a DB-resolved team branding wins once it is set, regardless of
+	// hostname. Falls back to the static per-host map below for pre-auth loads
+	// and for brands that haven't migrated to the DB yet (PP, L2).
+	if (dynamicBrandingOverride) return dynamicBrandingOverride;
 	if (typeof window === 'undefined') return POLICY_PRINTER_BRANDING;
 
 	const hostBranding = DIALER_BRANDS_BY_HOST[window.location.hostname.toLowerCase()];

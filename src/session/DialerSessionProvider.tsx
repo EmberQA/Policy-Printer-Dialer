@@ -26,6 +26,7 @@ import {
 } from 'react';
 import {
 	fetchDialerProfile,
+	fetchMyBranding,
 	setPresence as postPresence,
 	type PresenceStatus,
 	type PresenceResponse,
@@ -36,6 +37,13 @@ import {
 	type DialerCampaign,
 	type DialerPresence
 } from '@/lib/api';
+import {
+	applyDocumentBranding,
+	buildBrandingFromTeam,
+	getDialerBranding,
+	isPlainBranding,
+	setDynamicDialerBranding
+} from '@/branding';
 import {createAudioPresence} from '@/presence/audioPresence';
 import {MicrophonePausedDialog, type MicrophonePauseNotice} from '@/presence/MicrophonePausedDialog';
 import type {SpeakerPauseState} from '@/presence/SpeakerUnavailableBanner';
@@ -242,6 +250,25 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		},
 		[]
 	);
+
+	// ENG-317: resolve team branding in parallel with the profile bootstrap. A
+	// slow or failing branding call never blocks dialer startup — the static
+	// per-host map (branding.ts) stays as the pre-override default.
+	useEffect(() => {
+		let cancelled = false;
+		fetchMyBranding()
+			.then((res) => {
+				if (cancelled || !res.branding) return;
+				setDynamicDialerBranding(buildBrandingFromTeam(res.branding));
+				applyDocumentBranding(isPlainBranding(), getDialerBranding());
+			})
+			.catch(() => {
+				/* preserve static branding on failure */
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	// Bootstrap: check access first on every tab load. A paused agent should not
 	// continue into campaign/presence startup or initialize Twilio/heartbeat.
