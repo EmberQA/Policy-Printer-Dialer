@@ -1,3 +1,4 @@
+import {getDialerBrandContent} from '@/brandContent';
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {
 	Navigate,
@@ -63,9 +64,9 @@ import {
 } from '@/components/CreditFlightAnimation';
 import {acknowledgeCreditNotification} from '@/lib/api';
 import {
-	getDialerBranding,
 	getRankSystemUrl,
 	isPlainBranding,
+	useDialerBranding,
 	type DialerBranding
 } from '@/branding';
 import {useRankingProgress} from '@/ranking/useRankingProgress';
@@ -81,8 +82,6 @@ type BootState =
 
 const THEME_KEY = 'pp_dialer_theme';
 const TRAINING_HIDDEN_KEY_PREFIX = 'pp_dialer_training_video_hidden:';
-const TRAINING_VIDEO_SRC =
-	'https://www.loom.com/embed/9b8f5ea326e84e838e37feccbba71630';
 
 /**
  * App boot: run the one-time handoff (or fall back to a stored session), then
@@ -93,7 +92,10 @@ const TRAINING_VIDEO_SRC =
 export default function App() {
 	const [boot, setBoot] = useState<BootState>({phase: 'booting'});
 	const plainBranding = isPlainBranding();
-	const branding = getDialerBranding();
+	// ENG-317: subscribe-based read so the header re-renders when the pre-auth
+	// hostname resolver (main.tsx) or the post-auth fetchMyBranding (session
+	// provider) sets the dynamic override.
+	const branding = useDialerBranding();
 	const user = getUser();
 	const userName =
 		[user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
@@ -426,7 +428,9 @@ function AuthenticatedDialerApp({
 						<div />
 					)}
 					<div className="flex min-w-0 items-center justify-self-center gap-4">
-						{!plainBranding && (
+						{/* ENG-317: render logo ONLY when team-branding supplied one. No PP
+						    fallback — blank space is correct when branding doesn't resolve. */}
+						{!plainBranding && branding.logoUrl && (
 							<img
 								src={branding.logoUrl}
 								alt={`${branding.appName} dialer`}
@@ -473,7 +477,7 @@ function AuthenticatedDialerApp({
 				onOpenChange={setTrainingOpen}
 				dontShowAgain={dontShowTraining}
 				onDontShowAgainChange={updateTrainingPreference}
-				videoSrc={TRAINING_VIDEO_SRC}
+				videoSrc={plainBranding ? null : getDialerBrandContent(branding.portalUrl, branding.teamContent).trainingVideoUrl}
 			/>
 			<AudioSetupDialog
 				open={audioCheckOpen || speakerSetupOpen}

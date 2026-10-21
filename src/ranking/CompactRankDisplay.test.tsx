@@ -1,5 +1,7 @@
 import {renderToStaticMarkup} from 'react-dom/server';
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, afterEach} from 'vitest';
+import {setDynamicDialerBranding, buildBrandingFromTeam} from '../branding';
+afterEach(() => setDynamicDialerBranding(null));
 import {CompactRankDisplay} from './CompactRankDisplay';
 import type {RankingProgress} from './types';
 
@@ -40,7 +42,8 @@ describe('CompactRankDisplay', () => {
 		expect(html.match(/role="progressbar"/g)).toHaveLength(2);
 	});
 
-	it('renders the Policy Printer max-rank state without progress gates', () => {
+	it('uses resolved PolicyGrowth name instead of stale PP max-rank copy', () => {
+    setDynamicDialerBranding(buildBrandingFromTeam({url:'policygrowth.link', brand_name:'PolicyGrowth',brand_logo_url:null}));
 		const html = renderToStaticMarkup(
 			<CompactRankDisplay
 				onViewRankSystem={() => undefined}
@@ -63,7 +66,8 @@ describe('CompactRankDisplay', () => {
 				}}
 			/>
 		);
-		expect(html).toContain('Current rank Policy Printer');
+		expect(html).toContain('Current rank PolicyGrowth');
+    expect(html).not.toContain('Policy Printer');
 		expect(html).toContain('Max rank');
 		expect(html).not.toContain('role="progressbar"');
 	});

@@ -1,3 +1,4 @@
+import {useDialerBranding} from '@/branding';
 import {useEffect, type CSSProperties} from 'react';
 import {createPortal} from 'react-dom';
 import {RankBadge} from './RankBadge';
@@ -41,6 +42,9 @@ export function RankPromotionOverlay({
 }) {
 	const aura = RANK_AURAS[promotion.current_rank.key];
 
+  const brandName = useDialerBranding().appName;
+  const currentTitle = promotion.current_rank.key === 'policy_printer' ? brandName : promotion.current_rank.title;
+  const previousTitle = promotion.previous_rank.key === 'policy_printer' ? brandName : promotion.previous_rank.title;
 	useEffect(() => {
 		const timer = window.setTimeout(onDismiss, 11_000);
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -58,7 +62,7 @@ export function RankPromotionOverlay({
 			className="rank-promotion"
 			role="dialog"
 			aria-modal="true"
-			aria-label={`Congratulations, you've ranked up to ${promotion.current_rank.title}`}
+			aria-label={`Congratulations, you've ranked up to ${currentTitle}`}
 			style={
 				{
 					'--rank-primary': aura.primary,
@@ -92,7 +96,7 @@ export function RankPromotionOverlay({
 
 			<section className="rank-promotion__stage">
 				<p className="rank-promotion__old-label">
-					{promotion.previous_rank.title}
+					{previousTitle}
 				</p>
 				<div className="rank-promotion__badge-stage">
 					{SHARDS.map((shard, index) => (
@@ -110,7 +114,7 @@ export function RankPromotionOverlay({
 						>
 							<RankBadge
 								rankKey={promotion.previous_rank.image_key}
-								title={promotion.previous_rank.title}
+								title={previousTitle}
 								size="100%"
 							/>
 						</div>
@@ -118,7 +122,7 @@ export function RankPromotionOverlay({
 					<div className="rank-promotion__new-badge">
 						<RankBadge
 							rankKey={promotion.current_rank.image_key}
-							title={promotion.current_rank.title}
+							title={currentTitle}
 							size="100%"
 						/>
 					</div>
@@ -128,7 +132,7 @@ export function RankPromotionOverlay({
 					<p className="rank-promotion__eyebrow">Congratulations</p>
 					<p className="rank-promotion__intro">You&apos;ve ranked up to</p>
 					<h1 className="rank-promotion__title">
-						{promotion.current_rank.title}
+						{currentTitle}
 					</h1>
 					<button
 						type="button"

@@ -13,10 +13,10 @@ describe('rank promotion detection', () => {
 		expect(isRankPromotion('top_closer_1', 'closer_3')).toBe(false);
 	});
 
-	it('recovers the display identity for a stored rank key', () => {
+	it('does not infer a product identity from a stored rank key', () => {
 		expect(rankIdentityFromKey('policy_printer')).toEqual({
 			key: 'policy_printer',
-			title: 'Policy Printer',
+			title: '',
 			image_key: 'policy_printer'
 		});
 	});

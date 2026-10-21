@@ -1,3 +1,4 @@
+import {SESSION_BRAND_COOKIE} from './sessionBranding';
 /**
  * Dialer session storage. The dialer is a separate subdomain from the main
  * EmberQA app and CANNOT share its host-only sameSite:Strict cookies — that is
@@ -51,6 +52,7 @@ export const hasSession = (): boolean =>
 	!!getAccessToken() && !!getRefreshToken();
 
 export const setSession = (session: DialerSession): void => {
+	localStorage.removeItem(SESSION_BRAND_COOKIE);
 	localStorage.setItem(ACCESS_KEY, session.access_token);
 	localStorage.setItem(REFRESH_KEY, session.refresh_token);
 	localStorage.setItem(USER_KEY, JSON.stringify(session.user));
@@ -67,6 +69,7 @@ export const setRefreshToken = (refreshToken: string): void => {
 };
 
 export const clearSession = (): void => {
+	localStorage.removeItem(SESSION_BRAND_COOKIE);
 	localStorage.removeItem(ACCESS_KEY);
 	localStorage.removeItem(REFRESH_KEY);
 	localStorage.removeItem(USER_KEY);

@@ -27,6 +27,7 @@ import {
 import {
 	fetchDialerProfile,
 	fetchMyBranding,
+	resolveBrandingByHostnamePublic,
 	setPresence as postPresence,
 	type PresenceStatus,
 	type PresenceResponse,
@@ -40,10 +41,13 @@ import {
 import {
 	applyDocumentBranding,
 	buildBrandingFromTeam,
+	BLANK_BRANDING,
 	getDialerBranding,
 	isPlainBranding,
 	setDynamicDialerBranding
 } from '@/branding';
+import {getUser} from '@/auth/session';
+import {SESSION_BRAND_COOKIE, readSessionBrand, refreshSessionBrand} from '@/auth/sessionBranding';
 import {createAudioPresence} from '@/presence/audioPresence';
 import {MicrophonePausedDialog, type MicrophonePauseNotice} from '@/presence/MicrophonePausedDialog';
 import type {SpeakerPauseState} from '@/presence/SpeakerUnavailableBanner';
@@ -251,23 +255,42 @@ export function DialerSessionProvider({children}: {children: ReactNode}) {
 		[]
 	);
 
-	// ENG-317: resolve team branding in parallel with the profile bootstrap. A
-	// slow or failing branding call never blocks dialer startup — the static
-	// per-host map (branding.ts) stays as the pre-override default.
+	// Session identity is presentation only. Persist the resolved selection, and
+	// refresh its assets without allowing a null result to choose another brand.
 	useEffect(() => {
 		let cancelled = false;
-		fetchMyBranding()
-			.then((res) => {
-				if (cancelled || !res.branding) return;
-				setDynamicDialerBranding(buildBrandingFromTeam(res.branding));
-				applyDocumentBranding(isPlainBranding(), getDialerBranding());
-			})
-			.catch(() => {
-				/* preserve static branding on failure */
-			});
-		return () => {
-			cancelled = true;
-		};
+		const user = getUser();
+		const scope = JSON.stringify([user?.user_id, user?.org_id]);
+		const host = window.location.host;
+		const resolveHost = async (hostname: string) => (await resolveBrandingByHostnamePublic(hostname, true))?.branding ?? null;
+		const resolveTeam = async () => (await fetchMyBranding()).branding;
+		const selection = readSessionBrand(localStorage.getItem(SESSION_BRAND_COOKIE) ?? undefined, scope, host);
+		setDynamicDialerBranding(BLANK_BRANDING);
+		applyDocumentBranding(isPlainBranding(), getDialerBranding());
+		void (async () => {
+			let source: 'host' | 'team' = selection?.source ?? 'host';
+			let branding;
+			if (selection) {
+				branding = await refreshSessionBrand(selection, resolveHost, resolveTeam);
+			} else {
+				localStorage.removeItem(SESSION_BRAND_COOKIE);
+				branding = await resolveHost(host);
+				// With no selected host identity, establish an explicit user identity.
+				if (!branding) {
+					source = 'team';
+					branding = await resolveTeam();
+				}
+			}
+			if (cancelled || JSON.stringify([getUser()?.user_id, getUser()?.org_id]) !== scope) return;
+			if (branding && user) localStorage.setItem(SESSION_BRAND_COOKIE, JSON.stringify({scope, host, source, url: branding.url}));
+			setDynamicDialerBranding(branding ? buildBrandingFromTeam(branding) : selection ? BLANK_BRANDING : null);
+			applyDocumentBranding(isPlainBranding(), getDialerBranding());
+		})().catch(() => {
+			if (cancelled) return;
+			setDynamicDialerBranding(BLANK_BRANDING);
+			applyDocumentBranding(isPlainBranding(), getDialerBranding());
+		});
+		return () => { cancelled = true; };
 	}, []);
 
 	// Bootstrap: check access first on every tab load. A paused agent should not

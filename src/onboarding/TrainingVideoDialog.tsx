@@ -7,7 +7,7 @@ interface TrainingVideoDialogProps {
 	onOpenChange: (open: boolean) => void;
 	dontShowAgain: boolean;
 	onDontShowAgainChange: (checked: boolean) => void;
-	videoSrc: string;
+	videoSrc: string | null;
 }
 
 export function TrainingVideoDialog({
@@ -45,13 +45,13 @@ export function TrainingVideoDialog({
 					</div>
 
 					<div className="relative min-h-0 overflow-hidden rounded-lg border bg-black">
-						<iframe
+						{videoSrc && <iframe
 							src={videoSrc}
 							title="Dialer training video"
 							frameBorder="0"
 							allowFullScreen
 							className="absolute inset-0 size-full"
-						/>
+						/>}
 					</div>
 
 					<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

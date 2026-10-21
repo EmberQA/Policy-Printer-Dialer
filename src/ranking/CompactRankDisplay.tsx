@@ -1,3 +1,4 @@
+import {useDialerBranding} from '@/branding';
 import {RankBadge} from './RankBadge';
 import type {PolicyPrinterRankKey, RankingProgress} from './types';
 
@@ -65,8 +66,9 @@ export function CompactRankDisplay({
 	progress: RankingProgress;
 	onViewRankSystem: () => void;
 }) {
-	const rank = progress.current_rank;
-	const next = progress.next_rank;
+	const {appName} = useDialerBranding();
+	const rank = {...progress.current_rank, title: progress.current_rank.key === 'policy_printer' ? appName : progress.current_rank.title};
+	const next = progress.next_rank ? {...progress.next_rank, title: progress.next_rank.key === 'policy_printer' ? appName : progress.next_rank.title} : null;
 	return (
 		<div className="group relative h-[68px] w-[350px] max-w-full">
 			<button

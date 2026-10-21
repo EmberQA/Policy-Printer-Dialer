@@ -2,8 +2,9 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {CalendarDays, RefreshCw} from 'lucide-react';
 import {Dialog as DialogPrimitive} from 'radix-ui';
 import {Button} from '@/components/ui/button';
-import {CALENDLY_URL, isBookingConfirmation} from './coaching';
-import {getDialerBranding} from '@/branding';
+import {isBookingConfirmation} from './coaching';
+import {getDialerBrandContent} from '@/brandContent';
+import {useDialerBranding, isPlainBranding} from '@/branding';
 
 type CalendlyApi = {
 	initInlineWidget: (options: {url: string; parentElement: HTMLElement; prefill: {name: string}}) => void;
@@ -43,6 +44,8 @@ export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 	onBooked: () => void | Promise<void>;
 	onPreviewClose?: () => void;
 }) {
+	const branding = useDialerBranding();
+	const calendarUrl = isPlainBranding() ? null : getDialerBrandContent(branding.portalUrl, branding.teamContent).coachingUrl;
 	const closePreview = import.meta.env.DEV ? onPreviewClose : undefined;
 	const [container, setContainer] = useState<HTMLDivElement | null>(null);
 	const [attempt, setAttempt] = useState(0);
@@ -63,7 +66,7 @@ export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 		}
 	}, [onBooked]);
 	useEffect(() => {
-		if (!container) return;
+		if (!container || !calendarUrl) return;
 		let cancelled = false;
 		setFailed(false);
 		setLoaded(false);
@@ -80,7 +83,7 @@ export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 		};
 		window.addEventListener('message', onMessage);
 		void loadCalendly().then((api) => {
-			if (!cancelled) api.initInlineWidget({url: CALENDLY_URL, parentElement: container, prefill: {name: userName}});
+			if (!cancelled) api.initInlineWidget({url: calendarUrl, parentElement: container, prefill: {name: userName}});
 		}).catch(() => { if (!cancelled) setFailed(true); });
 		return () => {
 			cancelled = true;
@@ -88,7 +91,7 @@ export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 			window.removeEventListener('message', onMessage);
 			container.replaceChildren();
 		};
-	}, [container, attempt, userName, saveBooking]);
+	}, [container, attempt, userName, saveBooking, calendarUrl]);
 
 	return (
 		<DialogPrimitive.Root open onOpenChange={(open) => { if (!open) closePreview?.(); }}>
@@ -110,18 +113,18 @@ export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 						<DialogPrimitive.Title className="text-2xl font-semibold tracking-tight">Let’s review your first 5 sales</DialogPrimitive.Title>
 						<DialogPrimitive.Description className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground" asChild>
 							<div>
-								<p>Nice work reaching five sales. Please book a feedback call with <strong className="font-semibold text-foreground">Chris George</strong>, your Client Success Manager.</p>
-								<p>You’ll review what is working, talk through any challenges, and share feedback about your experience with {getDialerBranding().appName}.</p>
+								<p>Nice work reaching five sales. Please book a feedback call with your Client Success Manager.</p>
+								<p>You’ll review what is working, talk through any challenges, and share feedback about your experience{branding.appName.trim() ? ` with ${branding.appName}` : ''}.</p>
 							</div>
 						</DialogPrimitive.Description>
-						<p className="mt-5 border-t pt-4 text-xs leading-5 text-muted-foreground">{saveState === 'idle' ? 'Choose a time and confirm your booking to continue using the dialer.' : 'Your meeting is booked. You do not need to book again.'}</p>
+						<p className="mt-5 border-t pt-4 text-xs leading-5 text-muted-foreground">{!calendarUrl ? 'Booking is currently unavailable. Please contact your account manager.' : saveState === 'idle' ? 'Choose a time and confirm your booking to continue using the dialer.' : 'Your meeting is booked. You do not need to book again.'}</p>
 					</div>
 					<div className="min-w-0 flex-1 bg-white">
 						{saveState !== 'idle' && <div role={saveState === 'error' ? 'alert' : 'status'} className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted p-4 text-sm text-foreground">
 							<span>{saveState === 'saving' ? 'Saving your booking confirmation…' : 'Your meeting is booked, but we could not save the confirmation. Please retry saving.'}</span>
 							{saveState === 'error' && <Button variant="outline" size="sm" onClick={() => void saveBooking()}><RefreshCw className="size-4" /> Retry saving</Button>}
 						</div>}
-						{saveState === 'idle' && (!loaded || failed) && <div role="status" className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted p-4 text-sm text-foreground">
+						{calendarUrl && saveState === 'idle' && (!loaded || failed) && <div role="status" className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted p-4 text-sm text-foreground">
 							<span>{failed ? 'The booking calendar is taking longer to load. Please retry.' : 'Loading your booking calendar…'}</span>
 							{failed && <Button variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}><RefreshCw className="size-4" /> Retry calendar</Button>}
 						</div>}
