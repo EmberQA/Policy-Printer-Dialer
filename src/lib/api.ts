@@ -1332,8 +1332,12 @@ export interface PurchasedLeadResponse {
 /** The slice the 30s pending poll returns — enough for the banner line. */
 export type PendingLeadSummary = Pick<
 	OutboundLead,
-	'id' | 'first_name' | 'last_name' | 'state' | 'coverage_type' | 'assigned_at'
->;
+	'id' | 'first_name' | 'last_name' | 'state' | 'assigned_at'
+> & {
+	coverage_type: LeadCoverageType | null;
+	/** Direct deliveries live in the CRM; purchased leads omit this marker. */
+	kind?: 'direct';
+};
 
 export interface LeadFundingStatus {
 	balance_cents: number;
@@ -1391,6 +1395,15 @@ export const acknowledgePurchasedLeads = (
 		'/policyPrinter/outboundLeads/acknowledge',
 		leadIds ? {lead_ids: leadIds} : {}
 	);
+
+/** Only the displayed CRM lead is acknowledged. Other CRM leads are a no-op. */
+export const acknowledgeDirectLeads = (
+	leadIds: string[]
+): Promise<{
+	statusCode: string;
+	statusMessage: string;
+	acknowledged?: number;
+}> => qsPost('/policyPrinter/directLeads/acknowledge', {lead_ids: leadIds});
 
 export interface CoachingStatus {
 	booking_complete: boolean;

@@ -89,7 +89,8 @@ export const leadShortLabel = (
 	const first = lead.first_name.trim();
 	const last = lead.last_name.trim();
 	const initial = last ? ` ${last[0].toUpperCase()}.` : '';
-	return `${first}${initial} (${stateLabel(lead.state, jurisdictions)})`.trim();
+	const state = lead.state.trim();
+	return `${first}${initial}${state ? ` (${stateLabel(state, jurisdictions)})` : ''}`.trim();
 };
 
 /** Received-at for the row: today → time only, else short date + time. */

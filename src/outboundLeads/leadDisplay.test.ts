@@ -51,6 +51,13 @@ describe('leadDisplay', () => {
 		expect(formatCoverageAmount(null)).toBe('—');
 	});
 
+	it('omits the state suffix when a direct lead has no state', () => {
+		expect(leadShortLabel({first_name: 'Jane', last_name: 'Doe', state: ''}))
+			.toBe('Jane D.');
+		expect(leadShortLabel({first_name: 'Jane', last_name: '', state: '  '}))
+			.toBe('Jane');
+	});
+
 	it('received-at collapses to a time on the same day', () => {
 		const now = new Date(2026, 8, 11, 15, 0, 0);
 		expect(

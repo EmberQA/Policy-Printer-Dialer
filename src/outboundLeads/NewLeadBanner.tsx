@@ -1,6 +1,6 @@
 /**
  * NewLeadBanner (ENG-234 Subplan 05) — a fixed, non-modal notice that a
- * purchased lead is waiting: "New lead: Jane D. (TX) — View". Never a dialog
+ * lead is waiting: "New lead: Jane D. (TX) — View". Never a dialog
  * (the agent may be mid-call). The notice stays visible for ten seconds on every tab, even after rows
  * acknowledge themselves. Funding warnings remain visible.
  */
@@ -79,7 +79,11 @@ export function NewLeadBanner() {
 						)}
 					</div>
 					<Link
-						to={OUTBOUND_LEADS_PATH}
+						to={
+							notice!.lead.kind === 'direct'
+								? `/crm?lead_id=${encodeURIComponent(notice!.lead.id)}`
+								: OUTBOUND_LEADS_PATH
+						}
 						onClick={dismiss}
 						className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					>

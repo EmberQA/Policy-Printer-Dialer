@@ -69,7 +69,30 @@ it.each(['/dial', '/outbound-leads'])(
 		const html = render(path);
 		expect(html).toContain('New lead:');
 		expect(html).toContain('Jane D.');
+		expect(html).toContain('href="/outbound-leads"');
+		expect(html).not.toContain('/crm?lead_id=');
 		expect(html).toContain('Dismiss new lead notification');
 		noticeState.notice = null;
 	}
 );
+
+it('opens a direct delivery in the CRM and omits a missing state', () => {
+	poll.funding = null;
+	noticeState.notice = {
+		lead: {
+			id: '11111111-1111-4111-8111-111111111111',
+			kind: 'direct',
+			coverage_type: null,
+			first_name: 'Jane',
+			last_name: 'Doe',
+			state: ''
+		},
+		count: 1
+	};
+	const html = render('/crm');
+	expect(html).toContain('href="/crm?lead_id=11111111-1111-4111-8111-111111111111"');
+	expect(html).toContain('Jane D.');
+	expect(html).not.toContain('()');
+	expect(html).not.toContain('href="/outbound-leads"');
+	noticeState.notice = null;
+});

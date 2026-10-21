@@ -5,7 +5,7 @@
  */
 
 import {useEffect, useMemo, useState} from 'react';
-import {useNavigate} from 'react-router-dom';
+import {useNavigate, useSearchParams} from 'react-router-dom';
 import {openQuoteComparison, openQuoteFromForm} from '@/quotes/quoteLink';
 import {QuoteButton} from '@/quotes/QuoteButton';
 import {
@@ -78,6 +78,11 @@ import {
 	type TldCsvRow
 } from './tldImport';
 import {isoDateToUs} from '@/lib/dates';
+import {
+	acknowledgeViewedCrmLead,
+	crmLeadIdFromSearch,
+	crmLeadSearch
+} from './crmLeadLink';
 
 const PAGE_SIZE = 25;
 
@@ -96,7 +101,10 @@ export default function Crm({
 	const [campaignId, setCampaignId] = useState('');
 	const [search, setSearch] = useState('');
 	const [applied, setApplied] = useState<ActivityFilters>({});
-	const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+	const [searchParams, setSearchParams] = useSearchParams();
+	const selectedLeadId = crmLeadIdFromSearch(searchParams);
+	const setSelectedLeadId = (leadId: string | null) =>
+		setSearchParams((current) => crmLeadSearch(current, leadId), {replace: true});
 	const [selectedImportedId, setSelectedImportedId] = useState<string | null>(
 		null
 	);
@@ -932,6 +940,19 @@ function LeadRecordDialog({
 			cancelled = true;
 		};
 	}, [leadId]);
+
+	useEffect(() => {
+		if (!leadId || detail?.lead?.id !== leadId) return;
+		let acknowledged = false;
+		const acknowledge = () => {
+			if (document.hidden || acknowledged) return;
+			acknowledged = true;
+			void acknowledgeViewedCrmLead(leadId, detail);
+		};
+		acknowledge();
+		document.addEventListener('visibilitychange', acknowledge);
+		return () => document.removeEventListener('visibilitychange', acknowledge);
+	}, [leadId, detail]);
 
 	useEffect(() => {
 		let cancelled = false;
