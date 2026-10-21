@@ -77,7 +77,11 @@ import {
 	type ImportedTldContact,
 	type TldCsvRow
 } from './tldImport';
-import {isoDateToUs} from '@/lib/dates';
+import {
+	formatLeadValue as formatValue,
+	leadResponseFields,
+	leadToText
+} from './crmLeadDisplay';
 import {
 	acknowledgeViewedCrmLead,
 	crmLeadIdFromSearch,
@@ -472,7 +476,9 @@ function ContactCard({
 					</Badge>
 				</div>
 				<div className="grid grid-cols-2 gap-3 text-xs">
-					<CrmField label="Campaign" value={contact.campaign_name || '—'} />
+					{contact.campaign_id && (
+						<CrmField label="Campaign" value={contact.campaign_name || '—'} />
+					)}
 					<CrmField
 						label="Disposition"
 						value={contact.disposition_label || '—'}
@@ -1103,7 +1109,9 @@ function LeadRecordDialog({
 							</DialogPrimitive.Title>
 							<DialogPrimitive.Description className="text-sm text-muted-foreground">
 								{editing
-									? 'Update the contact details, disposition, or form responses.'
+									? detail?.lead?.campaign_id
+										? 'Update the contact details, disposition, or form responses.'
+										: 'Update the contact name.'
 									: 'Select any value to copy it, or copy the whole record.'}
 							</DialogPrimitive.Description>
 						</div>
@@ -1265,7 +1273,7 @@ function LeadEditContent({
 							/>
 						</div>
 					)}
-					<div className="space-y-2">
+					{lead.campaign_id && <div className="space-y-2">
 						<Label>Disposition</Label>
 						<Select
 							value={dispositionKey}
@@ -1291,22 +1299,24 @@ function LeadEditContent({
 								))}
 							</SelectContent>
 						</Select>
-					</div>
+					</div>}
 					<CopyableField label="Phone" value={lead.caller_phone || '—'} />
-					<CopyableField
-						label="Campaign"
-						value={detail.campaign_name || '—'}
-					/>
+					{lead.campaign_id && (
+						<CopyableField label="Campaign" value={detail.campaign_name || '—'} />
+					)}
 				</div>
 				<p className="text-xs text-muted-foreground">
-					Phone and campaign come from the original call and cannot be changed
-					here.
+					{!lead.campaign_id && !detail.call
+						? 'Phone was supplied with this lead and cannot be changed here.'
+						: 'Phone and campaign come from the original call and cannot be changed here.'}
 				</p>
 			</section>
 
 			<section className="space-y-4 border-t pt-5">
 				<div className="space-y-1">
-					<h2 className="text-sm font-semibold">Form responses</h2>
+					<h2 className="text-sm font-semibold">
+						{lead.campaign_id ? 'Form responses' : 'Additional details'}
+					</h2>
 					{form && (
 						<p className="text-xs text-muted-foreground">
 							Editing with the campaign’s current published form.
@@ -1322,8 +1332,9 @@ function LeadEditContent({
 					/>
 				) : (
 					<p className="text-sm text-muted-foreground">
-						No published form is currently available. You can still update the
-						lead name or disposition.
+						{lead.campaign_id
+							? 'No published form is currently available. You can still update the lead name or disposition.'
+							: 'Additional details are read-only. You can update the contact name above.'}
 					</p>
 				)}
 				{bundleError && (
@@ -1375,7 +1386,7 @@ function LeadRecordContent({
 	dispositionError: string | null;
 }) {
 	const lead = detail.lead!;
-	const schema = lead.form_schema_snapshot ?? [];
+	const fields = leadResponseFields(lead);
 	const savedDispositionFallback = getSavedDispositionFallback(
 		lead.disposition_id,
 		lead.disposition_label,
@@ -1388,12 +1399,13 @@ function LeadRecordContent({
 				<div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
 					<CopyableField label="Name" value={lead.name || '—'} />
 					<CopyableField label="Phone" value={lead.caller_phone || '—'} />
-					<CopyableField label="Campaign" value={detail.campaign_name || '—'} />
-					<CopyableField
-						label="Saved disposition"
-						value={lead.disposition_label || '—'}
-					/>
-					<div className="space-y-2 rounded-md border bg-muted/20 p-3 sm:col-span-2">
+					{lead.campaign_id && (
+						<CopyableField label="Campaign" value={detail.campaign_name || '—'} />
+					)}
+					{(lead.campaign_id || lead.disposition_label) && (
+						<CopyableField label="Saved disposition" value={lead.disposition_label || '—'} />
+					)}
+					{lead.campaign_id && <div className="space-y-2 rounded-md border bg-muted/20 p-3 sm:col-span-2">
 						<Label>Change disposition</Label>
 						<div className="flex flex-col gap-2 sm:flex-row">
 							<Select
@@ -1447,7 +1459,7 @@ function LeadRecordContent({
 						{dispositionError && (
 							<p className="text-xs text-destructive">{dispositionError}</p>
 						)}
-					</div>
+					</div>}
 					<CopyableField label="Created" value={fmtDateTime(lead.created_at)} />
 					<CopyableField
 						label="Last updated"
@@ -1457,20 +1469,24 @@ function LeadRecordContent({
 			</section>
 
 			<section className="space-y-3 border-t pt-5">
-				<h2 className="text-sm font-semibold">Form responses</h2>
-				{schema.length > 0 ? (
+				<h2 className="text-sm font-semibold">
+					{lead.campaign_id ? 'Form responses' : 'Additional details'}
+				</h2>
+				{fields.length > 0 ? (
 					<div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-						{schema.map((field) => (
+						{fields.map((field) => (
 							<CopyableField
 								key={field.key}
-								label={field.label || field.key}
-								value={formatValue(lead.form_data?.[field.key])}
+								label={field.label}
+								value={field.value}
 							/>
 						))}
 					</div>
 				) : (
 					<p className="text-sm text-muted-foreground">
-						No form fields were captured.
+						{lead.campaign_id
+							? 'No form fields were captured.'
+							: 'No additional details were supplied.'}
 					</p>
 				)}
 			</section>
@@ -1526,33 +1542,6 @@ function fmtDateTime(iso: string | null | undefined): string {
 	if (!iso) return '—';
 	const date = new Date(iso);
 	return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
-}
-
-function formatValue(value: unknown): string {
-	if (value === null || value === undefined || value === '') return '—';
-	if (Array.isArray(value)) return value.join(', ');
-	if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-	if (typeof value === 'object') return JSON.stringify(value, null, 2);
-	return isoDateToUs(String(value));
-}
-
-function leadToText(detail: LeadDetailResponse | null): string {
-	if (!detail?.lead) return '';
-	const lead = detail.lead;
-	const lines = [
-		`Name: ${lead.name || '—'}`,
-		`Phone: ${lead.caller_phone || '—'}`,
-		`Campaign: ${detail.campaign_name || '—'}`,
-		`Disposition: ${lead.disposition_label || '—'}`,
-		`Created: ${fmtDateTime(lead.created_at)}`,
-		`Last updated: ${fmtDateTime(lead.updated_at)}`
-	];
-	for (const field of lead.form_schema_snapshot ?? []) {
-		lines.push(
-			`${field.label || field.key}: ${formatValue(lead.form_data?.[field.key])}`
-		);
-	}
-	return lines.join('\n');
 }
 
 function readError(err: any, fallback: string): string {

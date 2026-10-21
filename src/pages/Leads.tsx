@@ -64,7 +64,7 @@ import {
 	getActivityPeriodBounds,
 	type ActivitySummaryPeriod
 } from './activityPeriod';
-import {isoDateToUs} from '@/lib/dates';
+import {leadResponseFields, leadToText} from './crmLeadDisplay';
 
 const PAGE_SIZE = 25;
 const EMPTY_SUMMARY: ActivitySummary = {
@@ -729,8 +729,8 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 		};
 	}, [leadId]);
 
-	const schema = useMemo(
-		() => detail?.lead?.form_schema_snapshot ?? [],
+	const fields = useMemo(
+		() => detail?.lead ? leadResponseFields(detail.lead) : [],
 		[detail]
 	);
 	const copyText = useMemo(() => leadToText(detail), [detail]);
@@ -785,29 +785,33 @@ function LeadDetailPanel({leadId}: {leadId: string}) {
 				</div>
 			</div>
 
-			{schema.length > 0 ? (
+			{fields.length > 0 ? (
 				<div className="grid gap-3 sm:grid-cols-2">
-					{schema.map((field) => (
+					{fields.map((field) => (
 						<CopyableLeadField
 							key={field.key}
-							label={field.label || field.key}
-							value={formatValue(detail.lead!.form_data?.[field.key])}
+							label={field.label}
+							value={field.value}
 						/>
 					))}
 				</div>
 			) : (
 				<p className="text-sm text-muted-foreground">
-					No form captured for this lead.
+					{detail.lead.campaign_id
+						? 'No form captured for this lead.'
+						: 'No additional details were supplied.'}
 				</p>
 			)}
 
 			<div className="grid gap-5 border-t pt-4 md:grid-cols-2">
 				<div className="grid gap-2 text-sm">
-					<Row label="Campaign" value={detail.campaign_name || '—'} />
-					<Row
+					{detail.lead.campaign_id && (
+						<Row label="Campaign" value={detail.campaign_name || '—'} />
+					)}
+					{(detail.lead.campaign_id || detail.lead.disposition_label) && <Row
 						label="Disposition"
 						value={detail.lead.disposition_label || '—'}
-					/>
+					/>}
 					<Row label="Created" value={fmt(detail.lead.created_at)} />
 					<Row label="Phone" value={detail.lead.caller_phone || '—'} />
 				</div>
@@ -863,33 +867,6 @@ function fmt(iso: string | null | undefined): string {
 	if (!iso) return '—';
 	const d = new Date(iso);
 	return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
-}
-
-function formatValue(value: unknown): string {
-	if (value === null || value === undefined || value === '') return '—';
-	if (Array.isArray(value)) return value.join(', ');
-	if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-	if (typeof value === 'object') return JSON.stringify(value, null, 2);
-	return isoDateToUs(String(value));
-}
-
-function leadToText(detail: LeadDetailResponse | null): string {
-	if (!detail?.lead) return '';
-	const lead = detail.lead;
-	const lines = [
-		`Name: ${lead.name || '—'}`,
-		`Phone: ${lead.caller_phone || '—'}`,
-		`Campaign: ${detail.campaign_name || '—'}`,
-		`Disposition: ${lead.disposition_label || '—'}`,
-		`Created: ${fmt(lead.created_at)}`,
-		`Last updated: ${fmt(lead.updated_at)}`
-	];
-	for (const field of lead.form_schema_snapshot ?? []) {
-		lines.push(
-			`${field.label || field.key}: ${formatValue(lead.form_data?.[field.key])}`
-		);
-	}
-	return lines.join('\n');
 }
 
 function readError(err: any, fallback: string): string {
