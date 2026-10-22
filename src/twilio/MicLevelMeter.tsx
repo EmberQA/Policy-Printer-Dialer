@@ -1,3 +1,5 @@
+import {getUser} from '@/auth/session';
+import {isVerifiedDemoUser} from '@/demo/scope';
 import {useEffect, useState} from 'react';
 import {cn} from '@/lib/utils';
 
@@ -64,7 +66,7 @@ export function useMicLevelMeter({
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
-		if (!enabled) {
+		if (!enabled || isVerifiedDemoUser(getUser())) {
 			setSegments(0);
 			return;
 		}

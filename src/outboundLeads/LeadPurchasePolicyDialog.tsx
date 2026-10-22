@@ -1,3 +1,4 @@
+import {isVerifiedDemoUser} from '@/demo/scope';
 import {useEffect, useRef, useState} from 'react';
 import {FileText, Loader2, X} from 'lucide-react';
 import {Dialog as DialogPrimitive} from 'radix-ui';
@@ -36,6 +37,7 @@ export function LeadPurchasePolicyDialog({
 	const [ipAddress, setIpAddress] = useState<string | null>(null);
 	const [ipLoading, setIpLoading] = useState(true);
 	const user = getUser();
+	const isDemo = isVerifiedDemoUser(user);
 	const branding = useDialerBranding();
 	const policyPrinterCopy = !isPlainBranding() && branding.portalUrl === 'https://app.policyprinter.io';
 	const agentName = [user?.first_name, user?.last_name]
@@ -44,6 +46,11 @@ export function LeadPurchasePolicyDialog({
 		.trim();
 	useEffect(() => {
 		if (!open) return;
+		if (isDemo) {
+			setIpAddress('192.0.2.1');
+			setIpLoading(false);
+			return;
+		}
 		const controller = new AbortController();
 		let active = true;
 		const timeout = window.setTimeout(() => controller.abort(), 8000);
@@ -83,7 +90,7 @@ export function LeadPurchasePolicyDialog({
 			window.clearTimeout(timeout);
 			controller.abort();
 		};
-	}, [open]);
+	}, [open, isDemo]);
 	const [acknowledged, setAcknowledged] = useState(false);
 	const [sectionsRead, setSectionsRead] = useState([
 		false,

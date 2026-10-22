@@ -1,3 +1,4 @@
+import {isVerifiedDemoUser} from '@/demo/scope';
 import {getDialerBrandContent} from '@/brandContent';
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {
@@ -303,7 +304,7 @@ function AuthenticatedDialerApp({
 	const [dontShowTraining, setDontShowTraining] = useState(() =>
 		readTrainingPreference(trainingStorageKey)
 	);
-	const [trainingOpen, setTrainingOpen] = useState(() => !dontShowTraining);
+	const [trainingOpen, setTrainingOpen] = useState(() => !dontShowTraining && !isVerifiedDemoUser(getUser()));
 	const [speakerSetupOpen, setSpeakerSetupOpen] = useState(false);
 	const [hiddenCreditId, setHiddenCreditId] = useState<string | null>(null);
 	const [creditFlight, setCreditFlight] = useState<CreditFlight | null>(null);

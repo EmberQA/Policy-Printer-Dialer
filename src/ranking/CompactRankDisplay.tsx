@@ -1,3 +1,4 @@
+import {demoCopy, neutralDemo} from '@/demo/presentation';
 import {useDialerBranding} from '@/branding';
 import {RankBadge} from './RankBadge';
 import type {PolicyPrinterRankKey, RankingProgress} from './types';
@@ -66,7 +67,8 @@ export function CompactRankDisplay({
 	progress: RankingProgress;
 	onViewRankSystem: () => void;
 }) {
-	const {appName} = useDialerBranding();
+	const branding = useDialerBranding();
+	const appName = neutralDemo() ? 'Top Rank' : branding.appName;
 	const rank = {...progress.current_rank, title: progress.current_rank.key === 'policy_printer' ? appName : progress.current_rank.title};
 	const next = progress.next_rank ? {...progress.next_rank, title: progress.next_rank.key === 'policy_printer' ? appName : progress.next_rank.title} : null;
 	return (
@@ -75,11 +77,11 @@ export function CompactRankDisplay({
 				type="button"
 				onClick={onViewRankSystem}
 				className="flex size-full items-center gap-2.5 rounded-[10px] bg-transparent px-3 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2"
-				aria-label={`Current rank ${rank.title}. View rank system`}
+				aria-label={`Current rank ${demoCopy(rank.title)}. View rank system`}
 			>
 				<div className="relative flex size-[58px] shrink-0 items-center justify-center">
 					<div className="scale-125">
-						<RankBadge rankKey={rank.image_key} title={rank.title} size={58} />
+						<RankBadge rankKey={rank.image_key} title={demoCopy(rank.title)} size={58} />
 					</div>
 				</div>
 				<div className="w-[120px] min-w-0 shrink-0 self-stretch py-1 text-left">
@@ -97,22 +99,22 @@ export function CompactRankDisplay({
 							filter: 'drop-shadow(0 1px 0 rgba(255,255,255,.65))'
 						}}
 					>
-						{rank.title}
+						{demoCopy(rank.title)}
 					</p>
 				</div>
 				<div className="min-w-0 flex-1">
 					{next ? (
 						<div className="space-y-2">
 							<ProgressBar
-								label="Printer Points"
-								ariaLabel={`Printer Points progress to ${next.title}`}
+								label={demoCopy('Printer Points')}
+								ariaLabel={demoCopy(`Printer Points progress to ${next.title}`)}
 								value={progress.xp_progress_percent}
 								current={progress.xp}
 								required={next.xp_required}
 							/>
 							<ProgressBar
 								label="Sales"
-								ariaLabel={`AI sales progress to ${next.title}`}
+								ariaLabel={demoCopy(`AI sales progress to ${next.title}`)}
 								value={progress.sales_progress_percent}
 								current={progress.ai_sales}
 								required={next.sales_required}

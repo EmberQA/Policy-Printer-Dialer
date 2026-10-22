@@ -1,3 +1,5 @@
+import {getUser} from '@/auth/session';
+import {isVerifiedDemoUser} from '@/demo/scope';
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {CalendarDays, RefreshCw} from 'lucide-react';
 import {Dialog as DialogPrimitive} from 'radix-ui';
@@ -39,7 +41,20 @@ function loadCalendly(): Promise<CalendlyApi> {
 }
 
 /** Completion is the only dismissal path, except in the dev-only preview. */
-export function CoachingBookingDialog({userName, onBooked, onPreviewClose}: {
+export function CoachingBookingDialog(props: { userName: string; onBooked: () => void | Promise<void>; onPreviewClose?: () => void }) {
+	if (!isVerifiedDemoUser(getUser())) return <LiveCoachingBookingDialog {...props} />;
+	return <DialogPrimitive.Root open onOpenChange={open => { if (!open) props.onPreviewClose?.(); }}>
+		<DialogPrimitive.Portal>
+			<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60" />
+			<DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-popover p-6 shadow-xl">
+				<DialogPrimitive.Title className="text-xl font-semibold">Let’s review your first 5 sales</DialogPrimitive.Title>
+				<DialogPrimitive.Description className="my-4">Review what is working, talk through any challenges, and share feedback about your experience.</DialogPrimitive.Description>
+				<Button onClick={() => void props.onBooked()}>Confirm booking</Button>
+			</DialogPrimitive.Content>
+		</DialogPrimitive.Portal>
+	</DialogPrimitive.Root>;
+}
+function LiveCoachingBookingDialog({userName, onBooked, onPreviewClose}: {
 	userName: string;
 	onBooked: () => void | Promise<void>;
 	onPreviewClose?: () => void;

@@ -1,3 +1,4 @@
+import {isVerifiedDemoUser} from '@/demo/scope';
 import {useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {
 	ChevronDown,
@@ -111,7 +112,7 @@ export default function Dial() {
 	const userName = [user?.first_name, user?.last_name]
 		.filter(Boolean)
 		.join(' ');
-	const showDebugCall = userName === 'dialer-test user';
+	const showDebugCall = userName === 'dialer-test user' || isVerifiedDemoUser(getUser());
 	const presence = session.presence;
 	const setCampaigns = session.setCampaigns;
 	const setPresenceState = session.setPresence;
@@ -305,7 +306,7 @@ export default function Dial() {
 		debugIncomingCall && !device.activeCall && Boolean(debugCallSid);
 	const debugCall: ActiveCall | null = debugCallActive
 		? {
-				from: debugCallerNumber(debugCallSid!),
+				from: isVerifiedDemoUser(user) ? '+12025550101' : debugCallerNumber(debugCallSid!),
 				callSid: debugCallSid!,
 				campaignId: null,
 				retreaverUuid: null,
@@ -316,7 +317,10 @@ export default function Dial() {
 				direction: 'inbound'
 			}
 		: null;
-	const activeCall = device.activeCall ?? debugCall;
+	// Keep the demo snapshot stable so wrap-up's effect does not continually
+	// replace its own state while a synthetic call is active.
+	const stableDemoCall = useMemo(() => debugCall, [debugCallActive, debugCallSid, debugCallMuted, debugCallHeld, debugCallStartedAt]);
+	const activeCall = device.activeCall ?? (isVerifiedDemoUser(user) ? stableDemoCall : debugCall);
 	const workCall = activeCall ?? wrapUpCall;
 	// A real call takes over the script column: drop any open preview.
 	const hasWorkCall = Boolean(workCall);

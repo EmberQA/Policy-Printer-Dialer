@@ -1,0 +1,58 @@
+[
+	{
+		"id": "6482e3d8-21c5-4d7c-ad6d-9ce0320c46c3",
+		"slug": "final_expense_social",
+		"name": "$25 Final Expense (Social)",
+		"unit_price_cents": 2500,
+		"speed": 1,
+		"description": "Calls from people who responded to final expense ads on social media."
+	},
+	{
+		"id": "f29ee608-49c5-43fd-b2da-e40e98fd73d4",
+		"slug": "accelerated_final_expense_social",
+		"name": "$30 [Accelerated] Final Expense (Social)",
+		"unit_price_cents": 3000,
+		"speed": 4,
+		"description": "The same Social calls with lower wait times."
+	},
+	{
+		"id": "c6ce96a5-7828-437b-8aab-0a7c44300ac1",
+		"slug": "final_expense_ctv",
+		"name": "$55 Final Expense (CTV)",
+		"unit_price_cents": 5500,
+		"speed": 2,
+		"description": "Calls from people who responded to final expense ads they saw on TV."
+	},
+	{
+		"id": "00000000-0000-4000-8000-000000000401",
+		"slug": "medicare_ctv",
+		"name": "$30 Medicare (CTV)",
+		"unit_price_cents": 3000,
+		"speed": 1,
+		"description": "Calls from people who responded to Medicare ads they saw on TV."
+	},
+	{
+		"id": "00000000-0000-4000-8000-000000000402",
+		"slug": "spanish_final_expense_social",
+		"name": "$30 Spanish Final Expense (Social)",
+		"unit_price_cents": 3000,
+		"speed": 1,
+		"description": "Final expense coverage inquiries from Spanish-speaking callers."
+	},
+	{
+		"id": "00000000-0000-4000-8000-000000000403",
+		"slug": "final_expense_ctv_line_b",
+		"name": "$35 Final Expense (CTV) (Line B)",
+		"unit_price_cents": 3500,
+		"speed": 1,
+		"description": "Final expense calls from an additional TV source."
+	},
+	{
+		"id": "00000000-0000-4000-8000-000000000404",
+		"slug": "mortgage_protection",
+		"name": "$70 Mortgage Protection",
+		"unit_price_cents": 7000,
+		"speed": 1,
+		"description": "Mortgage protection inquiries. Most call volume arrives between 2 and 7 PM Eastern."
+	}
+]

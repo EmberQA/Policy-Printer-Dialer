@@ -1,3 +1,4 @@
+import {neutralDemo} from '@/demo/presentation';
 import {ExternalLink} from 'lucide-react';
 import {getDialerBranding, getPortalCallUrl} from '@/branding';
 import {buttonVariants} from '@/components/ui/button';
@@ -17,7 +18,7 @@ export function PortalCallLink({
 	className?: string;
 }) {
 	if (!scoreUuid) return null;
-	const label = `Open call in ${getDialerBranding().appName}`;
+	const label = neutralDemo() ? 'Open call in dashboard' : `Open call in ${getDialerBranding().appName}`;
 
 	return (
 		<a

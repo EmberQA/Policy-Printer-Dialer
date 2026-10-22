@@ -1,3 +1,4 @@
+import {demoCopy, neutralDemo} from '@/demo/presentation';
 import closer1 from '@/assets/ranking/badges/closer_1.png';
 import closer2 from '@/assets/ranking/badges/closer_2.png';
 import closer3 from '@/assets/ranking/badges/closer_3.png';
@@ -45,8 +46,8 @@ export function RankBadge({
 }) {
 	return (
 		<img
-			src={getRankBadgeSrc(rankKey)}
-			alt={`${title} rank badge`}
+			src={getRankBadgeSrc(neutralDemo() && rankKey === 'policy_printer' ? 'master_closer_3' : rankKey)}
+			alt={`${demoCopy(title)} rank badge`}
 			className={`shrink-0 object-contain ${className ?? ''}`}
 			style={{width: size, height: size}}
 		/>

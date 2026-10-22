@@ -1,3 +1,6 @@
+import {getUser} from '@/auth/session';
+import {isVerifiedDemoUser} from '@/demo/scope';
+import {store as demoStore} from '@/demo/store';
 /**
  * Axios layer for the EmberQA backend.
  *
@@ -43,6 +46,29 @@ export const api: AxiosInstance = axios.create({
 });
 
 api.interceptors.request.use((config) => {
+	if (isVerifiedDemoUser(getUser())) {
+		const path = (config.url ?? '').replace(/^\/qualityscore/, '');
+		const liveReads = new Set([
+			'/teams/branding/mine',
+			'/policyPrinter/dialer/hotStates',
+			'/policyPrinter/ranking/progress',
+			'/policyPrinter/dialer/crm/list',
+			'/policyPrinter/dialer/leads/list',
+			'/policyPrinter/dialer/lead/detail',
+			'/policyPrinter/dialer/activity/summary',
+			'/policyPrinter/outboundLeads/list',
+			'/policyPrinter/outboundLeads/lead/get'
+		]);
+		if (!liveReads.has(path)) config.adapter = async request => {
+			const body = typeof request.data === 'string' ? JSON.parse(request.data) : request.data ?? {};
+			const data = demoStore.request(path, body);
+			return {
+				data: {statusCode: 'SP100', statusMessage: 'Simulated demo action', data},
+				status: 200, statusText: 'OK', headers: {}, config: request
+			};
+		};
+	}
+
 	const access = getAccessToken();
 	const refresh = getRefreshToken();
 	if (access && refresh) {

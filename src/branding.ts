@@ -157,6 +157,7 @@ function getPortalOrigin(branding: DialerBranding): string {
 	// hostname is derived from the dialer's own origin so "Open Call in Portal"
 	// deep-links back into the correct branded dashboard.
 	if (!import.meta.env.PROD) {
+		if (import.meta.env.VITE_PORTAL_URL) return import.meta.env.VITE_PORTAL_URL;
 		if (typeof window === 'undefined') return 'http://localhost:3001';
 		const host = window.location.hostname.replace(/^dialer\./, 'app.');
 		return `http://${host}:3001`;
