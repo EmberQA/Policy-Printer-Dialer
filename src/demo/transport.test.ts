@@ -1,5 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {DEMO_AGENT, DEMO_ORG_ID, DEMO_OWNER} from './scope';
+import leadForm from './leadForm.json';
 const state = vi.hoisted(() => ({
 	user: null as null | {org_id: string; user_id: string}
 }));
@@ -25,6 +26,23 @@ beforeEach(() => {
 	state.user = {...DEMO_AGENT};
 });
 describe('verified demo transport isolation', () => {
+  it('uses the full production form schema while keeping demo saves off the network', async () => {
+    const {form} = await qsPost<any>('/policyPrinter/dialer/leadForm/get', {});
+    expect(form.org_id).toBe(DEMO_ORG_ID);
+    expect(form.id).toBe('recording-form');
+    expect(form.version).toBe(6);
+    expect(form.schema).toEqual(leadForm.schema);
+    expect(form.schema.map((field: any) => field.key)).toEqual([
+      'first_name', 'last_name', 'phone', 'address', 'address2', 'city', 'state',
+      'zip', 'email', 'dob', 'sob', 'weight', 'height', 'dl_number', 'notes', 'sex', 'tobacco'
+    ]);
+    await qsPost('/policyPrinter/dialer/lead/save', {
+      campaign_id: '6482e3d8-21c5-4d7c-ad6d-9ce0320c46c3',
+      caller_phone: '+12025550101',
+      form_data: {first_name: 'Test', last_name: 'Caller', state: 'FL', height: '5\'8"'}
+    });
+    expect(network).not.toHaveBeenCalled();
+  });
 	it('simulates purchases without calling the network adapter', async () => {
 		await qsPost('/policyPrinter/outboundLeads/order/create', {
 			daily_cap: 2,
@@ -71,10 +89,11 @@ describe('verified demo transport isolation', () => {
 			state.user = user;
 			for (const path of [
 				'/policyPrinter/dialer/token',
+				'/policyPrinter/dialer/leadForm/get',
 				'/policyPrinter/outboundLeads/order/create'
 			])
 				expect(await qsPost(path)).toMatchObject({live: true});
-			expect(network).toHaveBeenCalledTimes(2);
+			expect(network).toHaveBeenCalledTimes(3);
 		}
 	);
 	it('also prevents real carrier actions for the existing demo owner', async () => {

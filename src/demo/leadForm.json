@@ -1,0 +1,324 @@
+{
+  "name": "Default Form",
+  "version": 6,
+  "schema": [
+    {
+      "key": "first_name",
+      "type": "text",
+      "label": "First Name",
+      "active": true,
+      "required": false,
+      "sort_order": 0
+    },
+    {
+      "key": "last_name",
+      "type": "text",
+      "label": "Last Name",
+      "active": true,
+      "required": false,
+      "sort_order": 1
+    },
+    {
+      "key": "phone",
+      "type": "phone",
+      "label": "Phone",
+      "active": true,
+      "required": false,
+      "sort_order": 2
+    },
+    {
+      "key": "address",
+      "type": "text",
+      "label": "Address",
+      "active": true,
+      "required": false,
+      "sort_order": 3
+    },
+    {
+      "key": "address2",
+      "type": "text",
+      "label": "Address 2",
+      "active": true,
+      "required": false,
+      "sort_order": 4
+    },
+    {
+      "key": "city",
+      "type": "text",
+      "label": "City",
+      "active": true,
+      "required": false,
+      "sort_order": 5
+    },
+    {
+      "key": "state",
+      "type": "text",
+      "label": "State",
+      "active": true,
+      "required": false,
+      "sort_order": 6
+    },
+    {
+      "key": "zip",
+      "type": "text",
+      "label": "Zipcode",
+      "active": true,
+      "required": false,
+      "sort_order": 7
+    },
+    {
+      "key": "email",
+      "type": "email",
+      "label": "Email",
+      "active": true,
+      "required": false,
+      "sort_order": 8
+    },
+    {
+      "key": "dob",
+      "type": "date",
+      "label": "Date of Birth",
+      "active": true,
+      "required": false,
+      "sort_order": 9
+    },
+    {
+      "key": "sob",
+      "type": "text",
+      "label": "State of Birth",
+      "active": true,
+      "required": false,
+      "sort_order": 10
+    },
+    {
+      "key": "weight",
+      "type": "number",
+      "label": "Weight (lbs)",
+      "active": true,
+      "required": false,
+      "sort_order": 11
+    },
+    {
+      "key": "height",
+      "type": "select",
+      "label": "Height",
+      "active": true,
+      "options": [
+        {
+          "label": "4'0\"",
+          "value": "4'0\""
+        },
+        {
+          "label": "4'1\"",
+          "value": "4'1\""
+        },
+        {
+          "label": "4'2\"",
+          "value": "4'2\""
+        },
+        {
+          "label": "4'3\"",
+          "value": "4'3\""
+        },
+        {
+          "label": "4'4\"",
+          "value": "4'4\""
+        },
+        {
+          "label": "4'5\"",
+          "value": "4'5\""
+        },
+        {
+          "label": "4'6\"",
+          "value": "4'6\""
+        },
+        {
+          "label": "4'7\"",
+          "value": "4'7\""
+        },
+        {
+          "label": "4'8\"",
+          "value": "4'8\""
+        },
+        {
+          "label": "4'9\"",
+          "value": "4'9\""
+        },
+        {
+          "label": "4'10\"",
+          "value": "4'10\""
+        },
+        {
+          "label": "4'11\"",
+          "value": "4'11\""
+        },
+        {
+          "label": "5'0\"",
+          "value": "5'0\""
+        },
+        {
+          "label": "5'1\"",
+          "value": "5'1\""
+        },
+        {
+          "label": "5'2\"",
+          "value": "5'2\""
+        },
+        {
+          "label": "5'3\"",
+          "value": "5'3\""
+        },
+        {
+          "label": "5'4\"",
+          "value": "5'4\""
+        },
+        {
+          "label": "5'5\"",
+          "value": "5'5\""
+        },
+        {
+          "label": "5'6\"",
+          "value": "5'6\""
+        },
+        {
+          "label": "5'7\"",
+          "value": "5'7\""
+        },
+        {
+          "label": "5'8\"",
+          "value": "5'8\""
+        },
+        {
+          "label": "5'9\"",
+          "value": "5'9\""
+        },
+        {
+          "label": "5'10\"",
+          "value": "5'10\""
+        },
+        {
+          "label": "5'11\"",
+          "value": "5'11\""
+        },
+        {
+          "label": "6'0\"",
+          "value": "6'0\""
+        },
+        {
+          "label": "6'1\"",
+          "value": "6'1\""
+        },
+        {
+          "label": "6'2\"",
+          "value": "6'2\""
+        },
+        {
+          "label": "6'3\"",
+          "value": "6'3\""
+        },
+        {
+          "label": "6'4\"",
+          "value": "6'4\""
+        },
+        {
+          "label": "6'5\"",
+          "value": "6'5\""
+        },
+        {
+          "label": "6'6\"",
+          "value": "6'6\""
+        },
+        {
+          "label": "6'7\"",
+          "value": "6'7\""
+        },
+        {
+          "label": "6'8\"",
+          "value": "6'8\""
+        },
+        {
+          "label": "6'9\"",
+          "value": "6'9\""
+        },
+        {
+          "label": "6'10\"",
+          "value": "6'10\""
+        },
+        {
+          "label": "6'11\"",
+          "value": "6'11\""
+        },
+        {
+          "label": "7'0\"",
+          "value": "7'0\""
+        }
+      ],
+      "required": false,
+      "sort_order": 12
+    },
+    {
+      "key": "dl_number",
+      "type": "text",
+      "label": "Drivers License Number",
+      "active": true,
+      "required": false,
+      "sort_order": 13
+    },
+    {
+      "key": "notes",
+      "type": "textarea",
+      "label": "Notes",
+      "active": true,
+      "required": false,
+      "sort_order": 14
+    },
+    {
+      "key": "sex",
+      "type": "radio",
+      "label": "Sex",
+      "options": [
+        {
+          "label": "Male",
+          "value": "Male"
+        },
+        {
+          "label": "Female",
+          "value": "Female"
+        }
+      ],
+      "sort_order": 18
+    },
+    {
+      "key": "tobacco",
+      "type": "select",
+      "label": "Tobacco / nicotine",
+      "options": [
+        {
+          "label": "None",
+          "value": "None"
+        },
+        {
+          "label": "Cigarettes",
+          "value": "Cigarettes"
+        },
+        {
+          "label": "Cigars",
+          "value": "Cigars"
+        },
+        {
+          "label": "Chewing Tobacco",
+          "value": "Chewing Tobacco"
+        },
+        {
+          "label": "Vape",
+          "value": "Vape"
+        },
+        {
+          "label": "Nicotine Patch/Gum",
+          "value": "Nicotine Patch/Gum"
+        }
+      ],
+      "sort_order": 19
+    }
+  ]
+}

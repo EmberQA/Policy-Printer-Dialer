@@ -4,12 +4,9 @@ import {
 	assertDemoIdentity,
 	assertSyntheticPhone
 } from './scope';
-const fields = [
-	{key: 'first_name', label: 'First name', type: 'text', sort_order: 0},
-	{key: 'last_name', label: 'Last name', type: 'text', sort_order: 1},
-	{key: 'state', label: 'State', type: 'text', sort_order: 2},
-	{key: 'notes', label: 'Notes', type: 'textarea', sort_order: 3}
-];
+// Exact published production form v6, read-only snapshot from 2026-10-22.
+// Only the verified demo transport serves this schema; saves stay in memory.
+import leadForm from './leadForm.json';
 const now = () => new Date().toISOString();
 const jurisdictions = [
 	{code: 'us-fl', abbr: 'FL', name: 'Florida'},
@@ -53,10 +50,10 @@ export class DialerRecordingStore extends RecordingStore {
 				form: {
 					id: 'recording-form',
 					org_id: DEMO_ORG_ID,
-					version: 1,
-					name: 'Lead information',
+					version: leadForm.version,
+					name: leadForm.name,
 					status: 'published',
-					schema: fields
+					schema: structuredClone(leadForm.schema)
 				},
 				dispositions: ['Callback', 'Sold', 'Contacted', 'New'].map(
 					(label, i) => ({
