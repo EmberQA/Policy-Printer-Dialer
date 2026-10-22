@@ -7,9 +7,21 @@ import {QUOTE_COMPARISON_PATH} from './quotes/quoteLink';
 import './index.css';
 import {
 	applyDocumentBranding,
+	buildBrandingFromTeam,
 	getDialerBranding,
-	isPlainBranding
+	isPlainBranding,
+	setDynamicDialerBranding
 } from './branding';
+import {resolveBrandingByHostnamePublic} from '@/lib/api';
+
+// Authenticated branding is resolved by the session provider after handoff.
+// Do not race a public-host response against the authenticated session.
+if (window.location.pathname.replace(/\/+$/, '') === QUOTE_COMPARISON_PATH) {
+  void resolveBrandingByHostnamePublic(window.location.host).then((res) => {
+    setDynamicDialerBranding(res?.branding ? buildBrandingFromTeam(res.branding) : null);
+    applyDocumentBranding(isPlainBranding(), getDialerBranding());
+  });
+}
 
 applyDocumentBranding(isPlainBranding(), getDialerBranding());
 

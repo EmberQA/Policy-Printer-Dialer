@@ -1,105 +1,45 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
-import {
-	getDialerBranding,
-	getRankSystemUrl,
-	L2_INFINITE_INSURANCE_DIALER_BRAND,
-	L2_INFINITE_INSURANCE_DIALER_HOST,
-	POLICY_PRINTER_DIALER_BRAND
-} from './branding';
-
-const makeWindow = (
-	search: string,
-	initialBrand?: string,
-	hostname = 'dialer.policyprinter.io'
-) => {
-	const storage = new Map<string, string>();
-	if (initialBrand) storage.set('pp_dialer_brand', initialBrand);
-
-	return {
-		location: {hostname, search},
-		sessionStorage: {
-			getItem: (key: string) => storage.get(key) ?? null,
-			setItem: (key: string, value: string) => storage.set(key, value)
-		}
-	};
-};
-
-afterEach(() => {
-	vi.unstubAllGlobals();
+import {buildBrandingFromTeam, getDialerBranding, setDynamicDialerBranding} from './branding';
+import {getDialerBrandContent} from './brandContent';
+afterEach(() => {setDynamicDialerBranding(null); vi.unstubAllGlobals();});
+describe('resolved identities only', () => {
+  it.each([['emberqa.com','EmberQA'],['policyprinter.io','Policy Printer'],['policygrowth.link','Policy Growth']])('%s uses resolved copy', (url, name) => {
+    setDynamicDialerBranding(buildBrandingFromTeam({url,brand_name:name,brand_logo_url:null}));
+    expect(getDialerBranding().appName).toBe(name);
+    expect(getDialerBranding().logoUrl).toBe('');
+  });
+  it('unknown host and stale query cannot select PP', () => {
+    vi.stubGlobal('window', {location:{hostname:'dialer.policygrowth.link',search:'?dialer_brand=policy_printer'}});
+    expect(getDialerBranding().appName).toBe('');
+  });
+  it('clearing resolved identity removes stale copy', () => {
+    setDynamicDialerBranding(buildBrandingFromTeam({url:'policyprinter.io',brand_name:'Policy Printer',brand_logo_url:null}));
+    setDynamicDialerBranding(null);
+    expect(getDialerBranding().appName).toBe('');
+  });
+  it('external content belongs to its resolved brand', () => {
+    expect(getDialerBrandContent('https://app.policyprinter.io').coachingUrl).toContain('chrispolicyprinter');
+    for (const url of [null,'','https://app.emberqa.com','https://app.policygrowth.link','https://app.policyprinter.io.evil.test']) {
+      expect(getDialerBrandContent(url)).toEqual({coachingUrl:null,trainingVideoUrl:null});
+    }
+  });
 });
 
-describe('dialer branding', () => {
-	it('selects L2 directly from its custom hostname', () => {
-		vi.stubGlobal(
-			'window',
-			makeWindow('', undefined, L2_INFINITE_INSURANCE_DIALER_HOST)
-		);
+it('uses team content and honors explicit clears without PP fallbacks', () => {
+  expect(getDialerBrandContent('https://app.policygrowth.link', {coaching_url: 'https://calendly.com/growth/coaching', dialer_training_url: 'https://www.loom.com/embed/growth'})).toEqual({coachingUrl: 'https://calendly.com/growth/coaching', trainingVideoUrl: 'https://www.loom.com/embed/growth'});
+  expect(getDialerBrandContent('https://app.policyprinter.io', {coaching_url: null, dialer_training_url: null})).toEqual({coachingUrl: null, trainingVideoUrl: null});
+});
 
-		expect(getDialerBranding().key).toBe(
-			L2_INFINITE_INSURANCE_DIALER_BRAND
-		);
-	});
-
-	it('lets the L2 hostname outrank a stale Policy Printer query', () => {
-		vi.stubGlobal(
-			'window',
-			makeWindow(
-				`?dialer_brand=${POLICY_PRINTER_DIALER_BRAND}`,
-				undefined,
-				L2_INFINITE_INSURANCE_DIALER_HOST
-			)
-		);
-
-		expect(getDialerBranding().key).toBe(
-			L2_INFINITE_INSURANCE_DIALER_BRAND
-		);
-	});
-
-	it('selects and stores the L2 brand passed by the main dashboard', () => {
-		vi.stubGlobal(
-			'window',
-			makeWindow(`?dialer_brand=${L2_INFINITE_INSURANCE_DIALER_BRAND}`)
-		);
-
-		const branding = getDialerBranding();
-
-		expect(branding.key).toBe(L2_INFINITE_INSURANCE_DIALER_BRAND);
-		expect(branding.appName).toBe('L2 Infinite Insurance');
-		expect(branding.documentTitle).toBe('L2 Infinite Insurance Dialer');
-	});
-
-	it('retains the selected brand after router navigation removes the query', () => {
-		vi.stubGlobal(
-			'window',
-			makeWindow('', L2_INFINITE_INSURANCE_DIALER_BRAND)
-		);
-
-		expect(getDialerBranding().key).toBe(
-			L2_INFINITE_INSURANCE_DIALER_BRAND
-		);
-	});
-
-	it('lets a later Policy Printer launch reset a stale L2 tab brand', () => {
-		vi.stubGlobal(
-			'window',
-			makeWindow(
-				`?dialer_brand=${POLICY_PRINTER_DIALER_BRAND}`,
-				L2_INFINITE_INSURANCE_DIALER_BRAND
-			)
-		);
-
-		expect(getDialerBranding().key).toBe(POLICY_PRINTER_DIALER_BRAND);
-	});
-
-	it('falls back to Policy Printer for an unknown brand', () => {
-		vi.stubGlobal('window', makeWindow('?dialer_brand=unknown'));
-
-		expect(getDialerBranding().key).toBe(POLICY_PRINTER_DIALER_BRAND);
-	});
-
-	it('opens the local leaderboard with the rank explainer requested in dev', () => {
-		expect(getRankSystemUrl()).toBe(
-			'http://localhost:3001/dashboard/leaderboard?rank-system=1'
-		);
-	});
+it.each([['dialer.policyprinter.io','Policy Printer'],['dialer.emberqa.com','EmberQA']])('explicit base host %s needs no root team', (hostname, name) => {
+ vi.stubGlobal('window', {location:{hostname,search:''}});
+ expect(getDialerBranding().appName).toBe(name);
+});
+it('failed selected team stays blank even on a base host', async () => {
+ const {BLANK_BRANDING} = await import('./branding');
+ vi.stubGlobal('window', {location:{hostname:'dialer.policyprinter.io',search:''}});
+ setDynamicDialerBranding(BLANK_BRANDING);
+ expect(getDialerBranding().appName).toBe('');
+ setDynamicDialerBranding(buildBrandingFromTeam({url:'policygrowth.link',brand_name:'PolicyGrowth',brand_logo_url:null}));
+ expect(getDialerBranding().logoUrl).toBe('');
+ expect(getDialerBranding().appName).toBe('PolicyGrowth');
 });

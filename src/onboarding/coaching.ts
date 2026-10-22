@@ -1,6 +1,5 @@
 import type {CoachingStatus} from '@/lib/api';
 
-export const CALENDLY_URL = 'https://calendly.com/chrispolicyprinter/30min';
 
 export function coachingRequired(status: CoachingStatus | null): boolean {
 	return status?.booking_complete !== true && typeof status?.ai_sales === 'number' &&

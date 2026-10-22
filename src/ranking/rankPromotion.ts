@@ -20,7 +20,11 @@ export const POLICY_PRINTER_RANK_ORDER: PolicyPrinterRankKey[] = [
 	'policy_printer'
 ];
 
-const RANK_TITLES: Record<PolicyPrinterRankKey, string> = {
+// ENG-317: the top-tier title falls back to '' when the viewer
+// has no team-brand override. Pass a resolved brand name to swap it.
+const buildRankTitles = (
+	topTierName = ''
+): Record<PolicyPrinterRankKey, string> => ({
 	recruit_1: 'Recruit 1',
 	recruit_2: 'Recruit 2',
 	recruit_3: 'Recruit 3',
@@ -33,20 +37,31 @@ const RANK_TITLES: Record<PolicyPrinterRankKey, string> = {
 	master_closer_1: 'Master Closer 1',
 	master_closer_2: 'Master Closer 2',
 	master_closer_3: 'Master Closer 3',
-	policy_printer: 'Policy Printer'
-};
+	policy_printer: topTierName
+});
 
-export const rankIdentity = (rank: RankDefinition): RankIdentity => ({
+const DEFAULT_RANK_TITLES = buildRankTitles();
+
+export const rankIdentity = (
+	rank: RankDefinition,
+	topTierName?: string
+): RankIdentity => ({
 	key: rank.key,
-	title: rank.title,
+	title: rank.key === 'policy_printer' ? (topTierName ?? '') : rank.title,
 	image_key: rank.image_key
 });
 
-export const rankIdentityFromKey = (key: PolicyPrinterRankKey): RankIdentity => ({
-	key,
-	title: RANK_TITLES[key],
-	image_key: key
-});
+export const rankIdentityFromKey = (
+	key: PolicyPrinterRankKey,
+	topTierName?: string
+): RankIdentity => {
+	const titles = topTierName ? buildRankTitles(topTierName) : DEFAULT_RANK_TITLES;
+	return {
+		key,
+		title: titles[key],
+		image_key: key
+	};
+};
 
 export const isRankPromotion = (
 	previous: PolicyPrinterRankKey,

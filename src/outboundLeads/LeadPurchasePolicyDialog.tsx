@@ -3,6 +3,7 @@ import {FileText, Loader2, X} from 'lucide-react';
 import {Dialog as DialogPrimitive} from 'radix-ui';
 import {Button} from '@/components/ui/button';
 import {getUser} from '@/auth/session';
+import {isPlainBranding, useDialerBranding} from '@/branding';
 
 interface Props {
 	open: boolean;
@@ -35,6 +36,8 @@ export function LeadPurchasePolicyDialog({
 	const [ipAddress, setIpAddress] = useState<string | null>(null);
 	const [ipLoading, setIpLoading] = useState(true);
 	const user = getUser();
+	const branding = useDialerBranding();
+	const policyPrinterCopy = !isPlainBranding() && branding.portalUrl === 'https://app.policyprinter.io';
 	const agentName = [user?.first_name, user?.last_name]
 		.filter(Boolean)
 		.join(' ')
@@ -164,9 +167,9 @@ export function LeadPurchasePolicyDialog({
 						<article className="space-y-7 text-sm leading-7 text-muted-foreground [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-foreground [&_p+p]:mt-3">
 							<div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100">
 								<p>
-									Policy Printer is committed to providing Final Expense leads
-									at competitive, cost-efficient pricing. To maintain these
-									prices,{' '}
+									{policyPrinterCopy
+										? "Policy Printer is committed to providing Final Expense leads at competitive, cost-efficient pricing. To maintain these prices,"
+										: "Final Expense leads are provided at competitive, cost-efficient pricing. To maintain these prices,"}{' '}
 									<strong className="font-semibold">
 										all posted lead purchases are final and are not eligible for
 										refunds, credits, returns, or replacements.
@@ -174,15 +177,16 @@ export function LeadPurchasePolicyDialog({
 								</p>
 							</div>
 							<p>
-								By purchasing posted leads from Policy Printer, you acknowledge
-								and agree to the following:
+								{policyPrinterCopy
+										? "By purchasing posted leads from Policy Printer, you acknowledge and agree to the following:"
+										: "By purchasing posted leads, the following terms are acknowledged and agreed to:"}
 							</p>
 							<section>
 								<h3>No Returns or Replacements</h3>
 								<p>
-									Policy Printer does not offer returns, refunds, credits, or
-									replacements for posted leads, including, but not limited to,
-									leads that:
+									{policyPrinterCopy
+										? "Policy Printer does not offer returns, refunds, credits, or replacements for posted leads, including, but not limited to, leads that:"
+										: "Returns, refunds, credits, or replacements are not offered for posted leads, including, but not limited to, leads that:"}
 								</p>
 								<ul className="my-3 list-disc space-y-1 pl-5 marker:text-primary/60">
 									{exclusions.map((item) => (
@@ -192,11 +196,9 @@ export function LeadPurchasePolicyDialog({
 									))}
 								</ul>
 								<p>
-									Lead information reflects the information available to Policy
-									Printer at the time the lead is delivered. Policy Printer does
-									not guarantee that any individual lead will answer, respond,
-									qualify for coverage, attend an appointment, purchase
-									insurance, or result in a commission or sale.
+									{policyPrinterCopy
+										? "Lead information reflects the information available to Policy Printer at the time the lead is delivered. Policy Printer does not guarantee that any individual lead will answer, respond, qualify for coverage, attend an appointment, purchase insurance, or result in a commission or sale."
+										: "Lead information is provided as available at the time the lead is delivered. It is not guaranteed that any individual lead will answer, respond, qualify for coverage, attend an appointment, purchase insurance, or result in a commission or sale."}
 								</p>
 								{sectionAcknowledgment(
 									0,
@@ -245,11 +247,9 @@ export function LeadPurchasePolicyDialog({
 							<section className="border-t pt-5">
 								<h3>Final Sale Acknowledgment</h3>
 								<p>
-									By completing your purchase, you acknowledge that you
-									understand and accept that all posted lead sales are final and
-									that Policy Printer does not provide refunds, credits,
-									returns, or replacement leads based on lead performance,
-									contactability, qualification, or sales outcome.
+									{policyPrinterCopy
+										? "By completing your purchase, you acknowledge that you understand and accept that all posted lead sales are final and that Policy Printer does not provide refunds, credits, returns, or replacement leads based on lead performance, contactability, qualification, or sales outcome."
+										: "By completing your purchase, it is acknowledged, understood, and accepted that all posted lead sales are final and that refunds, credits, returns, or replacement leads are not provided based on lead performance, contactability, qualification, or sales outcome."}
 								</p>
 								{sectionAcknowledgment(
 									3,

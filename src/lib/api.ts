@@ -156,6 +156,63 @@ export interface DialerProfileResponse {
 export const fetchDialerProfile = (): Promise<DialerProfileResponse> =>
 	qsPost('/policyPrinter/dialer/profile');
 
+/* ------------------------------------------------------------------------- */
+/* ENG-317: team branding (dynamic brand overlay from the DB)                */
+/* ------------------------------------------------------------------------- */
+
+export interface DialerTeamBranding {
+	coaching_url?: string | null;
+	dialer_training_url?: string | null;
+	url: string;
+	brand_name: string;
+	brand_logo: string;
+	brand_logo_url: string | null;
+}
+
+export interface MyBrandingResponse {
+	statusCode: string;
+	statusMessage: string;
+	branding: DialerTeamBranding | null;
+	team_id: string | null;
+}
+
+/**
+ * The authenticated viewer's resolved team branding (nearest-branded-ancestor
+ * walk, server-side). Returns `branding: null` when no ancestor is branded.
+ */
+export const fetchMyBranding = (): Promise<MyBrandingResponse> =>
+	qsPost('/teams/branding/mine');
+
+/**
+ * ENG-317: pre-auth hostname → branding resolver. Hits the UNAUTHENTICATED
+ * `/public/v1/branding/resolveByHost` so the dialer can render the correct
+ * brand livery before (or without) the handoff code exchange. Mirror of the
+ * dashboard's `resolveBrandingByHostnamePublic` — same response envelope:
+ * `{ statusCode: 'SP100', data: { branding: {brand_name, brand_logo_url, url} | null } }`.
+ */
+export const resolveBrandingByHostnamePublic = async (
+	hostname: string,
+	throwOnError = false
+): Promise<{branding: DialerTeamBranding} | null> => {
+	try {
+		const res = await axios.get(
+			`${API_BASE}/public/v1/branding/resolveByHost`,
+			{params: {hostname}}
+		);
+		const body = res.data as {
+			statusCode?: string;
+			data?: {branding?: DialerTeamBranding | null};
+		};
+		if (body?.statusCode !== 'SP100') throw new Error('Brand resolution failed');
+		const branding = body.data?.branding ?? null;
+		if (!branding) return null;
+		return {branding};
+	} catch (error) {
+		if (throwOnError) throw error;
+		return null;
+	}
+};
+
 export const fetchRankingProgress = (): Promise<RankingProgressResponse> =>
 	qsPost('/policyPrinter/ranking/progress');
 
