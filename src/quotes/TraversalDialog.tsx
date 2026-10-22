@@ -37,6 +37,10 @@ export interface TraversalTarget {
 	previous?: ItkUnderwritingItem | null;
 }
 
+/** ITK returns numeric ages for insulin use, but records answers as strings. */
+export const questionOptions = (question: ItkTraversalResponse['question']): string[] =>
+	(question?.options ?? []).map(String);
+
 /**
  * A saved item's answer for a question, matched the way ITK records them
  * (live-checked 2026-10-09): by type, except a `last_action` question is
@@ -68,7 +72,7 @@ export const initialAnswer = (t: ItkTraversalResponse, previous?: ItkUnderwritin
 		return a1 || a2 ? [a1 ?? '', a2 ?? ''] : [];
 	}
 	// A choice only prefills if this run still offers it.
-	if (a1 && q.options && !q.options.includes(a1)) return [];
+	if (a1 && q.options && !questionOptions(q).includes(a1)) return [];
 	return a1 ? [a1] : [];
 };
 
@@ -209,7 +213,7 @@ export function TraversalDialog({
 		}
 	};
 
-	const options = q?.options ?? [];
+	const options = questionOptions(q);
 	const searchable = options.length > 8;
 	const visibleOptions = searchable
 		? options.filter((o) => o.toLowerCase().includes(optionFilter.trim().toLowerCase()))

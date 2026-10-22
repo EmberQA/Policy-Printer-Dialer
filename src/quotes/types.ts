@@ -87,7 +87,7 @@ export interface ItkTraversalQuestion {
 	input_type: ItkInputType;
 	type: string;
 	text: string;
-	options?: string[];
+	options?: (string | number)[];
 	currently_text?: string;
 	currently_checkbox?: boolean;
 	text2?: string;
