@@ -1,3 +1,4 @@
+import VideoPlayer from '@/components/VideoPlayer';
 import {X} from 'lucide-react';
 import {Dialog as DialogPrimitive} from 'radix-ui';
 import {Button} from '@/components/ui/button';
@@ -45,13 +46,8 @@ export function TrainingVideoDialog({
 					</div>
 
 					<div className="relative min-h-0 overflow-hidden rounded-lg border bg-black">
-						{videoSrc && <iframe
-							src={videoSrc}
-							title="Dialer training video"
-							frameBorder="0"
-							allowFullScreen
-							className="absolute inset-0 size-full"
-						/>}
+                        <VideoPlayer src={videoSrc} title="Dialer training video"
+                          className="absolute inset-0 size-full text-white" />
 					</div>
 
 					<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
