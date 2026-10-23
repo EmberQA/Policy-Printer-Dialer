@@ -39,6 +39,7 @@ import {TelnyxEchoTest} from './TelnyxEchoTest';
 import {TelnyxSupervision} from './TelnyxSupervision';
 import {TelnyxMicrophone, stopMicrophoneStream} from './TelnyxMicrophone';
 import {TelnyxSpeaker} from './TelnyxSpeaker';
+import {protectTerminalAudio, TelnyxPlaybackRecovery} from './telnyxPlayback';
 import {CallAudioDiagnostics} from './callAudioDiagnostics';
 import type {
 	IncomingLeg,
@@ -107,6 +108,8 @@ interface TelnyxCall {
 	sipCode?: string | number;
 	options: {
 		localStream?: MediaStream;
+		remoteStream?: MediaStream | null;
+		remoteElement?: HTMLMediaElement | string | null;
 		audio?: boolean;
 		receiveOnlyAudio?: boolean;
 		micId?: string;
@@ -139,6 +142,9 @@ export class TelnyxTransport implements VoiceTransport {
 	private client: InstanceType<typeof TelnyxRTC> | null = null;
 	private remoteAudio: HTMLAudioElement | null = null;
 	private legs = new Map<string, TelnyxLeg>();
+	/** Includes echo/supervision calls, which never enter the ordinary legs map. */
+	private playbackCalls = new Set<TelnyxCall>();
+	private playbackRecovery = new TelnyxPlaybackRecovery();
 	private holdController: TelnyxHoldController | null = null;
 	private incomingCb: ((leg: IncomingLeg) => void) | null = null;
 	private statusCb: ((s: TransportStatus, e?: string) => void) | null = null;
@@ -330,6 +336,12 @@ export class TelnyxTransport implements VoiceTransport {
 		if (payload?.type !== 'callUpdate' || !payload.call) return;
 
 		const call = payload.call;
+		// Must precede auxiliary routing and terminal listeners. SDK finalization runs
+		// immediately after its destroy notification, even for a rejected sibling.
+		protectTerminalAudio(call, this.remoteAudio, this.playbackCalls);
+		// Recovery can finalize the old SDK object without a destroy notification.
+		if (isTerminalState(call.state) || call.state === 'recovering') this.playbackCalls.delete(call);
+		else this.playbackCalls.add(call);
 		// The SDK answers recovered legs itself, after synchronously announcing this
 		// state. Give the replacement leg a clone before it can reacquire a default mic.
 		if (call.state === 'recovering' && !call.options.localStream) {
@@ -368,7 +380,8 @@ export class TelnyxTransport implements VoiceTransport {
 					leg.emit('error', error);
 					void call.hangup();
 				}
-			}, () => ({element: this.remoteAudio, selectedOutput: this.outputDeviceId}));
+			}, () => ({element: this.remoteAudio, selectedOutput: this.outputDeviceId}),
+				current => this.recoverPlayback(current));
 			this.legs.set(call.id, leg);
 			this.incomingCb?.(leg);
 			return;
@@ -477,6 +490,7 @@ export class TelnyxTransport implements VoiceTransport {
 		void this.stopHold().catch(() => undefined);
 		for (const leg of this.legs.values()) leg.dispose();
 		this.legs.clear();
+		this.playbackCalls.clear();
 		try {
 			void this.client?.disconnect();
 		} catch {
@@ -610,6 +624,17 @@ export class TelnyxTransport implements VoiceTransport {
 		return null;
 	}
 
+	private recoverPlayback(call: TelnyxCall): void {
+		const peer = call.peer?.instance;
+		const element = this.remoteAudio;
+		if (!peer || !element) return;
+		void this.playbackRecovery.recover(call, peer, element, () =>
+			!this.destroyed && !this.holdController && !this.consultation.busy &&
+			!this.echoTest.busy && !this.supervision.busy && !this.inputSwitches &&
+			this.activeCall() === call && this.legs.get(call.id)?.call === call &&
+			this.remoteAudio === element);
+	}
+
 	private ensureRemoteAudio(): HTMLAudioElement {
 		if (this.remoteAudio) return this.remoteAudio;
 		const element = document.createElement('audio');
@@ -658,7 +683,8 @@ class TelnyxLeg implements IncomingLeg {
 	private statsGeneration = 0;
 
 	constructor(public call: TelnyxCall, private readonly consultation: () => TelnyxConsultation | null, private readonly answer: () => void,
-		private readonly playback: () => {element: HTMLAudioElement | null; selectedOutput: string}) {
+		private readonly playback: () => {element: HTMLAudioElement | null; selectedOutput: string},
+		private readonly recoverPlayback: (call: TelnyxCall) => void) {
 		this.legId = call.id;
 		this.from = call.options?.remoteCallerNumber || null;
 		this.params = normalizeTelnyxHeaders(call.options?.customHeaders);
@@ -739,6 +765,9 @@ class TelnyxLeg implements IncomingLeg {
 		this.stopRtt();
 		const generation = this.statsGeneration;
 		this.rttTimer = window.setInterval(async () => {
+			// Attachment repair is independent of optional/possibly pending getStats.
+			// It never awaits play(), and cannot delay call-state or RTT handling.
+			this.recoverPlayback(this.call);
 			if (this.statsInFlight) return;
 			this.statsInFlight = true;
 			try {

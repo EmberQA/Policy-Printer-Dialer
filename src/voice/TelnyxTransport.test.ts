@@ -3,7 +3,7 @@ import {TelnyxTransport} from './TelnyxTransport';
 import type {IncomingLeg} from './VoiceTransport';
 import {createAudioPresence} from '../presence/audioPresence';
 
-const sdk = vi.hoisted(() => ({clients: [] as any[], consultationHost: null as any}));
+const sdk = vi.hoisted(() => ({clients: [] as any[], consultationHost: null as any, consultation: null as any}));
 vi.mock('@telnyx/webrtc', () => ({TelnyxRTC: class {
 	handlers = new Map<string, (event?: unknown) => void>();
 	micId = ''; speaker = ''; remoteElement = null;
@@ -17,8 +17,8 @@ vi.mock('@telnyx/webrtc', () => ({TelnyxRTC: class {
 }}));
 vi.mock('./TelnyxConsultation', () => ({TelnyxConsultation: class {
 	busy = false;
-	constructor(host: unknown) {sdk.consultationHost = host;}
-	onCall() {return false;}
+	constructor(host: unknown) {sdk.consultationHost = host; sdk.consultation = this;}
+	onCall = vi.fn(() => false);
 	destroy() {}
 }}));
 vi.mock('./holdMusic', () => ({HoldMusicProcessor: class {
@@ -26,17 +26,18 @@ vi.mock('./holdMusic', () => ({HoldMusicProcessor: class {
 	dispose() {}
 }}));
 class Track extends EventTarget {
-	kind = 'audio'; readyState = 'live'; enabled = true;
+	kind = 'audio'; readyState = 'live'; enabled = true; muted = false;
 	constructor(readonly deviceId: string) {super();}
 	getSettings() {return {deviceId: this.deviceId};}
 	stop = vi.fn(() => {this.readyState = 'ended';});
 }
 class Stream {
-	track: Track;
-	constructor(deviceId: string) {this.track = new Track(deviceId);}
-	getAudioTracks() {return [this.track];}
-	getTracks() {return [this.track];}
-	clone() {return new Stream(this.track.deviceId);}
+	private tracks: Track[];
+	constructor(source: string | Track[] = []) {this.tracks = typeof source === 'string' ? [new Track(source)] : source;}
+	get track() {return this.tracks[0];}
+	getAudioTracks() {return this.tracks;}
+	getTracks() {return this.tracks;}
+	clone() {return new Stream(this.tracks.map(track => new Track(track.deviceId)));}
 }
 const capture = vi.fn();
 let sources: Stream[];
@@ -49,7 +50,9 @@ beforeEach(() => {
 	vi.stubGlobal('navigator', {mediaDevices: {getUserMedia: capture}});
 	vi.stubGlobal('window', {setInterval, clearInterval, setTimeout, clearTimeout});
 	vi.stubGlobal('document', {body: {appendChild() {}}, createElement: () => ({
-		style: {}, setAttribute() {}, play: vi.fn(async () => {}), remove() {}, sinkId: '',
+		style: {}, setAttribute() {}, getAttribute: () => null, remove() {}, sinkId: '',
+		srcObject: null, currentSrc: '', currentTime: 0, paused: true, muted: false, volume: 1, readyState: 0,
+		play: vi.fn(async function(this: {paused: boolean}) {this.paused = false;}),
 		setSinkId: vi.fn(async function(this: {sinkId: string}, id: string) {this.sinkId = id;})
 	})});
 });
@@ -60,21 +63,32 @@ async function fixture(outputDeviceId = 'default') {
 	transport.onIncoming(leg => incoming.push(leg));
 	await transport.register('token');
 	const notify = (call: unknown) => sdk.clients.at(-1).handlers.get('telnyx.notification')({type: 'callUpdate', call});
-	const call = (id = 'call', headers: Array<{name: string; value: string}> = []) => {
+	const call = (id = 'call', headers: Array<{name: string; value: string}> = [], remoteElement = sdk.clients.at(-1).remoteElement) => {
+		const receivers: Array<{track: Track}> = [];
 		const sender = {track: null as Track | null, replaceTrack: vi.fn(async (track: Track) => {sender.track = track;})};
 		const c = {
-			id, state: 'ringing', options: {customHeaders: headers, localStream: undefined as Stream | undefined, micId: ''},
+			id, state: 'ringing', options: {customHeaders: headers, localStream: undefined as Stream | undefined, micId: '', remoteElement, remoteStream: null as Stream | null},
 			get localStream() {return c.options.localStream;},
+			get remoteStream() {return c.options.remoteStream;},
 			get isAudioMuted() {return c.options.localStream?.track.enabled === false;},
-			peer: {instance: {getSenders: () => [sender]}},
+			peer: {instance: {getSenders: () => [sender], getReceivers: () => receivers, connectionState: 'connected'}},
 			answer: vi.fn(() => {
 				if (!c.localStream) throw new Error('SDK would acquire its own microphone');
 				sender.track = c.localStream.track; c.state = 'active'; notify(c);
 			}),
-			hangup: vi.fn(async () => {c.state = 'hangup'; notify(c); c.localStream?.getTracks().forEach(track => track.stop());}),
+			hangup: vi.fn(async () => {c.state = 'hangup'; notify(c); c.destroy();}),
+			destroy: () => {
+				c.state = 'destroy'; notify(c);
+				// Match SDK 2.27.9: destroy is announced synchronously before conditional detach.
+				const element = c.options.remoteElement;
+				if (element && (!c.remoteStream || element.srcObject === c.remoteStream)) element.srcObject = null;
+				c.localStream?.getTracks().forEach(track => track.stop());
+				c.peer.instance.connectionState = 'closed';
+			},
 			muteAudio: vi.fn(() => {if (c.localStream) c.localStream.track.enabled = false;}),
 			unmuteAudio: vi.fn(() => {if (c.localStream) c.localStream.track.enabled = true;}),
-			deaf: vi.fn(), undeaf: vi.fn(), setAudioOutDevice: vi.fn(async () => true), sender
+			deaf: vi.fn(() => c.remoteStream?.getAudioTracks().forEach(track => {track.enabled = false;})),
+			undeaf: vi.fn(() => c.remoteStream?.getAudioTracks().forEach(track => {track.enabled = true;})), setAudioOutDevice: vi.fn(async () => true), sender, receivers
 		};
 		notify(c); return c;
 	};
@@ -359,6 +373,229 @@ describe('passive call audio diagnostics', () => {
 		resolve(new Map()); await vi.advanceTimersByTimeAsync(0);
 		expect(rtt).toHaveBeenCalledTimes(1);
 		expect(leg.endDiagnostics?.().audio?.samples).toEqual(diagnostics?.samples);
+		f.transport.destroy();
+	});
+});
+
+// These integration cases drive the public notification and RTT paths. They model
+// the SDK's detach timing so a guard in the wrong lifecycle phase cannot pass.
+describe('Telnyx remote playback lifecycle', () => {
+	type TestCall = ReturnType<Awaited<ReturnType<typeof fixture>>['call']>;
+	function attach(call: TestCall, label = 'caller') {
+		const stream = new Stream(label);
+		call.receivers.push({track: stream.track});
+		call.options.remoteStream = stream;
+		Object.assign(call.options.remoteElement, {srcObject: stream, paused: false, currentTime: 3, readyState: 4});
+		return stream;
+	}
+	function missingPlayback(call: TestCall, label = 'receiver') {
+		const track = new Track(label);
+		call.receivers.push({track});
+		Object.assign(call.options.remoteElement, {srcObject: null, paused: true, currentTime: 0, readyState: 0});
+		return track;
+	}
+	function expectLive(call: TestCall, f: Awaited<ReturnType<typeof fixture>>) {
+		expect(call.hangup).not.toHaveBeenCalled();
+		expect(call.sender.track?.readyState).toBe('live');
+		expect(sdk.clients[0].disconnect).not.toHaveBeenCalled();
+		expect(f.microphoneUnavailable).not.toHaveBeenCalled();
+		expect(f.speakerAvailability).not.toHaveBeenCalled();
+	}
+
+	it('rejecting a streamless sibling cannot detach a working primary call', async () => {
+		const f = await fixture(); const primary = f.call('primary'); f.incoming[0].accept();
+		const stream = attach(primary); const element = primary.options.remoteElement;
+		f.speakerAvailability.mockClear(); element.play.mockClear();
+		const sibling = f.call('rejected'); f.incoming[1].reject();
+		expect(sibling.hangup).toHaveBeenCalledOnce();
+		expect(sibling.state).toBe('destroy');
+		expect(element.srcObject).toBe(stream); expect(stream.track.readyState).toBe('live');
+		expect(element.play).not.toHaveBeenCalled();
+		expectLive(primary, f);
+		f.transport.destroy();
+	});
+
+	it('protects audio attached after sibling hangup but before delayed SDK destroy', async () => {
+		const f = await fixture(); const primary = f.call('primary'); f.incoming[0].accept();
+		const sibling = f.call('rejected');
+		sibling.hangup.mockImplementationOnce(async () => {sibling.state = 'hangup'; f.notify(sibling);});
+		f.incoming[1].reject();
+		const stream = attach(primary);
+		sibling.destroy();
+		expect(primary.options.remoteElement.srcObject).toBe(stream);
+		expect(primary.hangup).not.toHaveBeenCalled();
+		f.transport.destroy();
+	});
+
+	it.each(['echo', 'supervision'] as const)('protects a working %s stream when a stale tagged leg is refused', async mode => {
+		const f = await fixture();
+		const header = mode === 'echo' ? 'X-Echo-Test-Id' : 'X-Supervision-Session';
+		if (mode === 'echo') await f.transport.expectEchoTest('current', vi.fn());
+		else f.transport.expectSupervision({sessionId: 'current', role: 'monitor'});
+		const live = f.call('live-auxiliary', [{name: header, value: 'current'}]);
+		expect(live.answer).toHaveBeenCalledOnce();
+		const stream = attach(live);
+		const stale = f.call('stale-auxiliary', [{name: header, value: 'stale'}]);
+		expect(stale.hangup).toHaveBeenCalledOnce();
+		expect(live.options.remoteElement.srcObject).toBe(stream);
+		expect(live.hangup).not.toHaveBeenCalled();
+		expect(f.incoming).toHaveLength(0);
+		f.transport.destroy();
+	});
+
+	it('lets consultation teardown clear its own element without affecting primary playback', async () => {
+		const f = await fixture(); const primary = f.call('primary'); f.incoming[0].accept();
+		const primaryStream = attach(primary);
+		const separate = document.createElement('audio');
+		sdk.consultation.onCall.mockImplementation((call: TestCall) => call.id === 'consultation');
+		const added = f.call('consultation', [], separate);
+		added.state = 'active'; f.notify(added);
+		const addedStream = attach(added, 'added');
+		await added.hangup();
+		expect(separate.srcObject).toBeNull();
+		expect(added.options.remoteElement).toBe(separate);
+		expect(primary.options.remoteElement.srcObject).toBe(primaryStream);
+		expect(addedStream).not.toBe(primaryStream);
+		f.transport.destroy();
+	});
+
+	it('repairs a missing primary attachment even while the stats request is pending', async () => {
+		const f = await fixture(); const primary = f.call('primary'); const leg = f.incoming[0]; leg.accept();
+		const element = primary.options.remoteElement;
+		const getStats = vi.fn(() => new Promise<Map<string, unknown>>(() => {}));
+		Object.assign(primary.peer.instance, {getStats});
+		leg.onRtt(vi.fn());
+		await vi.advanceTimersByTimeAsync(1000); // No receiver yet; getStats stays pending.
+		const receiver = missingPlayback(primary);
+		f.speakerAvailability.mockClear(); element.play.mockClear();
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(getStats).toHaveBeenCalledOnce();
+		expect(element.srcObject).toBe(primary.remoteStream);
+		expect(primary.remoteStream?.getAudioTracks()).toEqual([receiver]);
+		expect(element.play).toHaveBeenCalledOnce();
+		expect(primary.sender.replaceTrack).not.toHaveBeenCalled();
+		expectLive(primary, f);
+		f.transport.destroy();
+	});
+
+	it('does not touch working playback, the sender, or availability during repeated polls', async () => {
+		const f = await fixture(); const primary = f.call('primary'); const leg = f.incoming[0]; leg.accept();
+		const stream = attach(primary); const element = primary.options.remoteElement;
+		f.speakerAvailability.mockClear(); element.play.mockClear();
+		leg.onRtt(vi.fn()); await vi.advanceTimersByTimeAsync(5000);
+		expect(element.srcObject).toBe(stream); expect(primary.remoteStream).toBe(stream);
+		expect(element.play).not.toHaveBeenCalled();
+		expect(primary.sender.replaceTrack).not.toHaveBeenCalled();
+		expectLive(primary, f);
+		f.transport.destroy();
+	});
+
+	it('skips recovery during Hold and resumes repair only after Hold has ended', async () => {
+		const f = await fixture(); const primary = f.call('primary'); const leg = f.incoming[0]; leg.accept();
+		const receiver = missingPlayback(primary); const element = primary.options.remoteElement;
+		await f.transport.startHold(); const music = primary.sender.track;
+		leg.onRtt(vi.fn()); await vi.advanceTimersByTimeAsync(2000);
+		expect(element.srcObject).toBeNull(); expect(primary.remoteStream).toBeNull();
+		expect(primary.sender.track).toBe(music);
+		await f.transport.stopHold(); await vi.advanceTimersByTimeAsync(1000);
+		expect(primary.remoteStream?.getAudioTracks()).toEqual([receiver]);
+		expect(primary.sender.track).toBe(primary.localStream?.track);
+		expect(primary.hangup).not.toHaveBeenCalled();
+		f.transport.destroy();
+	});
+
+	it('SDK Hold and resume control the receiver after attachment repair', async () => {
+		const f = await fixture(); const primary = f.call('primary'); const leg = f.incoming[0]; leg.accept();
+		const receiver = missingPlayback(primary);
+		leg.onRtt(vi.fn()); await vi.advanceTimersByTimeAsync(1000);
+		expect(primary.remoteStream?.getAudioTracks()).toEqual([receiver]);
+		const repaired = primary.remoteStream;
+		await f.transport.startHold();
+		expect(receiver.enabled).toBe(false);
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(receiver.enabled).toBe(false); expect(primary.remoteStream).toBe(repaired);
+		await f.transport.stopHold();
+		expect(receiver.enabled).toBe(true);
+		expect(primary.options.remoteElement.srcObject).toBe(repaired);
+		f.transport.destroy();
+	});
+
+	it('waits for an in-flight microphone switch before repairing playback', async () => {
+		const f = await fixture(); const primary = f.call('primary'); const leg = f.incoming[0]; leg.accept();
+		missingPlayback(primary);
+		let acquired!: (stream: Stream) => void;
+		capture.mockImplementationOnce(() => new Promise<Stream>(resolve => {acquired = resolve;}));
+		const switching = f.transport.setInputDevice('replacement');
+		leg.onRtt(vi.fn()); await vi.advanceTimersByTimeAsync(2000);
+		expect(primary.remoteStream).toBeNull();
+		acquired(new Stream('replacement')); await switching;
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(primary.remoteStream).not.toBeNull();
+		expect(primary.sender.track?.deviceId).toBe('replacement');
+		expect(primary.hangup).not.toHaveBeenCalled();
+		f.transport.destroy();
+	});
+
+	it('does not recover while consultation owns the audio workflow', async () => {
+		const f = await fixture(); const primary = f.call('primary'); const leg = f.incoming[0]; leg.accept();
+		missingPlayback(primary); sdk.consultation.busy = true;
+		leg.onRtt(vi.fn()); await vi.advanceTimersByTimeAsync(2000);
+		expect(primary.options.remoteElement.srcObject).toBeNull();
+		expect(primary.remoteStream).toBeNull();
+		sdk.consultation.busy = false; await vi.advanceTimersByTimeAsync(1000);
+		expect(primary.remoteStream).not.toBeNull();
+		f.transport.destroy();
+	});
+
+	it('does not recover a ringing sibling or change an auxiliary call on normal stats polls', async () => {
+		const f = await fixture(); const ringing = f.call('unanswered'); const leg = f.incoming[0];
+		missingPlayback(ringing);
+		leg.onRtt(vi.fn()); await vi.advanceTimersByTimeAsync(1000);
+		expect(ringing.remoteStream).toBeNull();
+		await ringing.hangup();
+		f.transport.expectSupervision({sessionId: 'session', role: 'monitor'});
+		const auxiliary = f.call('auxiliary', [{name: 'X-Supervision-Session', value: 'session'}]);
+		missingPlayback(auxiliary);
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(auxiliary.remoteStream).toBeNull();
+		expect(auxiliary.hangup).not.toHaveBeenCalled();
+		f.transport.destroy();
+	});
+
+	it('uses the replacement call peer and never attaches an obsolete receiver', async () => {
+		const f = await fixture(); const original = f.call('same-id'); const leg = f.incoming[0]; leg.accept();
+		const obsolete = missingPlayback(original, 'obsolete');
+		const fresh = new Track('fresh');
+		const recovered = {...original, state: 'active', options: {...original.options},
+			peer: {instance: {getSenders: () => [original.sender], getReceivers: () => [{track: fresh}], connectionState: 'connected'}}};
+		Object.defineProperty(recovered, 'remoteStream', {get: () => recovered.options.remoteStream});
+		f.notify(recovered);
+		leg.onRtt(vi.fn()); await vi.advanceTimersByTimeAsync(1000);
+		expect(recovered.options.remoteStream?.getAudioTracks()).toEqual([fresh]);
+		expect(recovered.options.remoteStream?.getAudioTracks()).not.toContain(obsolete);
+		expect(original.remoteStream).toBeNull();
+		f.transport.destroy();
+	});
+
+	it('never attaches an ended call after its stats callback was registered', async () => {
+		const f = await fixture(); const primary = f.call('ended'); const leg = f.incoming[0]; leg.accept();
+		missingPlayback(primary); leg.onRtt(vi.fn());
+		await primary.hangup(); await vi.advanceTimersByTimeAsync(2000);
+		expect(primary.options.remoteElement.srcObject).toBeNull();
+		expect(primary.remoteStream).toBeNull();
+		f.transport.destroy();
+	});
+
+	it('leaves the call running when playback rejects and does not report a device outage', async () => {
+		const f = await fixture(); const primary = f.call('primary'); const leg = f.incoming[0]; leg.accept();
+		missingPlayback(primary); const element = primary.options.remoteElement;
+		element.play.mockRejectedValueOnce(new Error('Autoplay rejected'));
+		f.speakerAvailability.mockClear(); f.error.mockClear();
+		leg.onRtt(vi.fn()); await vi.advanceTimersByTimeAsync(1000);
+		expect(primary.remoteStream).not.toBeNull();
+		expect(element.srcObject).toBe(primary.remoteStream);
+		expect(f.error).not.toHaveBeenCalled();
+		expectLive(primary, f);
 		f.transport.destroy();
 	});
 });
