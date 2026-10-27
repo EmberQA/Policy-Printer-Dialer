@@ -263,7 +263,8 @@ function AuthenticatedDialerApp({
 		completeAudioCheck,
 		speakerPauseState,
 		retrySpeakerPause,
-		supervisionAvailable
+		supervisionAvailable,
+		outboundLeadsAvailable
 	} = useDialerSession();
 	const liveEcho = useLiveEchoControls();
 	const [previewBooking, setPreviewBooking] = useState(false);
@@ -443,7 +444,9 @@ function AuthenticatedDialerApp({
 							<NavTab to="/crm" label="CRM" />
 							<NavTab to="/callbacks" label="Callbacks" />
 							<NavTab to="/leads" label="Activity" />
-							<NavTab to="/outbound-leads" label="Leads" />
+							{outboundLeadsAvailable && (
+								<NavTab to="/outbound-leads" label="Leads" />
+							)}
 							{supervisionAvailable && <NavTab to="/agents" label="Agents" />}
 							<QuoterTab />
 						</nav>
@@ -461,7 +464,7 @@ function AuthenticatedDialerApp({
 				/>
 			</header>
 			<ReadyUnavailableBanner />
-			<NewLeadBanner />
+			{outboundLeadsAvailable && <NewLeadBanner />}
 			<main className="px-4 py-6 sm:px-6">
 				<InboundCallAutoNav />
 				<DialerPageRoutes />
@@ -552,7 +555,7 @@ function readTrainingPreference(storageKey: string): boolean {
  * the inactive route unmounts normally and returns to the usual fresh-load flow.
  */
 function DialerPageRoutes() {
-	const {onCall, supervisionAvailable} = useDialerSession();
+	const {onCall, supervisionAvailable, outboundLeadsAvailable} = useDialerSession();
 	const location = useLocation();
 	// Use the router's matcher so URL variants it accepts (notably `/dial/`)
 	// mount the Calls UI too. NavLink already treated those variants as active,
@@ -570,7 +573,9 @@ function DialerPageRoutes() {
 					element={<Crm key="callbacks" callbacksOnly />}
 				/>
 				<Route path="/leads" element={<Leads />} />
-				<Route path="/outbound-leads" element={<OutboundLeads />} />
+				{outboundLeadsAvailable && (
+					<Route path="/outbound-leads" element={<OutboundLeads />} />
+				)}
 				{supervisionAvailable && <Route path="/agents" element={<Agents />} />}
 				<Route path="*" element={<Navigate to="/dial" replace />} />
 			</Routes>
