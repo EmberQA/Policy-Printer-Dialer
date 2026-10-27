@@ -1299,6 +1299,13 @@ export interface LeadOrderMutationResponse {
 	order?: LeadPurchaseOrder;
 }
 
+/** ENG-332: false for an agent on an agency-funded team (the pool lead turned
+ *  self purchase off). Outbound leads aren't part of agency funding. */
+export const fetchSelfPurchaseEnabled = async (): Promise<boolean> => {
+	const res = await qsPost<{self_purchase_enabled?: boolean}>('/policyPrinter/wallet/get');
+	return res.self_purchase_enabled !== false;
+};
+
 export const fetchLeadOrder = (): Promise<LeadOrderResponse> =>
 	qsPost('/policyPrinter/outboundLeads/order/get');
 

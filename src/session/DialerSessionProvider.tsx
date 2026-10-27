@@ -29,6 +29,7 @@ import {
 import {
 	fetchDialerProfile,
 	fetchMyBranding,
+	fetchSelfPurchaseEnabled,
 	resolveBrandingByHostnamePublic,
 	setPresence as postPresence,
 	type PresenceStatus,
@@ -118,6 +119,11 @@ export interface DialerSession {
 	/** Backend-decided: the agent has the quoter add-on. Quote entry points render
 	 *  disabled with an upsell when false; the backend gate is authoritative. */
 	quoterAccess: boolean;
+
+	// --- outbound leads (ENG-332) ---
+	/** Backend-decided: false for an agent on an agency-funded team, which hides
+	 *  the Leads tab. Defaults true until the wallet loads. */
+	outboundLeadsAvailable: boolean;
 }
 
 export const DialerSessionContext = createContext<DialerSession | null>(null);
@@ -399,6 +405,21 @@ function LiveDialerSessionProvider({children}: {children: ReactNode}) {
 		provisioned &&
 		Number(profile?.capabilities?.quoter_version ?? 0) >= 1 &&
 		profile?.quoter_access === true;
+	const [selfPurchaseEnabled, setSelfPurchaseEnabled] = useState(true);
+	useEffect(() => {
+		if (!provisioned) return;
+		let active = true;
+		// A wallet load failure keeps the tab; the backend still gates orders.
+		fetchSelfPurchaseEnabled()
+			.then((enabled) => {
+				if (active) setSelfPurchaseEnabled(enabled);
+			})
+			.catch(() => undefined);
+		return () => {
+			active = false;
+		};
+	}, [provisioned]);
+	const outboundLeadsAvailable = selfPurchaseEnabled;
 
 	const value = useMemo<DialerSession>(
 		() => ({
@@ -426,7 +447,8 @@ function LiveDialerSessionProvider({children}: {children: ReactNode}) {
 			canDialBase,
 			supervisionAvailable,
 			whisperNotice,
-			quoterAccess
+			quoterAccess,
+			outboundLeadsAvailable
 		}),
 		[
 			changePresence,
@@ -448,7 +470,8 @@ function LiveDialerSessionProvider({children}: {children: ReactNode}) {
 			canDialBase,
 			supervisionAvailable,
 			whisperNotice,
-			quoterAccess
+			quoterAccess,
+			outboundLeadsAvailable
 		]
 	);
 

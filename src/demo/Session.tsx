@@ -101,7 +101,8 @@ export function DemoSession({children}: {children: ReactNode}) {
 		},
 		whisperNotice: null,
 		quoterAccess: false,
-		supervisionAvailable: false
+		supervisionAvailable: false,
+		outboundLeadsAvailable: true
 	};
 	return (
 		<DialerSessionContext.Provider value={value as unknown as DialerSession}>
