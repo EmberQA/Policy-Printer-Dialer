@@ -17,7 +17,10 @@ export type CampaignAllowance =
 	| {state: 'available'; remaining: number; dailyCap: number | null};
 
 export function resolveCampaignAllowance(
-	campaign: Pick<DialerCampaign, 'calls_remaining' | 'daily_cap' | 'daily_remaining'>
+	campaign: Pick<
+		DialerCampaign,
+		'calls_remaining' | 'daily_cap' | 'daily_remaining'
+	>
 ): CampaignAllowance {
 	const hardRemaining = campaign.calls_remaining;
 	if (hardRemaining === undefined) return {state: 'loading'};
@@ -44,4 +47,36 @@ export function formatAllowanceCount(
 	return dailyCap === null
 		? remaining.toLocaleString()
 		: `${remaining.toLocaleString()} of ${dailyCap.toLocaleString()}`;
+}
+
+/** The menu only offers campaigns with a confirmed allowance available now. */
+export function campaignMenuAvailability(campaigns: DialerCampaign[]) {
+	const visible = campaigns.filter((campaign) => {
+		const allowance = resolveCampaignAllowance(campaign);
+		return (
+			allowance.state === 'available' &&
+			Number.isFinite(allowance.remaining) &&
+			allowance.remaining > 0
+		);
+	});
+	let emptyMessage =
+		'No calls remaining. Add calls from the portal to get started.';
+	if (campaigns.some((campaign) => campaign.calls_remaining === undefined)) {
+		emptyMessage = 'Loading your call balances…';
+	} else if (
+		campaigns.some(
+			(campaign) =>
+				campaign.calls_remaining === null &&
+				campaign.calls_remaining_status !== 'hard_cap_not_configured'
+		)
+	) {
+		emptyMessage =
+			'Call balances are unavailable. Please refresh to try again.';
+	} else if (
+		campaigns.some((campaign) => (campaign.calls_remaining ?? 0) > 0)
+	) {
+		emptyMessage =
+			'Your funded campaigns have reached their daily call limits. Check back when the limits reset.';
+	}
+	return {campaigns: visible, emptyMessage};
 }

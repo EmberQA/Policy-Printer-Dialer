@@ -43,6 +43,7 @@ import {
 } from '@/lib/api';
 import {
 	formatAllowanceCount,
+	campaignMenuAvailability,
 	resolveCampaignAllowance
 } from '@/lib/campaignAllowance';
 import {getReadyBalanceWarning} from '@/lib/readyBalanceWarning';
@@ -1215,7 +1216,8 @@ function CampaignMenu({
 	onToggleCampaign: (campaignId: string, ready: boolean) => void;
 	onPreviewScript: (campaign: DialerCampaign) => void;
 }) {
-	const readyCount = campaigns.filter((c) => c.ready).length;
+	const {campaigns: visibleCampaigns, emptyMessage} = campaignMenuAvailability(campaigns);
+	const readyCount = visibleCampaigns.filter((c) => c.ready).length;
 	// Controlled so opening a script preview closes the menu first.
 	const [open, setOpen] = useState(false);
 
@@ -1245,13 +1247,13 @@ function CampaignMenu({
 					</p>
 				</div>
 				<Separator className="my-2" />
-				{campaigns.length === 0 ? (
+				{visibleCampaigns.length === 0 ? (
 					<p className="px-1 py-3 text-sm leading-6 text-muted-foreground">
-						No campaigns are linked to you yet.
+						{emptyMessage}
 					</p>
 				) : (
 					<div className="space-y-1.5">
-						{campaigns.map((campaign) => (
+						{visibleCampaigns.map((campaign) => (
 							<div
 								key={campaign.id}
 								className="flex items-start justify-between gap-3 rounded-md px-2 py-2.5 hover:bg-muted/60"
