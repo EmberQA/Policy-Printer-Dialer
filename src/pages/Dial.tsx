@@ -1,6 +1,7 @@
 import {isVerifiedDemoUser} from '@/demo/scope';
 import {useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {
+	CalendarDays,
 	ChevronDown,
 	CircleAlert,
 	CircleCheck,
@@ -1270,9 +1271,7 @@ function CampaignMenu({
 									<div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
 										<CampaignSpeedIndicator speed={campaign.speed} />
 										<span aria-hidden="true">·</span>
-										<span className="tabular-nums text-foreground/75">
-											{formatCampaignRemainingCalls(campaign)}
-										</span>
+										<CampaignRemainingCalls campaign={campaign} />
 									</div>
 								</div>
 								{showsScriptDoc(campaign.name) && (
@@ -1319,6 +1318,28 @@ function CampaignMenu({
 				)}
 			</DropdownMenuContent>
 		</DropdownMenu>
+	);
+}
+
+function CampaignRemainingCalls({campaign}: {campaign: DialerCampaign}) {
+	const allowance = resolveCampaignAllowance(campaign);
+	if (allowance.state === 'available' && allowance.dailyCap !== null) {
+		return (
+			<span className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-200">
+				<CalendarDays aria-hidden="true" className="size-3.5 shrink-0" />
+				<span className="tabular-nums">
+					<span className="font-semibold">Daily cap:</span>{' '}
+					{formatAllowanceCount(allowance.remaining, allowance.dailyCap)}{' '}
+					remaining today
+				</span>
+			</span>
+		);
+	}
+
+	return (
+		<span className="tabular-nums text-foreground/75">
+			{formatCampaignRemainingCalls(campaign)}
+		</span>
 	);
 }
 
