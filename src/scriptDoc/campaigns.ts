@@ -5,6 +5,14 @@
  * purpose (the script is English-only).
  */
 export const SCRIPT_DOC_CAMPAIGNS: ReadonlySet<string> = new Set([
+	'$25 Final Expense (Social Tier 3)',
+	'$30 Final Expense (Social Tier 2)',
+	'$35 Final Expense (Social Tier 1)',
+	'$35 Final Expense (Blended Exclusive Tier 2)',
+	'$40 Final Expense (Blended Exclusive Tier 1)',
+	'$55 Final Expense (CTV Tier 3)',
+	'$60 Final Expense (CTV Tier 2)',
+	'$65 Final Expense (CTV Tier 1)',
 	'$25 Final Expense (Social)',
 	'$30 [Accelerated] Final Expense (Social)',
 	'$35 Final Expense (CTV) (Line B)',

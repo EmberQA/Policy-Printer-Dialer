@@ -1,6 +1,28 @@
 import {expect, it} from 'vitest';
 import {showsScriptDoc} from '@/scriptDoc/campaigns';
 
+it.each([
+	'$25 Final Expense (Social Tier 3)',
+	'$30 Final Expense (Social Tier 2)',
+	'$35 Final Expense (Social Tier 1)',
+	'$35 Final Expense (Blended Exclusive Tier 2)',
+	'$40 Final Expense (Blended Exclusive Tier 1)',
+	'$55 Final Expense (CTV Tier 3)',
+	'$60 Final Expense (CTV Tier 2)',
+	'$65 Final Expense (CTV Tier 1)'
+])('shows the script for the current tiered campaign %s', (name) => {
+	expect(showsScriptDoc(name)).toBe(true);
+	expect(showsScriptDoc(` ${name} `)).toBe(true);
+});
+
+it.each([
+	'$30 Spanish Final Expense (Social)',
+	'$30 Medicare (CTV)',
+	'$70 Mortgage Protection'
+])('keeps the English Final Expense script hidden for %s', (name) => {
+	expect(showsScriptDoc(name)).toBe(false);
+});
+
 it('shows the script only on whitelisted campaigns (ENG-298)', () => {
 	expect(showsScriptDoc('Final Expense (Social)')).toBe(true);
 	expect(showsScriptDoc('[Accelerated] Final Expense (Social)')).toBe(true);
