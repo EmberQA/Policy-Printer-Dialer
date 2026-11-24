@@ -919,6 +919,17 @@ export const getLeadFormBundle = (
 		twilio_call_sid: callSid ?? null
 	});
 
+/** Fetch edit options for an existing lead, including leads from retired campaigns. */
+export const getLeadEditBundle = (
+	leadId: string,
+	campaignId: string
+): Promise<LeadFormBundleResponse> =>
+	qsPost('/policyPrinter/dialer/leadForm/get', {
+		lead_id: leadId,
+		// Older backend instances still require the campaign during rollout.
+		campaign_id: campaignId
+	});
+
 /** Persist the selected outcome directly on a call without creating a lead. */
 export const saveCallDisposition = (payload: {
 	campaign_id: string;
@@ -1109,8 +1120,11 @@ export const listCrmContacts = (
 	});
 
 /** Full detail for one of the caller's leads (owning-agent only). */
-export const getLeadDetail = (leadId: string): Promise<LeadDetailResponse> =>
-	qsPost('/policyPrinter/dialer/lead/detail', {lead_id: leadId});
+export const getLeadDetail = (
+	leadId: string,
+	config?: Pick<AxiosRequestConfig, 'signal' | 'timeout'>
+): Promise<LeadDetailResponse> =>
+	qsPost('/policyPrinter/dialer/lead/detail', {lead_id: leadId}, config);
 
 /** The recording URL for one of the caller's leads (null = not available yet). */
 export const getLeadRecording = (leadId: string): Promise<RecordingResponse> =>

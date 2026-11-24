@@ -77,7 +77,9 @@ import {
 	readOutboundCallParameters,
 	shouldApplyOutboundReconciliation,
 	shouldIgnoreExplicitOutbound,
+	type CallbackContact,
 	type PendingOutboundCall,
+	type StartOutboundOptions,
 	type StartingOutboundCall
 } from './outboundCallState';
 import {InboundAnswerTone} from './inboundAnswerTone';
@@ -112,6 +114,7 @@ export interface ActiveCall {
 	/** 'inbound' (Retreaver-routed or a direct-dial callback) or 'outbound' (agent
 	 *  originated via the dialpad). Both arrive at the Device as an incoming leg. */
 	direction: 'inbound' | 'outbound';
+	callbackContact?: CallbackContact;
 }
 
 export interface UseDeviceState {
@@ -173,7 +176,7 @@ export interface UseDeviceState {
 	 *  Optional lead IDs let the backend track purchased or direct deliveries. */
 	startOutbound: (
 		toNumber: string,
-		options?: {outboundLeadId?: string | null; directLeadId?: string | null}
+		options?: StartOutboundOptions
 	) => Promise<void>;
 	/** Stop the exact pending parent leg. Safe against answer/callback races. */
 	cancelPendingOutbound: () => Promise<void>;
@@ -829,7 +832,8 @@ export function useDevice({
 					toNumber: currentStarting?.toNumber || 'Unknown number',
 					startedAt: currentStarting?.startedAt ?? Date.now(),
 					canceling: currentStarting?.canceling ?? false,
-					reconciling: false
+					reconciling: false,
+					callbackContact: currentStarting?.callbackContact
 				});
 				return null;
 			}
@@ -859,7 +863,9 @@ export function useDevice({
 						currentStarting?.startedAt ||
 						Date.now(),
 					canceling: currentPending?.canceling ?? false,
-					reconciling: false
+					reconciling: false,
+					callbackContact:
+						currentPending?.callbackContact ?? currentStarting?.callbackContact
 				};
 				updateOutboundStarting(null);
 				updatePendingOutbound(pending);
@@ -883,10 +889,15 @@ export function useDevice({
 	const startOutbound = useCallback(
 		async (
 			toNumber: string,
-			options?: {outboundLeadId?: string | null; directLeadId?: string | null}
+			options?: StartOutboundOptions
 		): Promise<void> => {
 			if (participantRef.current) throw new Error('End the added call before dialing another person.');
-			if (callRef.current && !options?.outboundLeadId && !options?.directLeadId) {
+			if (
+				callRef.current &&
+				!options?.outboundLeadId &&
+				!options?.directLeadId &&
+				!options?.callbackContact
+			) {
 				await addParticipant(toNumber);
 				return;
 			}
@@ -915,7 +926,8 @@ export function useDevice({
 				canceling: false,
 				reconciling: false,
 				outboundLeadId,
-				directLeadId
+				directLeadId,
+				callbackContact: options?.callbackContact
 			};
 			updateOutboundStarting(starting);
 			storeOutboundAttempt(starting);
@@ -949,7 +961,8 @@ export function useDevice({
 					toNumber,
 					startedAt: Date.now(),
 					canceling: currentAttempt.canceling,
-					reconciling: false
+				reconciling: false,
+				callbackContact: currentAttempt.callbackContact
 				});
 				updateOutboundStarting(null);
 			} catch (err) {
@@ -1506,8 +1519,13 @@ export function useDevice({
 				// customer bridge without timing heuristics.
 				const pending = pendingOutboundRef.current;
 				const starting = outboundStartingRef.current;
-				const isOutbound =
-					ownsOutboundInvite || matchesPendingOutbound(pending, outboundParams);
+				const matchesPending = matchesPendingOutbound(pending, outboundParams);
+				const isOutbound = ownsOutboundInvite || matchesPending;
+				const callbackContact = matchesPending
+					? pending?.callbackContact
+					: matchesStartingOutbound(starting, outboundParams)
+						? starting?.callbackContact
+						: undefined;
 				acceptedDirection = isOutbound ? 'outbound' : 'inbound';
 				if (isOutbound) {
 					clearOutboundAttempt();
@@ -1560,6 +1578,7 @@ export function useDevice({
 						'',
 					clientCallSid: call.legId || '',
 					campaignId: acceptedCampaignId,
+					callbackContact,
 					retreaverUuid: isOutbound
 						? null
 						: inviteRetreaverUuid,
@@ -1911,10 +1930,12 @@ function newOutboundAttemptId(): string {
 }
 
 function storeOutboundAttempt(attempt: StartingOutboundCall): void {
+	// Keep CRM names and imported form answers in memory for this tab's call.
+	const {callbackContact: _callbackContact, ...recoverableAttempt} = attempt;
 	try {
 		sessionStorage.setItem(
 			OUTBOUND_ATTEMPT_STORAGE_KEY,
-			JSON.stringify(attempt)
+			JSON.stringify(recoverableAttempt)
 		);
 	} catch {
 		/* recovery remains available for the current mount */

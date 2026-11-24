@@ -17,7 +17,8 @@ const normalizeFieldLabel = (label: string): string =>
 export const buildLeadEditFormData = (
 	currentSchema: FormField[],
 	savedSchema: FormField[] | null,
-	savedData: Record<string, unknown>
+	savedData: Record<string, unknown>,
+	contactName?: string | null
 ): Record<string, unknown> => {
 	const savedFieldByLabel = new Map(
 		(savedSchema ?? []).map((field) => [
@@ -35,6 +36,19 @@ export const buildLeadEditFormData = (
 		}
 		const value = raw === undefined ? undefined : coerceToField(field, raw);
 		if (value !== undefined) next[field.key] = value;
+	}
+
+	const name = contactName?.trim();
+	if (name) {
+		const activeKeys = new Set(
+			currentSchema.filter((field) => field.active !== false).map((field) => field.key)
+		);
+		if (activeKeys.has('name') && !next.name) next.name = name;
+		if (!next.first_name && !next.last_name) {
+			const [first, ...last] = name.split(/\s+/);
+			if (activeKeys.has('first_name')) next.first_name = first;
+			if (activeKeys.has('last_name') && last.length) next.last_name = last.join(' ');
+		}
 	}
 
 	return next;

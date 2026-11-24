@@ -37,8 +37,8 @@ import {
 	type ReturningCallerLead
 } from '@/lib/api';
 import {stateFormValueFromCode, stateFormValueFromPhone} from '@/lib/phone';
+import {buildLeadEditFormData, deriveLeadName} from '@/pages/crmLeadEdit';
 import {FormRenderer, type LeadFormData} from './FormRenderer';
-import {aliasedAnswer, coerceToField} from './coerceField';
 import {DispositionSelect} from './DispositionSelect';
 import {useLeadNotes} from './LeadNotesContext';
 import {useLeadFormBridge} from './LeadFormBridgeContext';
@@ -53,6 +53,7 @@ export function LeadForm({
 	onComplete,
 	showClear = true,
 	editLead = null,
+	prefill = null,
 	publishToScriptDoc = false
 }: {
 	campaignId: string;
@@ -68,6 +69,7 @@ export function LeadForm({
 	 * timestamps) instead of creating a new one. Null → normal blank New-Lead behavior.
 	 */
 	editLead?: ReturningCallerLead | null;
+	prefill?: Pick<ReturningCallerLead, 'name' | 'form_data' | 'form_schema_snapshot'> | null;
 	/**
 	 * Publish this form's schema + values to the call script doc (ENG-298) so its
 	 * linked blanks can show them. Only the Dial screen's live-call form sets this —
@@ -141,44 +143,22 @@ export function LeadForm({
 		nextForm: DialerForm | null,
 		retreaverCallerState: string | null
 	): LeadFormData => {
-		const priorAnswers = editLead?.form_data ?? {};
-		const priorFieldByLabel = new Map(
-			(editLead?.form_schema_snapshot ?? []).map((field) => [
-				normalizeFieldLabel(field.label),
-				field
-			])
-		);
-		// A returning caller is edited in the currently configured campaign form.
-		// Preserve prior answers where the field key still matches, otherwise match the
-		// human label (e.g. an old `phone_number` to a new `phone`). Fields that no
-		// longer exist are intentionally dropped rather than failing validation.
-		// Each answer is then coerced onto the field's current type (old free-text
-		// height → the height option) and dropped if it can't be.
-		const matchingPriorAnswers: LeadFormData = {};
-		for (const field of nextForm?.schema ?? []) {
-			let raw = aliasedAnswer(field, priorAnswers);
-			if (raw === undefined) {
-				const priorField = priorFieldByLabel.get(
-					normalizeFieldLabel(field.label)
-				);
-				if (priorField) raw = priorAnswers[priorField.key];
-			}
-			const value = raw === undefined ? undefined : coerceToField(field, raw);
-			if (value !== undefined) matchingPriorAnswers[field.key] = value;
-		}
+		const saved = prefill ?? editLead;
 		const schema = nextForm?.schema ?? [];
+		const initialData: LeadFormData = saved
+			? buildLeadEditFormData(schema, saved.form_schema_snapshot, saved.form_data, prefill?.name)
+			: {};
 		const phoneField = schema.find(
 			(f) => f.type === 'phone' || f.key === 'phone'
 		);
 		const stateField = schema.find((field) => field.key === 'state');
-		const initialData: LeadFormData = editLead ? {...matchingPriorAnswers} : {};
 		// Always-on call notes (a plain `notes` key when the form has none).
-		if (
-			editLead &&
-			typeof priorAnswers.notes === 'string' &&
-			initialData.notes === undefined
-		) {
-			initialData.notes = priorAnswers.notes;
+		const notesKey = prefill
+			? (schema.find((field) => field.key === 'notes' || field.key === 'note')?.key ?? 'notes')
+			: 'notes';
+		const savedNotes = saved?.form_data.notes ?? (prefill ? saved?.form_data.note : undefined);
+		if (typeof savedNotes === 'string' && initialData[notesKey] === undefined) {
+			initialData[notesKey] = savedNotes;
 		}
 
 		// The live caller number always wins for the current form's phone field.
@@ -260,7 +240,7 @@ export function LeadForm({
 			cancelled = true;
 		};
 		// Re-fetch + reset when the campaign, the call, or the edited lead changes.
-	}, [campaignId, callSid, callerPhone, editLead?.id]);
+	}, [campaignId, callSid, callerPhone, editLead?.id, prefill]);
 
 	const onField = (key: string, value: unknown) =>
 		setFormData((prev) => ({...prev, [key]: value}));
@@ -314,6 +294,7 @@ export function LeadForm({
 	};
 
 	const derivedName = (): string | null => {
+		if (prefill) return deriveLeadName(form?.schema ?? [], formData, prefill.name ?? '');
 		const fd = formData as Record<string, unknown>;
 		if (nameFieldKey && typeof fd[nameFieldKey] === 'string') {
 			return (fd[nameFieldKey] as string) || null;
@@ -628,12 +609,6 @@ export function LeadForm({
 function hasFormValue(value: unknown): boolean {
 	return value !== undefined && value !== null && value !== '';
 }
-
-const normalizeFieldLabel = (label: string): string =>
-	label
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '');
 
 function readError(err: any, fallback: string): string {
 	return err?.response?.data?.statusMessage || err?.message || fallback;

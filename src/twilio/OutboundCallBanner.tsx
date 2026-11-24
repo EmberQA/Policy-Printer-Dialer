@@ -17,6 +17,7 @@ export function OutboundCallBanner({
 }) {
 	const canceling = Boolean(pending?.canceling || starting?.canceling);
 	const reconciling = Boolean(pending?.reconciling || starting?.reconciling);
+	const contactName = (pending ?? starting)?.callbackContact?.name;
 
 	return (
 		<div className="flex flex-col gap-3 rounded-lg border bg-card px-4 py-3 shadow-xs sm:flex-row sm:items-center sm:justify-between">
@@ -37,6 +38,9 @@ export function OutboundCallBanner({
 							<span className="text-sm text-muted-foreground">Ringing…</span>
 						)}
 					</div>
+					{contactName && (
+						<div className="mt-1 truncate text-sm font-medium">{contactName}</div>
+					)}
 					<div className="mt-1 truncate font-mono text-sm">{toNumber}</div>
 				</div>
 			</div>

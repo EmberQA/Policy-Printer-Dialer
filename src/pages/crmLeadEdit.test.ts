@@ -86,4 +86,22 @@ describe('CRM lead editing', () => {
 		];
 		expect(deriveLeadName(schema, {}, 'Jordan Lee')).toBe('Jordan Lee');
 	});
+
+	it('prefills the selected contact name when the saved answers lack name fields', () => {
+		const schema = [
+			field('first_name', 'First name', 1),
+			field('last_name', 'Last name', 2),
+			field('email', 'Email', 3)
+		];
+		expect(
+			buildLeadEditFormData(schema, null, {email: 'jordan@example.com'}, 'Jordan Van Lee')
+		).toEqual({
+			first_name: 'Jordan',
+			last_name: 'Van Lee',
+			email: 'jordan@example.com'
+		});
+		expect(
+			buildLeadEditFormData(schema, null, {first_name: 'Jo', last_name: 'Lee'}, 'Jordan Van Lee')
+		).toEqual({first_name: 'Jo', last_name: 'Lee'});
+	});
 });

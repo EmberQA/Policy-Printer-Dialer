@@ -33,6 +33,7 @@ import {
 import {Separator} from '@/components/ui/separator';
 import {Switch} from '@/components/ui/switch';
 import {
+	getLeadDetail,
 	listCampaignRemainingCalls,
 	setCampaignReady,
 	setOnCall,
@@ -40,7 +41,8 @@ import {
 	type DialerCampaign,
 	type DialerPresence,
 	type HotStateCount,
-	type PresenceStatus
+	type PresenceStatus,
+	type ReturningCallerLead
 } from '@/lib/api';
 import {
 	formatAllowanceCount,
@@ -54,6 +56,7 @@ import {type ActiveCall} from '@/twilio/useDevice';
 import {ActiveCallBanner} from '@/twilio/ActiveCallBanner';
 import {CallParticipantBanner} from '@/twilio/CallParticipantBanner';
 import {OutboundCallBanner} from '@/twilio/OutboundCallBanner';
+import type {CallbackContact} from '@/twilio/outboundCallState';
 import {AudioSetupDialog} from '@/twilio/AudioSetupDialog';
 import {useLiveEchoControls} from '@/voice/useLiveEchoControls';
 import {MicLevelMeter, useMicLevelMeter} from '@/twilio/MicLevelMeter';
@@ -194,6 +197,7 @@ export default function Dial() {
 		[campaigns]
 	);
 	const anyArmed = armedCampaigns.length > 0;
+	const selectableLeadCampaigns = anyArmed ? armedCampaigns : campaigns;
 
 	// Preselect the sole armed campaign. With several campaigns armed, preserve the
 	// agent's manual choice while it remains valid. A campaign carried on an inbound
@@ -203,11 +207,11 @@ export default function Dial() {
 			setLeadCampaignId(armedCampaigns[0].id);
 		} else if (
 			leadCampaignId &&
-			!armedCampaigns.some((c) => c.id === leadCampaignId)
+			!selectableLeadCampaigns.some((c) => c.id === leadCampaignId)
 		) {
 			setLeadCampaignId('');
 		}
-	}, [armedCampaigns, leadCampaignId]);
+	}, [armedCampaigns, leadCampaignId, selectableLeadCampaigns]);
 
 	// Prefer the newest backend-computed availability: heartbeat responses and
 	// presence mutation responses both return the same computeReady result.
@@ -324,6 +328,54 @@ export default function Dial() {
 	const stableDemoCall = useMemo(() => debugCall, [debugCallActive, debugCallSid, debugCallMuted, debugCallHeld, debugCallStartedAt]);
 	const activeCall = device.activeCall ?? (isVerifiedDemoUser(user) ? stableDemoCall : debugCall);
 	const workCall = activeCall ?? wrapUpCall;
+	const callbackContact =
+		workCall?.callbackContact ??
+		(device.pendingOutbound ?? device.outboundStarting)?.callbackContact;
+	const [callbackLookup, setCallbackLookup] = useState<{
+		contact: CallbackContact;
+		lead: ReturningCallerLead | null;
+	} | null>(null);
+	const callbackLeadId = callbackContact?.leadId;
+	useEffect(() => {
+		if (!callbackContact || !callbackLeadId) return;
+		const controller = new AbortController();
+		getLeadDetail(callbackLeadId, {signal: controller.signal, timeout: 10_000})
+			.then((result) => {
+				if (controller.signal.aborted) return;
+				const lead =
+					result.statusCode === 'SP100' && result.lead?.id === callbackLeadId
+						? result.lead
+						: null;
+				setCallbackLookup({contact: callbackContact, lead});
+			})
+			.catch(() => {
+				if (!controller.signal.aborted) {
+					setCallbackLookup({contact: callbackContact, lead: null});
+				}
+			});
+		return () => controller.abort();
+	}, [callbackContact, callbackLeadId]);
+	const callbackResult =
+		callbackLookup?.contact === callbackContact ? callbackLookup : null;
+	const callbackLead = callbackResult?.lead ?? null;
+	const callbackLoading = Boolean(callbackLeadId && !callbackResult);
+	const callbackPrefill = useMemo(
+		() =>
+			callbackContact
+				? {
+						name: callbackLead?.name || callbackContact.name,
+						form_data:
+							callbackLead?.form_data ??
+							callbackContact.importedAnswers?.form_data ??
+							{},
+						form_schema_snapshot:
+							callbackLead?.form_schema_snapshot ??
+							callbackContact.importedAnswers?.form_schema_snapshot ??
+							null
+					}
+				: null,
+		[callbackContact, callbackLead]
+	);
 	// A real call takes over the script column: drop any open preview.
 	const hasWorkCall = Boolean(workCall);
 	useEffect(() => {
@@ -338,6 +390,15 @@ export default function Dial() {
 	let effectiveLeadCampaignId = leadCampaignId;
 	if (workCall?.direction === 'inbound' && attributedCampaign) {
 		effectiveLeadCampaignId = attributedCampaign.id;
+	}
+	const callbackCampaignId = callbackLead
+		? callbackLead.campaign_id
+		: workCall?.callbackContact?.campaignId;
+	if (
+		callbackCampaignId &&
+		campaigns.some((campaign) => campaign.id === callbackCampaignId)
+	) {
+		effectiveLeadCampaignId = callbackCampaignId;
 	}
 	const effectiveCampaign = effectiveLeadCampaignId
 		? campaigns.find((campaign) => campaign.id === effectiveLeadCampaignId)
@@ -370,14 +431,20 @@ export default function Dial() {
 	// Keep prior-history pull-up for agent-originated outbound calls only. Inbound
 	// calls always start a new lead: they do not run the returning-caller classifier,
 	// render its notice, or update an older lead in place.
+	const historyCall =
+		workCall?.direction === 'outbound' && !workCall.callbackContact
+			? workCall
+			: null;
 	const outboundHistory = useReturningCaller(
-		workCall?.direction === 'outbound' ? workCall.from : null,
-		workCall?.direction === 'outbound' ? workCall.callSid : null
+		historyCall?.from ?? null,
+		historyCall?.callSid ?? null
 	);
 	const editLead =
-		workCall?.direction === 'outbound' && outboundHistory.data?.is_direct_dial
-			? (outboundHistory.data.most_recent_lead?.lead ?? null)
-			: null;
+		workCall?.callbackContact
+			? (callbackLead?.campaign_id === effectiveLeadCampaignId ? callbackLead : null)
+			: historyCall && outboundHistory.data?.is_direct_dial
+				? (outboundHistory.data.most_recent_lead?.lead ?? null)
+				: null;
 	const wrapUpCompleted =
 		Boolean(wrapUpCallKey) && completedWrapUpCallKey === wrapUpCallKey;
 	const priorHistoryDismissed =
@@ -640,7 +707,7 @@ export default function Dial() {
 						<>
 							{/* Outbound-only prior-history strip. Inbound calls deliberately skip
                   the lookup and always use a fresh lead form. */}
-							{workCall?.direction === 'outbound' &&
+							{historyCall &&
 								!wrapUpCompleted &&
 								!priorHistoryDismissed && (
 									<ReturningCallerCard
@@ -754,7 +821,17 @@ export default function Dial() {
 
 							{/* Lead capture — held open after hangup until the call is dispositioned.
                   Inbound always creates a new lead; outbound may update prior history. */}
-							{workCall && effectiveLeadCampaignId && !wrapUpCompleted && (
+							{workCall && !wrapUpCompleted && callbackLoading && (
+								<p role="status" className="text-sm text-muted-foreground">
+									Loading saved customer details…
+								</p>
+							)}
+							{workCall && !wrapUpCompleted && callbackResult && !callbackLead && (
+								<p role="status" className="text-sm text-muted-foreground">
+									Saved customer details could not be loaded.
+								</p>
+							)}
+							{workCall && effectiveLeadCampaignId && !wrapUpCompleted && !callbackLoading && (
 								// Notes move to the script column while the script is hidden.
 								<section
 									aria-label="Lead notes and form"
@@ -774,12 +851,13 @@ export default function Dial() {
 											onComplete={onWrapUpComplete}
 											showClear={false}
 											editLead={editLead}
+											prefill={callbackPrefill}
 											publishToScriptDoc
 										/>
 									</div>
 								</section>
 							)}
-							{workCall && !effectiveLeadCampaignId && !wrapUpCompleted && (
+							{workCall && !effectiveLeadCampaignId && !wrapUpCompleted && !callbackLoading && (
 								<Card className="shadow-xs">
 									<CardHeader>
 										<CardTitle>Choose a campaign</CardTitle>
@@ -789,7 +867,7 @@ export default function Dial() {
 											Pick the campaign to log this lead under.
 										</p>
 										<div className="grid gap-2">
-											{(armedCampaigns.length ? armedCampaigns : campaigns).map(
+											{selectableLeadCampaigns.map(
 												(c) => (
 													<Button
 														key={c.id}

@@ -39,7 +39,7 @@ import {
 } from '@/components/ui/select';
 import {
 	getLeadDetail,
-	getLeadFormBundle,
+	getLeadEditBundle,
 	listCampaigns,
 	listCrmContacts,
 	updateLead,
@@ -218,13 +218,25 @@ export default function Crm({
 		setApplied({});
 	};
 
-	const onClickToDial = (contact: ActivityListItem) => {
+	const onClickToDial = (contact: ActivityListItem, imported?: ImportedTldContact) => {
 		const destination = contact.caller_phone
 			? normalizeDialInput(contact.caller_phone)
 			: null;
 		if (!destination || !canDialBase || dialingId) return;
 		setDialingId(contact.id);
-		const attempt = device.startOutbound(destination);
+		const attempt = device.startOutbound(destination, {
+			callbackContact: {
+				name: contact.name,
+				campaignId: contact.campaign_id,
+				leadId: imported ? null : contact.lead_id,
+				importedAnswers: imported
+					? {
+							form_data: contactFormData(imported),
+							form_schema_snapshot: TLD_FORM_SCHEMA
+						}
+					: undefined
+			}
+		});
 		navigate('/dial');
 		attempt
 			.catch((err) => setError(readError(err, 'Could not place the call')))
@@ -381,7 +393,7 @@ export default function Crm({
 									key={activity.id}
 									contact={activity}
 									importedFromTld
-									onCall={() => onClickToDial(activity)}
+									onCall={() => onClickToDial(activity, contact)}
 									canDial={
 										canDialBase &&
 										normalizeDialInput(activity.caller_phone ?? '') !== null
@@ -943,6 +955,7 @@ function LeadRecordDialog({
 	const [editing, setEditing] = useState(false);
 	const [editName, setEditName] = useState('');
 	const [editFormData, setEditFormData] = useState<LeadFormData>({});
+	const [editFormChanged, setEditFormChanged] = useState(false);
 	const [savingLead, setSavingLead] = useState(false);
 	const [editError, setEditError] = useState<string | null>(null);
 
@@ -1011,8 +1024,8 @@ function LeadRecordDialog({
 
 	useEffect(() => {
 		let cancelled = false;
-		const campaignId = detail?.lead?.campaign_id;
-		if (!campaignId) {
+		const lead = detail?.lead;
+		if (!lead?.campaign_id) {
 			setDispositions([]);
 			setCurrentForm(null);
 			setLoadingDispositions(false);
@@ -1023,7 +1036,7 @@ function LeadRecordDialog({
 		setCurrentForm(null);
 		setLoadingDispositions(true);
 		setDispositionError(null);
-		getLeadFormBundle(campaignId)
+		getLeadEditBundle(lead.id, lead.campaign_id)
 			.then((res) => {
 				if (cancelled) return;
 				if (res.statusCode !== 'SP100') {
@@ -1034,12 +1047,12 @@ function LeadRecordDialog({
 				}
 				setDispositions(res.dispositions ?? []);
 				setCurrentForm(res.form ?? null);
-				if (res.form && detail?.lead) {
+				if (res.form) {
 					setEditFormData(
 						buildLeadEditFormData(
 							res.form.schema,
-							detail.lead.form_schema_snapshot,
-							detail.lead.form_data
+							lead.form_schema_snapshot,
+							lead.form_data
 						)
 					);
 				}
@@ -1055,12 +1068,13 @@ function LeadRecordDialog({
 		return () => {
 			cancelled = true;
 		};
-	}, [detail?.lead?.campaign_id]);
+	}, [detail?.lead]);
 
 	const beginEditing = () => {
 		if (!detail?.lead) return;
 		setEditName(detail.lead.name ?? '');
 		setDispositionKey(detail.lead.disposition_id ?? '');
+		setEditFormChanged(false);
 		setEditFormData(
 			currentForm
 				? buildLeadEditFormData(
@@ -1088,18 +1102,19 @@ function LeadRecordDialog({
 		setSavingLead(true);
 		setEditError(null);
 		try {
-			const dispositionChanged = dispositionKey !== lead.disposition_id;
+			const dispositionChanged = dispositionKey !== (lead.disposition_id ?? '');
+			const editedForm = editFormChanged ? currentForm : null;
 			const res = await updateLead({
 				lead_id: lead.id,
 				name: deriveLeadName(
-					currentForm?.schema ?? [],
+					editedForm?.schema ?? [],
 					editFormData,
 					editName
 				),
 				...(dispositionChanged
 					? {disposition_id: dispositionKey || null}
 					: {}),
-				...(currentForm ? {form_data: editFormData} : {})
+				...(editedForm ? {form_data: editFormData} : {})
 			});
 			if (res.statusCode !== 'SP100') {
 				throw new Error(res.statusMessage || 'Failed to update lead');
@@ -1234,9 +1249,10 @@ function LeadRecordDialog({
 								detail={detail}
 								form={currentForm}
 								formData={editFormData}
-								onFormFieldChange={(key, value) =>
-									setEditFormData((current) => ({...current, [key]: value}))
-								}
+								onFormFieldChange={(key, value) => {
+									setEditFormChanged(true);
+									setEditFormData((current) => ({...current, [key]: value}));
+								}}
 								name={editName}
 								onNameChange={setEditName}
 								dispositions={dispositions}

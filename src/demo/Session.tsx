@@ -2,6 +2,7 @@ import {useContext, useMemo, useState, type ReactNode} from 'react';
 import {store} from './store';
 import {assertSyntheticPhone} from './scope';
 import type {ActiveCall} from '../twilio/useDevice';
+import type {StartOutboundOptions} from '../twilio/outboundCallState';
 import {
 	DialerSessionContext,
 	type DialerSession
@@ -32,7 +33,7 @@ export function DemoSession({children}: {children: ReactNode}) {
 			outputDeviceId: 'default',
 			networkChecking: false,
 			liveEchoAvailable: false,
-			startOutbound: async (to: string) => {
+			startOutbound: async (to: string, options?: StartOutboundOptions) => {
 				assertSyntheticPhone(to);
 				setCall({
 					from: to,
@@ -43,7 +44,8 @@ export function DemoSession({children}: {children: ReactNode}) {
 					holdPending: false,
 					retreaverUuid: null,
 					startedAt: Date.now(),
-					direction: 'inbound'
+					direction: options?.callbackContact ? 'outbound' : 'inbound',
+					callbackContact: options?.callbackContact
 				});
 			},
 			mute: (muted: boolean) => setCall((c) => (c ? {...c, muted} : c)),

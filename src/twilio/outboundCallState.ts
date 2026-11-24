@@ -1,3 +1,12 @@
+import type {ReturningCallerLead} from '@/lib/api';
+
+export interface CallbackContact {
+	name: string | null;
+	campaignId: string | null;
+	leadId?: string | null;
+	importedAnswers?: Pick<ReturningCallerLead, 'form_data' | 'form_schema_snapshot'>;
+}
+
 export interface PendingOutboundCall {
 	attemptId: string;
 	callSid: string;
@@ -5,6 +14,7 @@ export interface PendingOutboundCall {
 	startedAt: number;
 	canceling: boolean;
 	reconciling: boolean;
+	callbackContact?: CallbackContact;
 }
 
 export interface StartingOutboundCall {
@@ -18,6 +28,13 @@ export interface StartingOutboundCall {
 	outboundLeadId?: string | null;
 	/** The CRM record for a direct delivery, when this is not a purchased lead. */
 	directLeadId?: string | null;
+	callbackContact?: CallbackContact;
+}
+
+export interface StartOutboundOptions {
+	outboundLeadId?: string | null;
+	directLeadId?: string | null;
+	callbackContact?: CallbackContact;
 }
 
 export interface OutboundCallParameters {

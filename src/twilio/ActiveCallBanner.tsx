@@ -82,6 +82,9 @@ export function ActiveCallBanner({
 							{formatDuration(elapsed)}
 						</span>
 					</div>
+					{call.callbackContact?.name && (
+						<div className="mt-1 truncate text-sm font-medium">{call.callbackContact.name}</div>
+					)}
 					<div className="mt-1 truncate font-mono text-sm">{call.from}</div>
 					{whisperNotice && (
 						<div role="status" aria-live="polite" className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
