@@ -12,6 +12,7 @@ import {
 	Calculator,
 	Check,
 	Copy,
+	Download,
 	Loader2,
 	Pencil,
 	Phone,
@@ -56,6 +57,7 @@ import {getUser} from '@/auth/session';
 import {FormRenderer, type LeadFormData} from '@/leads/FormRenderer';
 import {PortalCallLink} from '@/leads/PortalCallLink';
 import {getSavedDispositionFallback} from './crmDisposition';
+import {buildCrmContactsCsv} from './crmExport';
 import {AddLeadDialog} from './AddLeadDialog';
 import {
 	buildLeadEditFormData,
@@ -102,6 +104,8 @@ export default function Crm({
 	const [totalPages, setTotalPages] = useState(1);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [exporting, setExporting] = useState(false);
+	const [exportError, setExportError] = useState<string | null>(null);
 	const [campaignId, setCampaignId] = useState('');
 	const [search, setSearch] = useState('');
 	const [applied, setApplied] = useState<ActivityFilters>({});
@@ -171,6 +175,28 @@ export default function Crm({
 		setApplied((current) => ({...current}));
 	};
 
+	const exportContacts = async () => {
+		setExporting(true);
+		setExportError(null);
+		try {
+			const csv = await buildCrmContactsCsv(importedContacts);
+			const blob = new Blob(['\uFEFF', csv], {type: 'text/csv;charset=utf-8'});
+			const url = URL.createObjectURL(blob);
+			try {
+				const link = document.createElement('a');
+				link.href = url;
+				link.download = 'policy-printer-contacts.csv';
+				link.click();
+			} finally {
+				setTimeout(() => URL.revokeObjectURL(url), 1000);
+			}
+		} catch (err) {
+			setExportError(`Export failed. ${readError(err, 'Please try again.')}`);
+		} finally {
+			setExporting(false);
+		}
+	};
+
 	const applyFilters = () => {
 		const query = search.trim();
 		const looksLikePhone = /\d/.test(query) && /^[\d\s()+.-]+$/.test(query);
@@ -238,6 +264,21 @@ export default function Crm({
 							Import TLD
 						</Button>
 					)}
+					{!callbacksOnly && (
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={exportContacts}
+							disabled={exporting}
+						>
+							{exporting ? (
+								<Loader2 className="size-4 animate-spin" />
+							) : (
+								<Download className="size-4" />
+							)}
+							{exporting ? 'Exporting contacts…' : 'Export all contacts'}
+						</Button>
+					)}
 					<Button
 						variant="outline"
 						size="sm"
@@ -303,6 +344,14 @@ export default function Crm({
 			{error && (
 				<div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
 					{error}
+				</div>
+			)}
+			{exportError && (
+				<div
+					role="alert"
+					className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+				>
+					{exportError}
 				</div>
 			)}
 
